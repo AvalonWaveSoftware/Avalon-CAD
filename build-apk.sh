@@ -5,6 +5,7 @@ SDK="${TRISTANCAD_SDK:-$PWD/tools/android-sdk}"
 BT="$SDK/build-tools/35.0.0"
 : "${AVALONCAD_KEYSTORE_PASS:?Set AVALONCAD_KEYSTORE_PASS to the signing keystore password}"
 PLATFORM="$SDK/platforms/android-35/android.jar"
+[ -f tools/signing.p12 ] || [ "${AVALON_ALLOW_NEW_KEY:-0}" = "1" ] || { echo "ERROR: tools/signing.p12 is missing. Restore the existing signing key before building." >&2; exit 1; }
 mkdir -p build/classes build/dex ../deliverables
 ./build-rust.sh
 npm run build:web
@@ -32,6 +33,13 @@ with zipfile.ZipFile('build/unsigned.apk') as z:
 PY
 "$BT/zipalign" -f -p 4 build/unsigned.apk build/aligned.apk
 if [ ! -f tools/signing.p12 ]; then
+ # Never mint a replacement key silently: an APK signed with a new key cannot
+ # install as an update over the existing app. Restore tools/signing.p12 from
+ # your private backup, or set AVALON_ALLOW_NEW_KEY=1 to deliberately create one.
+ if [ "${AVALON_ALLOW_NEW_KEY:-0}" != "1" ]; then
+  echo "ERROR: tools/signing.p12 is missing. Restore the existing signing key; refusing to generate a new one." >&2
+  exit 1
+ fi
  keytool -genkeypair -keystore tools/signing.p12 -storetype PKCS12 -alias tristancad -keyalg RSA -keysize 3072 -validity 10000 -storepass "$AVALONCAD_KEYSTORE_PASS" -keypass "$AVALONCAD_KEYSTORE_PASS" -dname 'CN=Tristan CAD, O=Personal Software, C=US' >/dev/null 2>&1
 fi
 "$BT/apksigner" sign --ks tools/signing.p12 --ks-pass env:AVALONCAD_KEYSTORE_PASS --out build/signed.apk build/aligned.apk

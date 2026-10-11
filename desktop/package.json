@@ -1,0 +1,67 @@
+{
+  "name": "avalon-cad",
+  "productName": "Avalon CAD",
+  "version": "2.4.0",
+  "description": "Offline CAD for dimensioned parts and high-resolution STL export",
+  "desktopName": "avalon-cad.desktop",
+  "homepage": "https://github.com/AvalonWaveSoftware/Avalon-CAD",
+  "author": {
+    "name": "Avalon Wave Software",
+    "email": "seanmm1997@gmail.com"
+  },
+  "license": "BSD-3-Clause",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist:rpm": "electron-builder --linux rpm --x64 --publish never"
+  },
+  "build": {
+    "appId": "com.tristan.cad",
+    "productName": "Avalon CAD",
+    "copyright": "Copyright (c) 2026 Avalon Wave Software",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/web",
+        "to": "web"
+      }
+    ],
+    "linux": {
+      "target": [
+        "rpm"
+      ],
+      "executableName": "avalon-cad",
+      "icon": "build/icons",
+      "category": "Graphics",
+      "synopsis": "Offline CAD and STL export",
+      "maintainer": "Sean Muilenburg <seanmm1997@gmail.com>",
+      "vendor": "Avalon Wave Software",
+      "desktop": {
+        "entry": {
+          "Name": "Avalon CAD",
+          "GenericName": "CAD Modeler",
+          "Keywords": "CAD;STL;3D;printing;",
+          "StartupWMClass": "avalon-cad"
+        }
+      }
+    },
+    "rpm": {
+      "packageName": "avalon-cad",
+      "fpm": [
+        "--rpm-rpmbuild-define=_build_id_links none"
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  }
+}

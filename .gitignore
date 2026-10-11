@@ -14,3 +14,13 @@ engine/rust/target/
 # Editor/OS cruft
 .DS_Store
 *.swp
+
+# Local build toolchains (installed per README)
+tools/android-sdk/
+tools/rust-toolchain/
+
+# Desktop (Electron) wrapper build outputs
+desktop/node_modules/
+desktop/build/
+desktop/dist/
+*.rpm

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Avalon CAD icon. Same artwork as app/res/drawable/icon.xml (Android vector drawable). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108">
+  <path fill="#10191f" d="M0,0H108V108H0Z"/>
+  <path stroke="#77e2d2" stroke-width="3" stroke-linejoin="round" fill="#203c3a" d="M54,20L83,37V71L54,88L25,71V37Z"/>
+  <path stroke="#77e2d2" stroke-width="3" fill="none" d="M25,37L54,54L83,37M54,54V88M40,29L69,46V79"/>
+</svg>
