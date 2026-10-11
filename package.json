@@ -20,7 +20,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "BSD-3-Clause",
   "type": "module",
   "dependencies": {
     "esbuild": "0.28.2",
