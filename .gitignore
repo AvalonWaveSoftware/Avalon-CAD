@@ -1,0 +1,16 @@
+# Android signing key - never commit (keep a private backup elsewhere)
+*.p12
+*.jks
+*.keystore
+
+# Build outputs
+build/
+deliverables/
+*.apk
+*.aab
+node_modules/
+engine/rust/target/
+
+# Editor/OS cruft
+.DS_Store
+*.swp

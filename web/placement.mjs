@@ -1,0 +1,2 @@
+export function startAtOrigin(o){o.positionReference='base';o.placement=[0,0,0];return o;}
+export function applyFloorAdjustments(project,result){for(const a of result.floorAdjustments||[]){const o=project.objects.find(o=>o.id===a.id);if(o&&o.position.every((v,i)=>Math.abs(v-a.sourcePosition[i])<1e-8)){const delta=a.position[2]-o.position[2];o.position=Array.from(a.position);if(o.placement)o.placement[2]+=delta;}}return project;}

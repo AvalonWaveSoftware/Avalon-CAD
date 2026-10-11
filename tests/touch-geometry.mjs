@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {initKernel,buildModel,makeObject,meshData,writeSTL,readSTL,validateProject} from '../web/kernel.mjs';
+import {object,blank} from '../web/templates.mjs';
+import {stretch,dimensions,worldCenter,withRoundover,alignCenters,alignFaceCenters,conjoined,connectingBridges,matrix} from '../web/operations.mjs';
+const K=await initKernel({solidOptions:{wasmBinary:fs.readFileSync('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}});
+function model(o,t=.01){const p=blank();p.objects=Array.isArray(o)?o:[o];validateProject(p);return buildModel(K,p,t,true);}
+function closed(v,t){const edges=new Map(),key=i=>v.slice(i*3,i*3+3).join(',');for(let i=0;i<t.length;i+=3)for(let j=0;j<3;j++){const a=key(t[i+j]),b=key(t[i+(j+1)%3]);const k=[a,b].sort().join('|'),e=edges.get(k)||[0,0];e[0]++;e[1]+=a<b?1:-1;edges.set(k,e);}for(const e of edges.values()){assert.equal(e[0],2,'closed edge');assert.equal(e[1],0,'consistent winding');}}
+function components(objects){const p=blank();p.objects=objects;const m=buildModel(K,p,.03),s=new K.Manifold(new K.Mesh({numProp:3,vertProperties:m.vertices,triVerts:m.triangles}));const c=s.decompose();const n=c.length;c.forEach(x=>x.delete());s.delete();return n;}
+let checks=0;
+const box=object('box',{w:40,d:30,h:10},[10,20,5]);let m=model(box),top=m.parts[0].topology;assert.equal(top.faces.length,6);assert.equal(top.edges.length,12);
+for(let a=0;a<3;a++)for(const sign of [-1,1]){const oldMin=m.bounds.min[a],oldMax=m.bounds.max[a],next=stretch(box,a,sign,6),b=model(next).bounds;assert.equal(dimensions(next)[a],dimensions(box)[a]+6);assert.ok(Math.abs((sign>0?b.min[a]:b.max[a])-(sign>0?oldMin:oldMax))<1e-6);checks++;}
+const rotated=structuredClone(box);rotated.rotation=[0,0,90];const r=model(stretch(rotated,0,1,10));assert.equal(r.bounds.max[1]-r.bounds.min[1],50);checks++;
+for(const indices of [[0],top.faces.find(f=>f.normal[2]>.9).edges,top.edges.map(e=>e.index)]){
+ const rounded=withRoundover(box,indices,1);m=model(rounded,.03);assert.ok(m.volume<12000&&m.volume>11000);closed(m.vertices,m.triangles);const stl=readSTL(writeSTL(m.vertices,m.triangles));closed(new Float32Array(stl.vertices),new Uint32Array(stl.triangles));checks++;
+}
+const overwritten=withRoundover(withRoundover(box,[0,1],1),[0],2);assert.equal(overwritten.fillets.find(f=>f.edges.includes(0)).radius,2);assert.equal(overwritten.fillets.find(f=>f.edges.includes(1)).radius,1);assert.equal(withRoundover(overwritten,[0],0).fillets.flatMap(f=>f.edges).includes(0),false);checks++;
+assert.throws(()=>model(withRoundover(box,top.edges.map(e=>e.index),20)),/roundover|conflict/);checks++;
+for(const type of ['cylinder','tube','rounded','polygon','cone']){const params={cylinder:{diameter:20,h:20},tube:{diameter:25,inner:18,h:20},rounded:{w:40,d:30,h:10,r:3},polygon:{h:10,points:[[0,0],[20,0],[20,20],[0,20]]},cone:{diameter:20,top:5,h:20}}[type];const obj=object(type,params),base=model(obj,.0001),face=base.parts[0].topology.faces.find(f=>f.kind==='PLANE'&&f.normal[2]>.9);m=model(withRoundover(obj,face.edges,.8),.03);assert.ok(m.volume>0&&m.volume<base.volume, type+': roundover volume '+m.volume+' baseline '+base.volume);closed(m.vertices,m.triangles);checks++;}
+const poly=object('polygon',{h:10,points:[[0,0],[30,0],[30,20],[0,20]]},[0,0,5]);assert.deepEqual(worldCenter(poly),[15,10,5]);const aligned=alignCenters(poly,box);assert.deepEqual(worldCenter(aligned),worldCenter(box));checks++;
+const small=object('box',{w:10,d:10,h:10},[90,0,5]),attached=alignFaceCenters(small,2,-1,box,2,1);assert.deepEqual(attached.position,[10,20,14.98]);assert.equal(components([box,attached]),1);const joined=conjoined([box,attached],'joined-1',model([box,attached]).bounds);m=model(joined);closed(m.vertices,m.triangles);assert.ok(m.volume>12000);assert.equal(components([joined]),1);checks++;
+const far=object('box',{w:20,d:20,h:10},[100,20,5]);assert.equal(components([box,far]),2);const bridges=connectingBridges([box,far],5,object);assert.equal(components([box,far,...bridges]),1);checks++;
+const jtop=m.parts[0].topology;const jf=jtop.faces.find(f=>f.kind==='PLANE'&&f.normal[2]>.9);const roundedJoin=model(withRoundover(joined,jf.edges,.5),.03);closed(roundedJoin.vertices,roundedJoin.triangles);assert.ok(roundedJoin.volume<m.volume);checks++;
+const before=JSON.parse(JSON.stringify(joined));const copy=validateProject({format:'tristancad',version:1,name:'test',objects:[before]});assert.equal(copy.objects[0].params.children.length,2);checks++;
+const drilled=object('box',{w:40,d:30,h:10},[0,0,5]),cutter=object('cylinder',{diameter:8,h:20},[0,0,5]);cutter.mode='cut';const drilledJoin=conjoined([drilled,cutter],'drilled-join',model([drilled,cutter]).bounds);const dm=model(drilledJoin,.03),dt=dm.parts[0].topology,innerEdge=dt.edges.find(e=>{const x=e.points[0],y=e.points[1],z=e.points[2];return Math.abs(Math.hypot(x,y)-4)<.1&&Math.abs(z-5)<.1});assert.ok(innerEdge,'hole top edge exists in conjoined topology');const dr=model(withRoundover(drilledJoin,[innerEdge.index],.6),.03);assert.ok(dr.volume<dm.volume);closed(dr.vertices,dr.triangles);checks++;
+const clockwise=object('polygon',{h:10,points:[[0,0],[0,20],[20,20],[20,0]]});assert.equal(model(clockwise).volume,4000);checks++;
+console.log('PASS:',checks,'new geometry cases: face pulls retain the opposite side, rotated stretching, single/perimeter/all-edge fillets, radius replacement/removal, invalid fillets, snap centers, physical joining, connecting bars and joined-edge fillets.');
