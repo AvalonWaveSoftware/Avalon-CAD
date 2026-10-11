@@ -228,7 +228,7 @@ npm test
 ./build-apk.sh
 ```
 
-The APK is written into a sibling deliverables directory as AvalonCad-2.4.0.apk. The dependency-free Rust crate builds offline once its pinned compiler and target are installed. Python source lives in engine/python/model_jobs.py and Rust source in engine/rust/src/lib.rs. The build pins Pyodide 0.29.3 (CPython 3.13.2) and bundles its unmodified runtime with complete license notices. The private signing key is tools/signing.p12; the personal build password is documented in build-apk.sh. Retain the existing key for compatible updates.
+The APK is written into a sibling deliverables directory as AvalonCad-2.4.0.apk. The dependency-free Rust crate builds offline once its pinned compiler and target are installed. Python source lives in engine/python/model_jobs.py and Rust source in engine/rust/src/lib.rs. The build pins Pyodide 0.29.3 (CPython 3.13.2) and bundles its unmodified runtime with complete license notices. The private signing key is tools/signing.p12; set its password in the AVALONCAD_KEYSTORE_PASS environment variable before running build-apk.sh (it is not stored in the repository). Retain the existing key for compatible updates.
 
 An optional browser integration test is available as npm run test:browser. Install Playwright separately and set AVALON_CHROMIUM to a local Chromium executable; the test serves bundled assets from localhost only and blocks all external requests. This test server is development tooling and is not part of the installed app.
 

@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 SDK="${TRISTANCAD_SDK:-$PWD/tools/android-sdk}"
 BT="$SDK/build-tools/35.0.0"
+: "${AVALONCAD_KEYSTORE_PASS:?Set AVALONCAD_KEYSTORE_PASS to the signing keystore password}"
 PLATFORM="$SDK/platforms/android-35/android.jar"
 mkdir -p build/classes build/dex ../deliverables
 ./build-rust.sh
@@ -31,9 +32,9 @@ with zipfile.ZipFile('build/unsigned.apk') as z:
 PY
 "$BT/zipalign" -f -p 4 build/unsigned.apk build/aligned.apk
 if [ ! -f tools/signing.p12 ]; then
- keytool -genkeypair -keystore tools/signing.p12 -storetype PKCS12 -alias tristancad -keyalg RSA -keysize 3072 -validity 10000 -storepass tristancad-local -keypass tristancad-local -dname 'CN=Tristan CAD, O=Personal Software, C=US' >/dev/null 2>&1
+ keytool -genkeypair -keystore tools/signing.p12 -storetype PKCS12 -alias tristancad -keyalg RSA -keysize 3072 -validity 10000 -storepass "$AVALONCAD_KEYSTORE_PASS" -keypass "$AVALONCAD_KEYSTORE_PASS" -dname 'CN=Tristan CAD, O=Personal Software, C=US' >/dev/null 2>&1
 fi
-"$BT/apksigner" sign --ks tools/signing.p12 --ks-pass pass:tristancad-local --out build/signed.apk build/aligned.apk
+"$BT/apksigner" sign --ks tools/signing.p12 --ks-pass env:AVALONCAD_KEYSTORE_PASS --out build/signed.apk build/aligned.apk
 "$BT/apksigner" verify --verbose build/signed.apk
 "$BT/zipalign" -c -v 4 build/signed.apk | tail -1
 python3 tests/apk-package.py build/signed.apk
