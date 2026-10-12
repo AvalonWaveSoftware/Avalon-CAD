@@ -27,6 +27,8 @@
     },
     "files": [
       "main.cjs",
+      "files.cjs",
+      "preload.cjs",
       "package.json"
     ],
     "extraResources": [

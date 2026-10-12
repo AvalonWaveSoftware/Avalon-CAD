@@ -1,0 +1,40 @@
+AVALONCAD 2.4.0 — APPLE SILICON MAC
+
+INSTALL
+1. Double-click this ZIP on your Mac to extract it.
+2. Move AvalonCad.app into your Applications folder.
+3. Launch AvalonCad from Applications or Launchpad. Drag it to your Dock if desired.
+
+FIRST LAUNCH
+This personal build is signed locally (ad-hoc), without Apple notarization or a Developer ID certificate. After you first try to open it, macOS may block it. In System Settings > Privacy & Security, choose Open Anyway for AvalonCad, then confirm Open. No system-wide security setting needs to change.
+Apple instructions: https://support.apple.com/en-us/102445
+
+REQUIREMENTS
+Apple silicon Mac (including your M4 MacBook Air), macOS 13 or later.
+The app includes its runtime and geometry engine. No Python, Rust, Node or Xcode installation is needed to use the app. Modeling and STL export stay local and work offline.
+
+CONTROLS
+Drag to orbit. Shift-drag, Cmd/Ctrl-drag or right-drag to pan. Scroll/pinch to zoom.
+In Move, Stretch or Round, drag the selected object to edit it.
+Click a face or edge. Double-click a face for the whole shape; triple-click an edge for all edges.
+Cmd+O: Open a project, prefab or STL.
+Cmd+S: Save a named project on this Mac.
+Cmd+Shift+S: Export an editable .tcad backup.
+Cmd+E: Export STL.
+Cmd+Z / Cmd+Shift+Z: Undo/redo.
+Cmd+Shift+A: Primitive Objects. Cmd+0: Fit view.
+Escape: Close panel or clear selection.
+A / F / V (outside text fields): Add / Fit / Clear.
+
+USE YOUR PHONE MODELS
+Export .tcad projects or .avprefab assemblies from the phone, transfer them to the Mac, and open them with Cmd+O. STL imports are placement drafts and require Apply.
+Projects autosave on this Mac independently of the phone. Replacing the .app keeps local projects. Export backups for portable copies.
+
+MODELING
+The existing shapes, layers, Add/Subtract, prefabs, roundovers, smooth/faceted settings and threads are retained. New shapes start at bottom-center 0,0,0. Build plane On blocks negative Z; Off permits it. The plane never appears in STL. New threaded objects default to Imperial. STL dimensions remain in millimeters.
+
+VALIDATION
+Geometry regressions, file-handler tests, desktop main-process protocol/IPC tests (Electron objects mocked), desktop Chromium UI with a test file bridge, and Apple silicon binary/code-page/resource-seal checks were run. Native dialog presentation, Apple's Gatekeeper verification and execution on a physical M4 Mac have not been verified in this Linux build environment.
+
+LICENSES
+Electron's LICENSE and LICENSES.chromium.html are included beside the app. Additional runtime/library notices are bundled in the app resources and source package.
