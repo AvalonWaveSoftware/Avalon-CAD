@@ -13,7 +13,7 @@ app = Path(sys.argv[1]).resolve()
 info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
 assert info['CFBundleIdentifier'] == 'com.avaloncad.desktop'
 assert info['CFBundleExecutable'] == 'AvalonCad'
-assert info['CFBundleShortVersionString'] == '2.4.0'
+assert info['CFBundleShortVersionString'] == '2.5.0'
 assert info['LSMinimumSystemVersion'] == '13.0'
 hashes = {1: hashlib.sha1, 2: hashlib.sha256, 3: hashlib.sha256, 4: hashlib.sha384}
 machos = 0
