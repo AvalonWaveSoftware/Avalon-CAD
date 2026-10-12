@@ -5,7 +5,7 @@ const subscribe = channel => callback => {
   return () => ipcRenderer.removeListener(channel, handler);
 };
 contextBridge.exposeInMainWorld('AvalonDesktop', {
-  platform: 'mac',
+  platform: process.platform === 'darwin' ? 'mac' : process.platform,
   saveFile: (bytes, name) => ipcRenderer.invoke('avalon:save', {bytes, name}),
   openFile: () => ipcRenderer.invoke('avalon:open'),
   onAction: subscribe('avalon:action'),

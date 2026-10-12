@@ -10,7 +10,7 @@ console.log('Desktop window starting...');
 try {
  const page=await app.firstWindow(),errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.waitForFunction(()=>window.__cad?.model?.engine?.local,{},{timeout:60000});
- assert.equal(page.url(),'avaloncad://app/index.html');assert.equal(await page.evaluate(()=>window.AvalonDesktop.platform),'mac');
+ assert.equal(page.url(),'app://avalon-cad/index.html');assert.equal(await page.evaluate(()=>window.AvalonDesktop.platform),process.platform==='darwin'?'mac':process.platform);assert.equal(await page.evaluate(()=>self.crossOriginIsolated),true);
  assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:3,local:true});
  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');assert.equal(await page.evaluate(()=>typeof window.process),'undefined');
  assert.equal(await page.locator('body').getAttribute('class'),'desktop');
