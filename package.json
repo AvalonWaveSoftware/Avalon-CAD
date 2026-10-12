@@ -1,7 +1,7 @@
 {
   "name": "avaloncad",
   "version": "2.4.0",
-  "description": "Offline Android touch CAD and STL export",
+  "description": "Offline Android and Apple silicon desktop CAD with local Python/Rust modeling and STL export",
   "main": "index.js",
   "directories": {
     "test": "tests"
@@ -16,7 +16,11 @@
     "test:layers": "node tests/layers.mjs && node tests/layers-interaction.mjs",
     "test:prefabs": "node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs",
     "test:overlap": "node tests/overlap-display.mjs",
-    "test:plane": "node tests/build-plane.mjs"
+    "test:plane": "node tests/build-plane.mjs",
+    "build:mac": "npm run build:web && node desktop/build-mac.mjs",
+    "stage:desktop": "node desktop/stage.mjs",
+    "test:desktop": "node tests/desktop-files.mjs && node desktop/stage.mjs && node tests/desktop-shell.mjs",
+    "test:desktop-browser": "node tests/desktop-runtime.mjs"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +35,7 @@
     "three": "0.186.1"
   },
   "devDependencies": {
+    "@electron/packager": "20.3.0",
     "jsdom": "30.1.2"
   }
 }

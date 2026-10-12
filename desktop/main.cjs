@@ -1,146 +1,122 @@
-'use strict';
-// Avalon CAD desktop wrapper (Electron).
-// Serves the bundled web app (app/assets) from a private, privileged app:// origin:
-// no TCP port is opened, all requests stay local, and network access is blocked.
-const {app, BrowserWindow, protocol, session, shell, Menu} = require('electron');
-const fs = require('node:fs');
+const {app, BrowserWindow, Menu, dialog, ipcMain, protocol, session} = require('electron');
+const fs = require('node:fs/promises');
 const path = require('node:path');
+const {exportPayload, readModel, writeModel} = require('./files.cjs');
+const ORIGIN = 'avaloncad://app';
+const ENTRY = ORIGIN + '/index.html';
+const assets = path.join(__dirname, 'web');
+let window = null, loaded = false, dialogBusy = false, importing = false;
+const pendingFiles = [];
 
-const SCHEME = 'app';
-const HOST = 'avalon-cad';
-const ORIGIN = `${SCHEME}://${HOST}`;
-const WEB_ROOT = process.env.AVALON_WEB_DIR
-  ? path.resolve(process.env.AVALON_WEB_DIR)
-  : app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(__dirname, 'build', 'web');
+app.setName('AvalonCad');
+app.setPath('userData', path.join(app.getPath('appData'), 'AvalonCad'));
+app.commandLine.appendSwitch('disable-background-networking');
+app.commandLine.appendSwitch('disable-component-update');
+protocol.registerSchemesAsPrivileged([{scheme: 'avaloncad', privileges: {standard: true, secure: true, supportFetchAPI: true, corsEnabled: true}}]);
 
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.py': 'text/plain; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.wasm': 'application/wasm',
-  '.zip': 'application/zip',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-};
+const filters = [{name: 'AvalonCad models and STL', extensions: ['tcad', 'avprefab', 'stl', 'json']}];
+function sendAction(action) { if (loaded && window && !window.isDestroyed()) window.webContents.send('avalon:action', action); }
+function trusted(event) { return window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame.url.startsWith(ORIGIN + '/'); }
 
-const smokeArg = process.argv.find(a => a.startsWith('--smoke-test'));
-const smokeShot = smokeArg && smokeArg.includes('=') ? smokeArg.split('=').slice(1).join('=') : null;
-
-// Must run before app 'ready'. "standard"+"secure" gives a stable secure origin, so
-// localStorage projects persist between launches and WASM/module workers/fetch work.
-protocol.registerSchemesAsPrivileged([{
-  scheme: SCHEME,
-  privileges: {standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true},
-}]);
-
-app.setName('Avalon CAD');
-if (process.platform === 'linux') app.commandLine.appendSwitch('class', 'avalon-cad');
-// The viewport needs WebGL 2. Chromium blocklists some Linux drivers (e.g. llvmpipe in
-// VMs) which would leave the app unusable, so ignore the blocklist. Set
-// AVALON_SOFTWARE_GL=1 to force SwiftShader software rendering if a GPU driver misbehaves.
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-if (process.env.AVALON_SOFTWARE_GL === '1') {
-  app.commandLine.appendSwitch('use-gl', 'angle');
-  app.commandLine.appendSwitch('use-angle', 'swiftshader');
-  app.commandLine.appendSwitch('enable-unsafe-swiftshader');
-}
-const single = smokeArg ? true : app.requestSingleInstanceLock();
-if (!single) app.quit();
-
-function serve(request) {
-  const url = new URL(request.url);
-  if (url.host !== HOST) return new Response('Blocked', {status: 403});
-  let rel = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
-  const file = path.resolve(WEB_ROOT, rel);
-  if (!file.startsWith(WEB_ROOT + path.sep)) return new Response('Forbidden', {status: 403});
-  let data;
-  try { data = fs.readFileSync(file); } catch { return new Response('Not Found', {status: 404}); }
-  return new Response(data, {
-    status: 200,
-    headers: {
-      'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
-      'Cache-Control': 'no-store',
-      // Cross-origin isolation (enables SharedArrayBuffer should the engines use it);
-      // every resource is same-origin, so this is safe.
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-      'Cross-Origin-Resource-Policy': 'same-origin',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
+async function drainImports() {
+  if (!loaded || importing || !window || window.isDestroyed()) return;
+  importing = true;
+  try {
+    while (pendingFiles.length) {
+      const file = pendingFiles.shift();
+      try { window.webContents.send('avalon:file', await readModel(file)); }
+      catch (error) { window.webContents.send('avalon:notice', String(error.message)); }
+    }
+  } finally { importing = false; }
 }
 
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 1280, height: 860, minWidth: 360, minHeight: 560,
-    title: 'Avalon CAD', backgroundColor: '#10191f', show: !smokeArg || !!process.env.DISPLAY,
-    icon: app.isPackaged ? undefined : path.join(__dirname, 'build', 'icons', '512x512.png'),
-    autoHideMenuBar: true,
-    webPreferences: {contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, devTools: !app.isPackaged || !!process.env.AVALON_DEVTOOLS},
-  });
-  win.webContents.setWindowOpenHandler(({url}) => {
-    if (/^https:\/\//.test(url)) shell.openExternal(url);
-    return {action: 'deny'};
-  });
-  win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(ORIGIN + '/')) e.preventDefault(); });
-  win.on('page-title-updated', e => { e.preventDefault(); win.setTitle('Avalon CAD'); });
-  if (smokeArg) runSmoke(win);
-  win.loadURL(`${ORIGIN}/index.html`);
-  return win;
+function menus() {
+  const invoke = action => () => sendAction(action);
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {label: 'AvalonCad', submenu: [{role: 'about'}, {type: 'separator'}, {role: 'hide'}, {role: 'hideOthers'}, {role: 'unhide'}, {type: 'separator'}, {role: 'quit'}]},
+    {label: 'File', submenu: [
+      {label: 'New project', accelerator: 'CmdOrCtrl+N', click: invoke('new')},
+      {label: 'Open project / prefab / STL…', accelerator: 'CmdOrCtrl+O', click: invoke('open')},
+      {label: 'Save project on this Mac', accelerator: 'CmdOrCtrl+S', click: invoke('save')},
+      {label: 'Export editable project…', accelerator: 'CmdOrCtrl+Shift+S', click: invoke('backup')},
+      {label: 'Export STL…', accelerator: 'CmdOrCtrl+E', click: invoke('export')},
+      {type: 'separator'}, {role: 'close'}
+    ]},
+    {label: 'Edit', submenu: [
+      {label: 'Undo model change', accelerator: 'CmdOrCtrl+Z', click: invoke('undo')},
+      {label: 'Redo model change', accelerator: 'CmdOrCtrl+Shift+Z', click: invoke('redo')},
+      {type: 'separator'}, {role: 'cut'}, {role: 'copy'}, {role: 'paste'}, {role: 'selectAll'},
+      {type: 'separator'}, {label: 'Add a Primitive Object', accelerator: 'CmdOrCtrl+Shift+A', click: invoke('add')},
+      {label: 'Edit selected object', click: invoke('edit')}, {label: 'Deselect everything', click: invoke('clear')}
+    ]},
+    {label: 'View', submenu: [
+      {label: 'Fit model', accelerator: 'CmdOrCtrl+0', click: invoke('fit')},
+      ...[['3D view', 'iso'], ['Top', 'top'], ['Front', 'front'], ['Right', 'right']].map(([label, view]) => ({label, click: invoke('view:' + view)})),
+      {type: 'separator'}, {role: 'togglefullscreen'}
+    ]},
+    {label: 'Window', submenu: [{role: 'minimize'}, {role: 'zoom'}, {role: 'front'}]},
+    {label: 'Help', submenu: [{label: 'AvalonCad help', click: invoke('help')}]}
+  ]));
 }
 
-function runSmoke(win) {
-  const log = [], errors = [], external = [];
-  const wc = win.webContents;
-  wc.on('console-message', (event) => {
-    const {level, message, sourceId, lineNumber} = event;
-    const line = `[console:${level}] ${message} (${sourceId}:${lineNumber})`;
-    log.push(line); console.log(line);
-    if (level === 'error' || level === 3) errors.push(line);
-  });
-  wc.on('render-process-gone', (_e, d) => { errors.push('render-process-gone ' + JSON.stringify(d)); });
-  session.defaultSession.webRequest.onBeforeRequest((d, cb) => {
-    if (!d.url.startsWith(ORIGIN + '/') && !/^(blob|data|devtools|chrome-extension):/.test(d.url)) external.push(d.url);
-    cb({});
-  });
-  const fail = msg => { console.log('SMOKE FAIL: ' + msg); app.exit(1); };
-  const timer = setTimeout(() => fail('timeout waiting for engines'), 180000);
-  wc.once('did-finish-load', async () => {
-    try {
-      const t0 = Date.now();
-      const engine = await wc.executeJavaScript(`new Promise((res,rej)=>{const t=setInterval(()=>{const e=window.__cad?.model?.engine;if(e&&e.local){clearInterval(t);res(e);}},250);})`);
-      const initMs = Date.now() - t0;
-      const info = await wc.executeJavaScript(`({isolated: self.crossOriginIsolated, webgl2: !!document.createElement('canvas').getContext('webgl2'), sab: typeof SharedArrayBuffer, ua: navigator.userAgent})`);
-      // Exercise the full pipeline: add a 40x30x10 box through the UI and wait for its mesh.
-      await wc.executeJavaScript(`(async()=>{const $=id=>document.getElementById(id);$('addBtn').click();document.querySelector('[data-shape="box"]').click();
-        const set=(id,v)=>{const el=$(id);if(el){el.value=v;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}};
-        set('p_w','40');set('p_d','30');set('p_h','10');$('applyObject').click();})()`);
-      const objects = await wc.executeJavaScript(`new Promise(res=>{let n=0;const t=setInterval(()=>{const c=window.__cad;const k=c?.project?.objects?.length||0;const tri=c?.model?.triangles?.length||c?.model?.parts?.length||0;if((k>0&&tri>0)||++n>240){clearInterval(t);res({objects:k,meshReady:tri>0,busy:document.getElementById('busy')?.textContent});}},250);})`);
-      await new Promise(r => setTimeout(r, 1500));
-      const result = {engine, initMs, ...info, ...objects, consoleErrors: errors, externalRequests: external};
-      console.log('SMOKE RESULT ' + JSON.stringify(result));
-      if (smokeShot) { const img = await wc.capturePage(); fs.writeFileSync(smokeShot, img.toPNG()); console.log('SMOKE SCREENSHOT ' + smokeShot); }
-      clearTimeout(timer);
-      const ok = engine.python && engine.rust && engine.local && objects.objects > 0 && errors.length === 0 && external.length === 0;
-      console.log(ok ? 'SMOKE PASS' : 'SMOKE FAIL');
-      app.exit(ok ? 0 : 1);
-    } catch (e) { fail(e.stack || String(e)); }
-  });
+async function createWindow() {
+  loaded = false;
+  window = new BrowserWindow({width: 1280, height: 860, minWidth: 880, minHeight: 660, title: 'AvalonCad', backgroundColor: '#10191f', show: false,
+    webPreferences: {preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, spellcheck: false, webviewTag: false}});
+  window.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
+  window.webContents.on('will-navigate', (event, url) => { if (url !== ENTRY) event.preventDefault(); });
+  window.on('closed', () => { window = null; loaded = false; });
+  window.once('ready-to-show', () => { if (window) window.show(); });
+  window.webContents.on('did-finish-load', () => { loaded = true; drainImports(); });
+  await window.loadURL(ENTRY);
 }
 
-app.whenReady().then(() => {
-  protocol.handle(SCHEME, serve);
-  // Offline app: refuse every request that is not served from the bundled origin.
-  if (!smokeArg) session.defaultSession.webRequest.onBeforeRequest((d, cb) => {
-    cb({cancel: !(d.url.startsWith(ORIGIN + '/') || /^(blob|data|devtools):/.test(d.url))});
-  });
-  session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
-  Menu.setApplicationMenu(null);
-  const win = createWindow();
-  app.on('second-instance', () => { if (win.isMinimized()) win.restore(); win.focus(); });
-});
-app.on('window-all-closed', () => app.quit());
+app.on('open-file', (event, file) => { event.preventDefault(); pendingFiles.push(file); drainImports(); });
+if (!app.requestSingleInstanceLock()) app.quit();
+else {
+  app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.focus(); } });
+  app.whenReady().then(async () => {
+    const mime = {'.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.py': 'text/plain', '.wasm': 'application/wasm'};
+    protocol.handle('avaloncad', async request => {
+      try {
+        const url = new URL(request.url);
+        if (url.host !== 'app' || !['GET', 'HEAD'].includes(request.method)) return new Response('Forbidden', {status: 403});
+        const filename = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
+        const target = await fs.realpath(path.resolve(assets, filename));
+        if (!target.startsWith(assets + path.sep)) return new Response('Forbidden', {status: 403});
+        const body = request.method === 'HEAD' ? null : await fs.readFile(target);
+        return new Response(body, {headers: {'Content-Type': mime[path.extname(target)] || 'application/octet-stream', 'Cache-Control': 'no-store'}});
+      } catch { return new Response('Not found', {status: 404}); }
+    });
+    session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+    session.defaultSession.setPermissionCheckHandler(() => false);
+    session.defaultSession.webRequest.onBeforeRequest({urls: ['<all_urls>']}, (details, callback) => {
+      const local = details.url.startsWith(ORIGIN + '/') || details.url.startsWith('blob:' + ORIGIN + '/') || details.url.startsWith('data:');
+      callback({cancel: !local});
+    });
+    ipcMain.handle('avalon:save', async (event, value) => {
+      if (!trusted(event)) throw Error('File request is not from AvalonCad.');
+      if (dialogBusy) return {canceled: true};
+      const payload = exportPayload(value); dialogBusy = true;
+      try {
+        const selected = await dialog.showSaveDialog(window, {title: 'Save ' + payload.name, defaultPath: path.join(app.getPath('documents'), payload.name), filters: [{name: payload.extension === '.stl' ? 'STL model' : 'AvalonCad editable file', extensions: [payload.extension.slice(1)]}], properties: ['createDirectory', 'showOverwriteConfirmation']});
+        if (selected.canceled || !selected.filePath) return {canceled: true};
+        await writeModel(selected.filePath, payload.bytes);
+        return {canceled: false, name: path.basename(selected.filePath)};
+      } finally { dialogBusy = false; }
+    });
+    ipcMain.handle('avalon:open', async event => {
+      if (!trusted(event)) throw Error('File request is not from AvalonCad.');
+      if (dialogBusy) return {canceled: true};
+      dialogBusy = true;
+      try {
+        const selected = await dialog.showOpenDialog(window, {title: 'Open AvalonCad project, prefab or STL', filters, properties: ['openFile']});
+        if (selected.canceled || !selected.filePaths.length) return {canceled: true};
+        return {canceled: false, ...await readModel(selected.filePaths[0])};
+      } finally { dialogBusy = false; }
+    });
+    menus(); await createWindow();
+    app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
+  }).catch(error => { dialog.showErrorBox('AvalonCad could not start', String(error.message)); app.quit(); });
+}
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

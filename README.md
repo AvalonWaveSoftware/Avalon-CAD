@@ -2,6 +2,26 @@
 
 An offline Android CAD app for dimensioned parts and high-resolution STL export, with touch editing, real edge fillets, center snapping, addition and subtraction. Package: `com.tristan.cad`. Minimum Android version: 9. Android System WebView must support WebGL 2.
 
+## Launch AvalonCad on your M4 MacBook Air
+
+Download **AvalonCad-2.4.0-Mac-AppleSilicon.zip**, double-click the ZIP to extract it, move **AvalonCad.app** to **Applications**, and open it from Applications or Launchpad. You can drag the app to your Dock. This is a complete Apple silicon arm64 app with its runtime bundled; Node, Python, Rust and Xcode do not need to be installed to use it. macOS 13 or later is required. The Android APK remains a separate installer.
+
+This personal build has an **ad-hoc local signature** and is **not Apple-notarized or Developer ID signed**. After attempting to open it, macOS may block it as an unidentified developer. For this specific app, use **System Settings → Privacy & Security → Open Anyway**, then confirm Open. Apple’s instructions are at https://support.apple.com/en-us/102445. Do not change the system-wide Gatekeeper setting. Actual installation and execution on an M4 Mac have not been tested here.
+
+The Mac app retains the current CAD features: Primitive Objects, sketches, prefabs, layered Add/Subtract, roundovers, face resolution, threaded parts with Imperial defaults, bottom-center 0,0,0 placement, the optional Z=0 build-plane constraint and high-resolution STL export. All modeling stays local. The build plane is never exported.
+
+**Mac controls:** left-drag to orbit; Shift-drag, Ctrl/Cmd-drag or right-drag to pan; scroll or pinch to zoom. In Move, Stretch or Round, drag the selected shape to edit it. Click a face or edge to select it, double-click a face to select the whole shape and triple-click an edge for all edges. The controls in the window retain the familiar phone layout with a desktop-sized inspector.
+
+**Keyboard/menu shortcuts:** Cmd+N starts a blank project with the existing replacement confirmation; Cmd+O opens a .tcad/.avprefab/STL; Cmd+S saves a named project on this Mac; Cmd+Shift+S exports an editable .tcad backup; Cmd+E opens STL export; Cmd+Z and Cmd+Shift+Z undo/redo model changes (text fields keep text undo); Cmd+Shift+A opens Primitive Objects; Cmd+0 fits the view; Escape closes a panel or clears selection. When not entering text, A adds a shape, F fits the view and V clears selections.
+
+Export a **.tcad** file on your Samsung, transfer it to your Mac, and open it using File → Open or Cmd+O. For editable assemblies, transfer .avprefab files. STL imports keep their mesh resolution and open as placement drafts that require Apply. Projects and prefabs autosave locally and persist when the .app is replaced. Before the window closes, the current project is saved; an unfinished drag saves its last committed state. Export .tcad/.avprefab backups for portable copies. Mac local projects are stored independently from phone projects.
+
+The Mac app uses bundled Electron 44.7.0 with a standard secure local asset protocol, isolated preload and native file dialogs. Internet requests and new web windows are blocked. The viewer has no Node integration. Save/open handlers accept bounded model bytes and explicit dialog selections, with a 50 MB file limit and atomic file replacement. The Mac build contains no Android signing key.
+
+Desktop validation covers file byte transport and bounds, native-shell protocol/IPC handlers with Electron objects mocked, Mac menu definitions, desktop Chromium UI using a test file bridge, actual local Python/Rust geometry, origin/plane/Imperial settings, mouse and keyboard behavior, saved projects, STL export and blocked Internet fetch. The app's arm64 Mach-O code-page hashes, signed resource seals, bundle identifiers, executable permissions and offline assets are checked. These checks do not substitute for Apple's on-device codesign/Gatekeeper checks or a physical Mac launch test.
+
+To rebuild on a Mac, install Node.js 24+ for development, run **npm ci**, then **npm run build:mac**. It uses the already-bundled Rust geometry module and builds the web assets. The build downloads a pinned Electron runtime and verifies its SHA-256, packages an arm64 .app and applies a local signature using macOS codesign. For cross-platform signing, set AVALON_RCODESIGN to an apple-codesign executable and AVALON_ELECTRON_CACHE to a folder containing the verified runtime ZIP. Official desktop references: https://www.electronjs.org/docs/latest/api/protocol and https://www.electronjs.org/docs/latest/tutorial/security.
+
 ## Install the update on your Samsung
 
 Download **AvalonCad-2.4.0.apk**, open it from **My Files → Downloads**, and choose **Update**. Install it over the existing app without uninstalling first. It is also a complete installer for a fresh installation. Uninstalling deletes local projects and settings, so export .tcad backups first if you choose to uninstall. This APK uses the same app identity and signing key, so Android can update the app while keeping its local projects. Export a .tcad backup of important projects from the project menu whenever you want an independent copy.
