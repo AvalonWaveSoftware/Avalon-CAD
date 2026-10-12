@@ -1,4 +1,4 @@
-# Avalon CAD for Linux desktop (.rpm)
+# Avalon CAD for Linux desktop (.rpm, Arch .pkg.tar.zst)
 
 An Electron wrapper around the same bundled web app the Android APK ships (`app/assets`).
 It runs fully offline: the UI, Pyodide (CPython 3.13.2), the Rust mesh engine, OpenCascade
@@ -23,8 +23,15 @@ desktop/build-rpm.sh            # rebuilds Rust + web bundle, then packages
 desktop/build-rpm.sh --skip-web # package the existing app/assets
 ```
 
-The RPM is written to `../deliverables/avalon-cad-<version>.x86_64.rpm`. It installs the app
-to `/opt/Avalon CAD`, a `/usr/bin/avalon-cad` launcher, `avalon-cad.desktop` and hicolor icons.
+```bash
+desktop/build-arch.sh --skip-web   # Arch Linux package (electron-builder pacman target)
+```
+
+Packages are written to `../deliverables/`: `avalon-cad-<version>.x86_64.rpm` and
+`avalon-cad-<version>-1-x86_64.pkg.tar.zst`. Both install the app to `/opt/Avalon CAD`, a
+`/usr/bin/avalon-cad` launcher (created by the install script), `avalon-cad.desktop` and
+hicolor icons. Install on Arch with `sudo pacman -U avalon-cad-<version>-1-x86_64.pkg.tar.zst`;
+pacman pulls the declared Electron runtime dependencies (gtk3, nss, alsa-lib, libxss, ...).
 
 ## Smoke test
 

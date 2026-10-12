@@ -14,7 +14,8 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "dist:rpm": "electron-builder --linux rpm --x64 --publish never"
+    "dist:rpm": "electron-builder --linux rpm --x64 --publish never",
+    "dist:pacman": "electron-builder --linux pacman --x64 --publish never"
   },
   "build": {
     "appId": "com.tristan.cad",
@@ -57,6 +58,29 @@
       "packageName": "avalon-cad",
       "fpm": [
         "--rpm-rpmbuild-define=_build_id_links none"
+      ]
+    },
+    "pacman": {
+      "packageName": "avalon-cad",
+      "artifactName": "${name}-${version}-1-x86_64.pkg.tar.zst",
+      "depends": [
+        "gtk3",
+        "nss",
+        "alsa-lib",
+        "libxss",
+        "libxtst",
+        "libxrandr",
+        "libxkbcommon",
+        "libdrm",
+        "mesa",
+        "at-spi2-core",
+        "libcups",
+        "libnotify",
+        "util-linux-libs",
+        "xdg-utils"
+      ],
+      "fpm": [
+        "--pacman-compression=zstd"
       ]
     }
   },
