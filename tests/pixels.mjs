@@ -51,7 +51,7 @@ const ob=(id,type,params,position,extra={})=>({id,name:extra.name||id,type,param
 const proj=(name,objects,extra={})=>({format:'tristancad',version:2,name,objects,layers:[{id:'layer-1',name:'Layer 1'}],activeLayer:'layer-1',...extra});
 const D={box:{w:30,d:30,h:15},cylinder:{diameter:20,h:20},sphere:{diameter:25},tube:{diameter:25,inner:18,h:20},cone:{diameter:25,top:8,h:25}};
 const distinct=n=>{const types=['box','cylinder','sphere','tube','cone'],o=[];for(let i=0;i<n;i++){const t=types[i%5],q={...D[t]};q.h=(q.h||10)+i*.1;if(t==='sphere')q.diameter+=i*.1;o.push(ob('o'+i,t,q,[(i%10)*35,Math.floor(i/10)*35,0],{name:t+i}));}return proj(`${n} distinct`,o,{buildPlaneEnabled:true});};
-const filletBox=q=>proj('Filleted box '+q,[ob('fb','box',{w:30,d:30,h:15},[0,0,7.5],{fillets:[{edges:[0,1,2,3],radius:2}],resolution:{mode:'tolerance',tolerance:q}})]);
+const filletBox=q=>proj('Filleted box '+q,[ob('fb','cylinder',{diameter:30,h:15},[0,0,7.5],{fillets:[{edges:[0,2],radius:2}],resolution:{mode:'tolerance',tolerance:q}})]);
 async function load(page,p,parts){await page.evaluate(p=>window.__cad.load(p),typeof p==='string'?JSON.parse(p):p);
  await page.waitForFunction(n=>window.__cad.model&&(n===0||window.__cad.model.parts?.length>=n),parts??1,{timeout:180000});await deselect(page);await fit(page);}
 const loadTemplate=async(page,t)=>{await page.evaluate(t=>window.__cad.load(window.__cad.templates[t]()),t);await page.waitForFunction(()=>window.__cad.model?.volume>0);await deselect(page);await fit(page);};
@@ -73,14 +73,15 @@ const scenes={
  'fillet-box-ultra':async(p,s)=>{await load(p,filletBox(.01));await s();},
  'fillet-box-maximum':async(p,s)=>{await load(p,filletBox(.005));await s();},
  'thread-rod-tube':async(p,s)=>{await load(p,proj('Threads',[ob('rod','threadrod',{diameter:6.35,pitch:1.27,h:38.1,clearance:0,phase:0,units:'imperial',hand:'right'},[-12,0,19.05]),ob('tube','threadtube',{diameter:6.35,pitch:1.27,h:25.4,outer:12.7,clearance:.1524,phase:0,units:'imperial',hand:'right'},[12,0,12.7])]),2);await s();},
- 'prefab-x3':async(p,s)=>{await prefabPlate(p);for(let i=0;i<3;i++){await p.locator('[data-prefab-insert]').first().click();await p.waitForFunction(n=>window.__cad.project.objects.length>=n,5+i+1,{timeout:120000});await idle(p);
-   if(i<2){await p.locator('#addBtn').click();await p.locator('#prefabsBtn').click();await p.waitForFunction(()=>document.querySelectorAll('[data-prefab-insert]').length===1);}}
+ 'prefab-x3':async(p,s)=>{await prefabPlate(p);const n0=await p.evaluate(()=>window.__cad.project.objects.length);for(let i=0;i<3;i++){if(i){await p.locator('#addBtn').click();await p.locator('#prefabsBtn').click();}await p.waitForFunction(()=>document.querySelectorAll('[data-prefab-insert]').length===1);
+   await p.locator('[data-prefab-insert]').first().click();await p.locator('#pos0').fill(String(80*(i+1)));await p.locator('#pos1').fill('0');await p.locator('#applyObject').click();
+   await p.waitForFunction(n=>document.querySelector('#sheet').hidden&&window.__cad.project.objects.length>=n,n0+i+1,{timeout:120000});await idle(p);}
   await deselect(p);await fit(p);await s();},
  'fixture-two-layer':async(p,s)=>{await load(p,fixture('two-layer.tcad'));await s();},
  'fixture-prefab-subtract':async(p,s)=>{await load(p,fixture('prefab-subtract.tcad'));await s();},
  'fixture-simple-subtract':async(p,s)=>{await load(p,fixture('simple-subtract.tcad'));await s();},
  'fixture-subtract-in-add':async(p,s)=>{await load(p,fixture('subtract-in-add.tcad'));await s();},
- 'imported-stl':async(p,s)=>{await load(p,proj('My model',[]),0);await p.locator('#importFile').setInputFiles({name:'tetra.stl',mimeType:'model/stl',buffer:stl()});
+ 'imported-stl':async(p,s)=>{await load(p,proj('My model',[]),0);await p.locator('#importFile').setInputFiles({name:'tetra.stl',mimeType:'model/stl',buffer:stl()});await p.locator('#applyObject').click();
   await p.waitForFunction(()=>window.__cad.model?.parts?.length===1,{},{timeout:120000});await deselect(p);await fit(p);await s();},
  'wireframe-on':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#wire').click();await s();},
  'selection-highlight':async(p,s)=>{await loadTemplate(p,'plate');await H.tap(p,'select',[[0,0,6]]);await s();},
