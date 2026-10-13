@@ -1,6 +1,6 @@
 {
   "name": "avaloncad",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "description": "Offline Android and Apple silicon desktop CAD with local Python/Rust modeling and STL export",
   "main": "index.js",
   "directories": {
