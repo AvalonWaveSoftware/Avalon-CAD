@@ -4,6 +4,11 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-10-13
+
+### Fixed
+- **Desktop help line.** The help line is now styled and placed to the right of the Objects button, so it no longer overlaps the selection bar.
+
 ## [2.6.0] - 2026-10-13
 
 ### Added

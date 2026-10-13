@@ -8,7 +8,7 @@ export function stageDesktop(root = process.cwd()) {
   fs.copyFileSync(path.join(root, 'desktop', 'desktop.css'), path.join(stage, 'web', 'desktop.css'));
   const html = fs.readFileSync(path.join(stage, 'web', 'index.html'), 'utf8').replace('</head>', '<link rel="stylesheet" href="desktop.css"></head>').replace('<body>', '<body class="desktop">');
   fs.writeFileSync(path.join(stage, 'web', 'index.html'), html);
-  fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify({name: 'avaloncad', productName: 'Avalon CAD', version: '2.6.0', main: 'main.cjs', private: true}));
+  fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify({name: 'avaloncad', productName: 'Avalon CAD', version: '2.6.1', main: 'main.cjs', private: true}));
   return stage;
 }
 if (process.argv[1] === new URL(import.meta.url).pathname) console.log(stageDesktop());
