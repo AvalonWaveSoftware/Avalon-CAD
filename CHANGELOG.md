@@ -4,6 +4,8 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-13
+
 ### Added
 - **Objects panel.** A ☰ button in the corner of the 3D view, showing the object count, opens a list of every shape grouped by layer. Each row shows whether the shape adds or subtracts material and has a show/hide eye and a properties button. Selection stays in sync both ways: tap a row to highlight the shape in 3D, or tap a shape in 3D to highlight and scroll to its row. Opening the panel never rebuilds the model.
 - **Multi-select.** Long-press a shape or row (phone), or Ctrl/Shift-click (desktop), to select several shapes at once.

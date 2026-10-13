@@ -53,6 +53,6 @@ from zipfile import ZipFile
 signed = Path('build/signed.apk')
 with ZipFile(signed) as archive:
  assert archive.testzip() is None
-os.replace(signed, '../deliverables/AvalonCad-2.5.0.apk')
-print('Signed installer ready:', Path('../deliverables/AvalonCad-2.5.0.apk').stat().st_size, 'bytes')
+os.replace(signed, '../deliverables/AvalonCad-2.6.0.apk')
+print('Signed installer ready:', Path('../deliverables/AvalonCad-2.6.0.apk').stat().st_size, 'bytes')
 PY
