@@ -22,7 +22,8 @@
     "test:desktop": "node tests/desktop-files.mjs && node desktop/stage.mjs && node tests/desktop-shell.mjs",
     "test:desktop-browser": "node tests/desktop-runtime.mjs",
     "test:migration": "node tests/migration.mjs",
-    "test:panel": "node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs"
+    "test:panel": "node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs",
+    "test:pixels": "node tests/perf/dom-baseline.mjs && node tests/pixels.mjs"
   },
   "keywords": [],
   "author": "",
