@@ -5,7 +5,7 @@ import {initKernel,buildModel,writeSTL} from '../web/kernel.mjs';
 import {initLocalEngine} from '../web/local-engine.mjs';
 import {prepareDisplayMesh} from '../web/display-geometry.mjs';
 import {blank,object} from '../web/templates.mjs';
-import {booleanResult,withRoundover} from '../web/operations.mjs';
+import {mergeResult,withRoundover} from '../web/operations.mjs';
 import {evaluateBoolean} from '../web/boolean-model.mjs';
 import {makePrefab} from '../web/prefabs.mjs';
 
@@ -32,8 +32,8 @@ for(const x of [-7,-2,0,2,7]){const moved={...ball,position:[x,0,-5]};verify({..
 const angled=object('box',{w:20,d:20,h:20},[8,0,0]);angled.rotation=[0,0,20];verify({...blank(),objects:[object('box',{w:20,d:20,h:20}),angled]});
 verify({...blank(),objects:[box,{...box,id:'identical-box'}]});
 verify({...blank(),objects:[box,smooth('cylinder',{diameter:18,h:12},[0,0,1]),smooth('sphere',{diameter:20},[5,0,-5])]});
-const add=evaluateBoolean(K,[box,ball],'add'),joined=booleanResult([box,ball],'add','overlap-add',add.bounds);verify({...blank(),objects:[joined]});
-const cut=evaluateBoolean(K,[ball,box],'subtract'),subtracted=booleanResult([ball,box],'subtract','overlap-cut',cut.bounds);verify({...blank(),objects:[subtracted]});
+const add=evaluateBoolean(K,[box,ball],'add'),joined=mergeResult([box,ball],'overlap-add',add.bounds);verify({...blank(),objects:[joined]});
+verify({...blank(),objects:[box,{...ball,mode:'cut'}]});
 const cutout={...ball,mode:'cut'};verify({...blank(),objects:[box,cutout]});
 const roundBox=withRoundover(object('box',{w:30,d:30,h:8}),[0],.5);verify({...blank(),objects:[roundBox,ball]});
 const prefab=makePrefab(p.objects,'Overlapping assembly',reproduced.bounds,p.layers);verify({...blank(),objects:[prefab.object]});

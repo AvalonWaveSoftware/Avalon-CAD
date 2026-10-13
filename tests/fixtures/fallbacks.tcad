@@ -1,0 +1,282 @@
+{
+ "format": "tristancad",
+ "version": 1,
+ "name": "Fallback cases",
+ "objects": [
+  {
+   "id": "stretched",
+   "layerId": "layer-1",
+   "name": "target − cutter",
+   "type": "joined",
+   "mode": "solid",
+   "enabled": true,
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "params": {
+    "children": [
+     {
+      "id": "target",
+      "name": "target",
+      "type": "box",
+      "params": {
+       "w": 20,
+       "d": 20,
+       "h": 10
+      },
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "solid",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     },
+     {
+      "id": "cutter",
+      "name": "cutter",
+      "type": "box",
+      "params": {
+       "w": 10,
+       "d": 10,
+       "h": 20
+      },
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "cut",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     }
+    ],
+    "operation": "subtract"
+   },
+   "scale": [
+    1.5,
+    1,
+    1
+   ]
+  },
+  {
+   "id": "fill-flag",
+   "layerId": "layer-1",
+   "name": "t3 − c3",
+   "type": "joined",
+   "mode": "solid",
+   "enabled": true,
+   "position": [
+    30,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "params": {
+    "children": [
+     {
+      "id": "t3",
+      "name": "t3",
+      "type": "box",
+      "params": {
+       "w": 10,
+       "d": 10,
+       "h": 10
+      },
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "solid",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     },
+     {
+      "id": "c3",
+      "name": "c3",
+      "type": "box",
+      "params": {
+       "w": 4,
+       "d": 4,
+       "h": 20
+      },
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "cut",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     }
+    ],
+    "operation": "subtract",
+    "fillOverlaps": true
+   }
+  },
+  {
+   "id": "joined-cut",
+   "layerId": "layer-1",
+   "name": "t4 − inner − c4",
+   "type": "joined",
+   "mode": "solid",
+   "enabled": true,
+   "position": [
+    60,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "params": {
+    "children": [
+     {
+      "id": "t4",
+      "name": "t4",
+      "type": "box",
+      "params": {
+       "w": 10,
+       "d": 10,
+       "h": 10
+      },
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "solid",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     },
+     {
+      "id": "cut-group",
+      "layerId": "layer-1",
+      "name": "inner − c4",
+      "type": "joined",
+      "mode": "cut",
+      "enabled": true,
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "params": {
+       "children": [
+        {
+         "id": "inner",
+         "name": "inner",
+         "type": "box",
+         "params": {
+          "w": 6,
+          "d": 6,
+          "h": 6
+         },
+         "position": [
+          0,
+          0,
+          0
+         ],
+         "rotation": [
+          0,
+          0,
+          0
+         ],
+         "mode": "solid",
+         "enabled": true,
+         "layerId": "layer-1",
+         "sourceMode": "solid"
+        },
+        {
+         "id": "c4",
+         "name": "c4",
+         "type": "box",
+         "params": {
+          "w": 2,
+          "d": 2,
+          "h": 20
+         },
+         "position": [
+          0,
+          0,
+          0
+         ],
+         "rotation": [
+          0,
+          0,
+          0
+         ],
+         "mode": "cut",
+         "enabled": true,
+         "layerId": "layer-1",
+         "sourceMode": "solid"
+        }
+       ],
+       "operation": "subtract"
+      },
+      "sourceMode": "solid"
+     }
+    ],
+    "operation": "subtract"
+   }
+  }
+ ],
+ "layers": [
+  {
+   "id": "layer-1",
+   "name": "Layer 1"
+  }
+ ],
+ "activeLayer": "layer-1",
+ "buildPlaneEnabled": false
+}

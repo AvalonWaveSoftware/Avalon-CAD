@@ -3,7 +3,7 @@ import {initKernel,buildModel,validateProject,writeSTL,readSTL} from '../web/ker
 import {applySmoothPreset} from '../web/resolution-ui.mjs';
 import {displayGeometry,hasFixedFacets} from '../web/display-geometry.mjs';
 import {blank,object,defaults} from '../web/templates.mjs';
-import {booleanResult,withRoundover} from '../web/operations.mjs';
+import {mergeResult,withRoundover} from '../web/operations.mjs';
 import {evaluateBoolean} from '../web/boolean-model.mjs';
 const K=await initKernel();let checks=0;
 for(const type of ['sphere','cylinder','cone','tube','rounded']){
@@ -26,7 +26,7 @@ for(const type of ['sphere','cylinder','cone','tube','rounded']){
  assert.equal(flatCount,both.parts[1].triangles.length/3);view.dispose();checks++;
 }
 const mixedSmooth=applySmoothPreset(object('sphere',{diameter:20})),mixedFacet=object('sphere',{diameter:20},[8,0,0]);mixedFacet.resolution={mode:'faces',count:32};
-const mixedInfo=evaluateBoolean(K,[mixedSmooth,mixedFacet],'add'),mixed=booleanResult([mixedSmooth,mixedFacet],'add','mixed',mixedInfo.bounds),combined=buildModel(K,{...blank(),objects:[mixed]},.15,true);assert.ok(combined.flatTriangles.some(v=>v===0)&&combined.flatTriangles.some(v=>v===1));assert.equal(mixed.params.children[0].resolution.tolerance,.005);assert.equal(mixed.params.children[1].resolution.count,32);checks++;
-const facetCutter=object('cylinder',{diameter:5,h:30});facetCutter.resolution={mode:'faces',count:12};const cutInfo=evaluateBoolean(K,[facetCutter,mixedSmooth],'subtract'),subtracted=booleanResult([facetCutter,mixedSmooth],'subtract','mixed-cut',cutInfo.bounds),cutPreview=buildModel(K,{...blank(),objects:[subtracted]},.15,true);assert.ok(cutPreview.flatTriangles.some(v=>v===0)&&cutPreview.flatTriangles.some(v=>v===1));checks++;
+const mixedInfo=evaluateBoolean(K,[mixedSmooth,mixedFacet],'add'),mixed=mergeResult([mixedSmooth,mixedFacet],'mixed',mixedInfo.bounds),combined=buildModel(K,{...blank(),objects:[mixed]},.15,true);assert.ok(combined.flatTriangles.some(v=>v===0)&&combined.flatTriangles.some(v=>v===1));assert.equal(mixed.params.children[0].resolution.tolerance,.005);assert.equal(mixed.params.children[1].resolution.count,32);checks++;
+const facetCutter=object('cylinder',{diameter:5,h:30});facetCutter.resolution={mode:'faces',count:12};facetCutter.mode='cut';const cutPreview=buildModel(K,{...blank(),objects:[mixedSmooth,facetCutter]},.15,true);assert.ok(cutPreview.flatTriangles.some(v=>v===0)&&cutPreview.flatTriangles.some(v=>v===1));checks++;
 const roundedFacet=withRoundover(object('cylinder',{diameter:20,h:20}),[0],.5);roundedFacet.resolution={mode:'faces',count:12};const roundedPreview=buildModel(K,{...blank(),objects:[roundedFacet]},.15,true);assert.ok(roundedPreview.flatTriangles.some(v=>v===1)&&roundedPreview.flatTriangles.some(v=>v===0));assert.ok(Math.abs(roundedPreview.volume-buildModel(K,{...blank(),objects:[roundedFacet]},.15).volume)<1e-5);checks++;
 console.log('PASS:',checks,'smooth-shape cases: preset curves, high-quality preview/export parity, STL, sharp box normals, smooth sphere normals and fixed-facet display.');

@@ -1,5 +1,5 @@
 import {validateProject} from './kernel.mjs';
-import {DEFAULT_LAYER,booleanProject} from './layers.mjs';
+import {DEFAULT_LAYER,booleanProject,layerOf} from './layers.mjs';
 import {uid} from './templates.mjs';
 
 export function freshComponents(objects,inherited=new Map()){
@@ -12,8 +12,9 @@ export function prefabParts(objects,includeSubtractions=true){
  }
  return includeSubtractions?structuredClone(objects.filter(o=>o.enabled!==false)):objects.map(strip).filter(Boolean);
 }
-export function makePrefab(objects,name,bounds,layers){
+export function makePrefab(objects,name,bounds,layers,{pruneLayers=false}={}){
  if(!bounds||!objects.some(o=>o.mode!=='cut'))throw Error('A prefab needs solid material.');
+ if(pruneLayers){const used=new Set(objects.map(layerOf)),kept=layers.filter(l=>used.has(l.id));if(kept.length)layers=kept;}
  const center=bounds.min.map((v,i)=>(v+bounds.max[i])/2),id=uid(),children=freshComponents(objects).map(o=>({...o,position:o.position.map((v,i)=>v-center[i])}));
  const shape={id:uid(),name,type:'prefab',mode:'solid',enabled:true,layerId:DEFAULT_LAYER,position:[0,0,0],rotation:[0,0,0],localBounds:{min:bounds.min.map((v,i)=>v-center[i]),max:bounds.max.map((v,i)=>v-center[i])},params:{children,layers:structuredClone(layers)}};
  return validatePrefab({format:'avaloncad-prefab',version:1,id,name,createdAt:Date.now(),object:shape});
@@ -26,3 +27,19 @@ export function validatePrefab(value){
  return copy;
 }
 export function instantiatePrefab(record,layerId){const out=structuredClone(validatePrefab(record).object);out.id=uid();out.layerId=layerId;out.params.children=freshComponents(out.params.children);out.position=[0,0,(out.localBounds.max[2]-out.localBounds.min[2])/2];return out;}
+// Replace the member objects with one instance of the prefab, in place (Addendum A.3 step 5).
+// Pure: returns {project,instance}; the caller commits it with a single change().
+export function replaceWithInstance(project,memberIds,record,bounds,primaryLayer){
+ const members=new Set(memberIds),next=structuredClone(project),at=next.objects.findIndex(o=>members.has(o.id));
+ if(at<0)throw Error('The selected objects are no longer in the project.');
+ const instance=structuredClone(record.object);instance.id=uid();instance.layerId=primaryLayer;instance.params.children=freshComponents(instance.params.children);
+ instance.position=bounds.min.map((v,i)=>(v+bounds.max[i])/2);instance.rotation=[0,0,0];delete instance.positionReference;delete instance.placement;
+ next.objects=next.objects.filter(o=>!members.has(o.id));
+ // Project cutouts on the instance's layer were either baked in or did not cut the members: never cut the instance again.
+ const excluded=next.objects.filter(o=>o.mode==='cut'&&layerOf(o)===primaryLayer).map(o=>o.id);
+ if(excluded.length>100)throw Error('Too many cutouts on this layer to replace the selection (maximum 100).');
+ if(excluded.length)instance.excludedCutouts=excluded;else delete instance.excludedCutouts;
+ for(const o of next.objects)if(o.excludedCutouts){o.excludedCutouts=o.excludedCutouts.filter(id=>!members.has(id));if(!o.excludedCutouts.length)delete o.excludedCutouts;}
+ next.objects.splice(at,0,instance);
+ return {project:next,instance};
+}

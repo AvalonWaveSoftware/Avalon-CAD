@@ -1,0 +1,133 @@
+{
+ "format": "tristancad",
+ "version": 1,
+ "name": "Subtract of a rotated subtract",
+ "objects": [
+  {
+   "id": "second",
+   "layerId": "layer-1",
+   "name": "base − c1 − c2",
+   "type": "joined",
+   "mode": "solid",
+   "enabled": true,
+   "position": [
+    3,
+    -2,
+    4
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "params": {
+    "children": [
+     {
+      "id": "first",
+      "layerId": "layer-1",
+      "name": "base − c1",
+      "type": "joined",
+      "mode": "solid",
+      "enabled": true,
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       10,
+       20,
+       30
+      ],
+      "params": {
+       "children": [
+        {
+         "id": "base",
+         "name": "base",
+         "type": "box",
+         "params": {
+          "w": 30,
+          "d": 30,
+          "h": 10
+         },
+         "position": [
+          0,
+          0,
+          0
+         ],
+         "rotation": [
+          0,
+          0,
+          0
+         ],
+         "mode": "solid",
+         "enabled": true,
+         "layerId": "layer-1",
+         "sourceMode": "solid"
+        },
+        {
+         "id": "c1",
+         "name": "c1",
+         "type": "box",
+         "params": {
+          "w": 8,
+          "d": 8,
+          "h": 30
+         },
+         "position": [
+          -6,
+          0,
+          0
+         ],
+         "rotation": [
+          0,
+          0,
+          0
+         ],
+         "mode": "cut",
+         "enabled": true,
+         "layerId": "layer-1",
+         "sourceMode": "solid"
+        }
+       ],
+       "operation": "subtract"
+      },
+      "sourceMode": "solid"
+     },
+     {
+      "id": "c2",
+      "name": "c2",
+      "type": "cylinder",
+      "params": {
+       "diameter": 6,
+       "h": 40
+      },
+      "position": [
+       5,
+       2,
+       0
+      ],
+      "rotation": [
+       0,
+       15,
+       0
+      ],
+      "mode": "cut",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     }
+    ],
+    "operation": "subtract"
+   }
+  }
+ ],
+ "layers": [
+  {
+   "id": "layer-1",
+   "name": "Layer 1"
+  }
+ ],
+ "activeLayer": "layer-1",
+ "buildPlaneEnabled": false
+}

@@ -1,0 +1,205 @@
+{
+ "format": "tristancad",
+ "version": 1,
+ "name": "Two layers",
+ "objects": [
+  {
+   "id": "l1-result",
+   "layerId": "layer-1",
+   "name": "t1 − c1",
+   "type": "joined",
+   "mode": "solid",
+   "enabled": true,
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "params": {
+    "children": [
+     {
+      "id": "t1",
+      "name": "t1",
+      "type": "box",
+      "params": {
+       "w": 20,
+       "d": 20,
+       "h": 10
+      },
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "solid",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     },
+     {
+      "id": "c1",
+      "name": "c1",
+      "type": "box",
+      "params": {
+       "w": 6,
+       "d": 6,
+       "h": 30
+      },
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "cut",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     }
+    ],
+    "operation": "subtract"
+   }
+  },
+  {
+   "id": "bystander",
+   "name": "bystander",
+   "type": "box",
+   "params": {
+    "w": 8,
+    "d": 8,
+    "h": 30
+   },
+   "position": [
+    0,
+    0,
+    12
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "mode": "solid",
+   "enabled": true,
+   "layerId": "layer-1"
+  },
+  {
+   "id": "l2-result",
+   "layerId": "layer-2",
+   "name": "t2 − c2",
+   "type": "joined",
+   "mode": "solid",
+   "enabled": true,
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "params": {
+    "children": [
+     {
+      "id": "t2",
+      "name": "t2",
+      "type": "box",
+      "params": {
+       "w": 20,
+       "d": 20,
+       "h": 10
+      },
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "solid",
+      "enabled": true,
+      "layerId": "layer-2",
+      "sourceMode": "solid"
+     },
+     {
+      "id": "c2",
+      "name": "c2",
+      "type": "cylinder",
+      "params": {
+       "diameter": 10,
+       "h": 30
+      },
+      "position": [
+       5,
+       5,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "cut",
+      "enabled": true,
+      "layerId": "layer-2",
+      "sourceMode": "solid"
+     }
+    ],
+    "operation": "subtract"
+   }
+  },
+  {
+   "id": "l2-hole",
+   "name": "l2-hole",
+   "type": "cylinder",
+   "params": {
+    "diameter": 3,
+    "h": 30
+   },
+   "position": [
+    -6,
+    -6,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "mode": "cut",
+   "enabled": true,
+   "layerId": "layer-2"
+  }
+ ],
+ "layers": [
+  {
+   "id": "layer-1",
+   "name": "Layer 1"
+  },
+  {
+   "id": "layer-2",
+   "name": "Layer 2"
+  }
+ ],
+ "activeLayer": "layer-1",
+ "buildPlaneEnabled": false
+}

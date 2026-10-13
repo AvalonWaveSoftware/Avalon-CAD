@@ -38,19 +38,13 @@ export function alignFaceCenters(o,axis,sign,target,targetAxis,targetSign,overla
 export function withRoundover(o,edgeIndices,radius){const result=structuredClone(o);result.fillets=result.fillets||[];const chosen=new Set(edgeIndices);result.fillets=result.fillets.map(f=>({...f,edges:f.edges.filter(e=>!chosen.has(e))})).filter(f=>f.edges.length);if(radius>0)result.fillets.push({edges:[...chosen],radius});return result;}
 export function conjoined(objects,id,bounds){const center=bounds?bounds.min.map((v,i)=>(v+bounds.max[i])/2):[0,1,2].map(i=>objects.reduce((s,o)=>s+o.position[i],0)/objects.length);return {id,layerId:layerOf(objects[0]),name:'Conjoined solid',type:'joined',mode:'solid',enabled:true,position:center,rotation:[0,0,0],params:{children:objects.map(o=>({...structuredClone(o),position:o.position.map((v,i)=>v-center[i])}))}};}
 export function selectedPieces(project,ids){return ids.map(id=>project.objects.find(o=>o.id===id)).filter(o=>o?.enabled);}
-export function prepareSubtractTargets(targets,cutouts=[]){
- return targets.map(o=>{const active=cutouts.filter(c=>!o.excludedCutouts?.includes(c.id));if(!active.length)return o;
-  const group=conjoined([{...structuredClone(o),mode:'solid'},...active.map(c=>({...structuredClone(c),mode:'cut'}))],o.id);group.name=o.name;group.mode=o.mode;return group;
- });
-}
-export function booleanResult(objects,operation,id,bounds,cutouts=[],fillOverlaps=false){
+export function mergeResult(objects,id,bounds,cutouts=[],fillOverlaps=false){
  assertSameLayer(objects,cutouts);
  const child=(o,mode)=>({...structuredClone(o),sourceMode:o.mode,mode});
- const pieces=operation==='subtract'?[...prepareSubtractTargets(objects.slice(1),cutouts).map(o=>child(o,'solid')),child(objects[0],'cut')]:[...objects.map(o=>child(o,'solid')),...cutouts.map(o=>child(o,'cut'))];
- const result=conjoined(pieces,id,bounds);result.params.operation=operation;
- if(operation==='add'&&fillOverlaps)result.params.fillOverlaps=true;
- const excluded=operation==='subtract'?[...objects.slice(1).flatMap(o=>o.excludedCutouts||[]),...cutouts.map(c=>c.id)]:objects.flatMap(o=>o.excludedCutouts||[]);
+ const result=conjoined([...objects.map(o=>child(o,'solid')),...cutouts.map(o=>child(o,'cut'))],id,bounds);result.params.operation='add';
+ if(fillOverlaps)result.params.fillOverlaps=true;
+ const excluded=objects.flatMap(o=>o.excludedCutouts||[]);
  if(excluded.length)result.excludedCutouts=[...new Set(excluded)];
- result.name=operation==='subtract'?((objects.length===2?objects[1].name:(objects.length-1)+' parts')+' − '+objects[0].name).slice(0,60):'Added solid';return result;
+ result.name='Merged solid';return result;
 }
 export function connectingBridges(objects,diameter,create){const result=[];for(let i=1;i<objects.length;i++){const a=new T.Vector3(...objects[0].position),b=new T.Vector3(...objects[i].position),v=b.clone().sub(a),length=v.length();if(length<.05)continue;const q=new T.Quaternion().setFromUnitVectors(new T.Vector3(0,0,1),v.normalize()),e=new T.Euler().setFromQuaternion(q,'ZYX'),o=create('cylinder',{diameter,h:length+diameter},a.add(b).multiplyScalar(.5).toArray(),'Connecting bridge');o.rotation=[e.x,e.y,e.z].map(T.MathUtils.radToDeg);o.layerId=layerOf(objects[0]);result.push(o);}return result;}

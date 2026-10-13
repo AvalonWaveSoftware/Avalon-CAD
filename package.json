@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build:web": "node build-web.mjs",
-    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs",
+    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs && node tests/migration.mjs && node tests/objects-panel.mjs && node tests/create-prefab.mjs",
     "build:rust": "./build-rust.sh",
     "test:local": "node tests/local-runtime.mjs",
     "test:browser": "node tests/browser-runtime.mjs",
@@ -16,7 +16,9 @@
     "test:layers": "node tests/layers.mjs && node tests/layers-interaction.mjs",
     "test:prefabs": "node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs",
     "test:overlap": "node tests/overlap-display.mjs",
-    "test:plane": "node tests/build-plane.mjs"
+    "test:plane": "node tests/build-plane.mjs",
+    "test:migration": "node tests/migration.mjs",
+    "test:panel": "node tests/objects-panel.mjs && node tests/create-prefab.mjs"
   },
   "keywords": [],
   "author": "",

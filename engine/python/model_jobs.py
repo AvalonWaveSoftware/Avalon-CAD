@@ -28,7 +28,7 @@ def validate_objects(objects):
                 raise ValueError("Invalid object coordinates.")
 
 def build_model(project, tolerance, individual=False):
-    if field(project, "format") != "tristancad" or field(project, "version") != 1:
+    if field(project, "format") != "tristancad" or field(project, "version") != 2:
         raise ValueError("This is not a supported AvalonCad project.")
     validate_objects(project.objects)
     native.validate_layers(project)
@@ -81,15 +81,14 @@ def build_model(project, tolerance, individual=False):
             native.dispose(solid)
 
 def evaluate_boolean(job):
+    # Merge (union) only. Per-primitive cutouts subtract on their own layer.
     objects, operation = job.objects, job.operation
     tolerance = field(job, "tolerance", .03)
     cutouts = field(job, "cutouts", [])
-    if operation not in ("add", "subtract"):
-        raise ValueError("Choose Add or Subtract.")
-    if operation == "subtract" and len(objects) < 2:
-        raise ValueError("Select at least two shapes: first the cutter, then the parts to keep.")
-    if operation == "add" and (not len(objects) or len(objects) < 2 and not len(cutouts)):
-        raise ValueError("Select at least two shapes to add together.")
+    if operation != "add":
+        raise ValueError("Only Merge is supported.")
+    if not len(objects) or len(objects) < 2 and not len(cutouts):
+        raise ValueError("Select at least two shapes to merge.")
     validate_objects(list(objects) + list(cutouts))
     native.assert_same_layer(objects, cutouts)
     owned = []
@@ -97,31 +96,20 @@ def evaluate_boolean(job):
         owned.append(solid)
         return solid
     try:
-        prepared = [objects[0]] + list(native.subtract_targets(to_js(list(objects)[1:]), cutouts)) if operation == "subtract" else objects
-        solids = [own(native.make_object(o, tolerance, None)) for o in prepared]
-        removed_volume = target_volume = 0
-        if operation == "subtract":
-            cutter, target = solids[0], own(native.union(to_js(solids[1:])))
-            target_volume = target.volume()
-            overlap = own(target.intersect(cutter))
-            removed_volume = overlap.volume()
-            if overlap.isEmpty() or not removed_volume > 0:
-                raise ValueError("These shapes do not overlap. Move the cutter through the part to keep.")
-            result = own(target.subtract(cutter))
+        solids = [own(native.make_object(o, tolerance, None)) for o in objects]
+        cuts = own(native.union(to_js([own(native.make_object(o, tolerance, None)) for o in cutouts]))) if len(cutouts) else None
+        if cuts is not None and field(job, "fillOverlaps", False):
+            base = own(solids[0].subtract(cuts))
+            result = own(native.union(to_js([base] + solids[1:])))
         else:
-            cuts = own(native.union(to_js([own(native.make_object(o, tolerance, None)) for o in cutouts]))) if len(cutouts) else None
-            if cuts is not None and field(job, "fillOverlaps", False):
-                base = own(solids[0].subtract(cuts))
-                result = own(native.union(to_js([base] + solids[1:])))
-            else:
-                result = own(native.union(to_js(solids)))
-                if cuts is not None:
-                    result = own(result.subtract(cuts))
+            result = own(native.union(to_js(solids)))
+            if cuts is not None:
+                result = own(result.subtract(cuts))
         if result.status() != "NoError":
             raise ValueError("The operation could not produce a closed solid. Check the shapes and their overlap.")
         if result.isEmpty() or not result.volume() > 0:
-            raise ValueError("The cutter removes the entire part. Reduce the cutter or change its position." if operation == "subtract" else "The selected shapes have no material remaining.")
-        return native.boolean_result(result, removed_volume, target_volume)
+            raise ValueError("The selected shapes have no material remaining.")
+        return native.boolean_result(result, 0, 0)
     finally:
         for solid in owned:
             native.dispose(solid)
