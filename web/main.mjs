@@ -22,14 +22,21 @@ const BACKUP='tristancad.autosave.v1-backup',pendingWarnings=[];
 // Every project load (autosave, saved list, import, __cad.load) migrates v1 → v2 before validation.
 // Undo/redo snapshots are already v2 and use validateProject directly.
 function loadProject(raw){const warnings=[],p=validateProject(migrateProject(raw,warnings));if(warnings.length){const message=warnings.length===1?warnings[0]:warnings.length+' older Subtract results were kept as combined objects. They render as before.';if(typeof toastTimer==='undefined'||!$('toast'))pendingWarnings.push(message);else toast(message);}return p;}
-try{const raw=localStorage.getItem('tristancad.autosave');if(raw){const value=JSON.parse(raw);if(value?.version===1&&!localStorage.getItem(BACKUP))localStorage.setItem(BACKUP,raw);project=loadProject(value);}saved=JSON.parse(localStorage.getItem('tristancad.projects')||'{}');}catch(e){console.warn(e);}
+// Load order is deliberately split so a full localStorage can never stop the project or the saved list from loading.
+// A v1 autosave is copied to BACKUP before it can be overwritten; if that copy fails, autosave stays off (keepV1) so the original survives.
+let keepV1=false;
+{let raw=null,value=null;try{raw=localStorage.getItem('tristancad.autosave');value=raw?JSON.parse(raw):null;}catch(e){console.warn(e);}
+ const v1=raw&&value?.version===1;let backedUp=false;
+ if(v1){try{localStorage.setItem(BACKUP,raw);backedUp=true;}catch(e){console.warn(e);keepV1=true;pendingWarnings.push('Storage is full, so your older autosave could not be backed up. Autosave is paused to keep it; use Project → Export project or free space.');}}
+ if(value){try{project=loadProject(value);}catch(e){console.warn(e);if(v1){keepV1=keepV1||!backedUp;pendingWarnings.push(backedUp?'Your older autosave could not be opened ('+e.message+'). A copy is kept under tristancad.autosave.v1-backup.':'Your older autosave could not be opened ('+e.message+'). It was left untouched.');}}}
+ try{saved=JSON.parse(localStorage.getItem('tristancad.projects')||'{}');}catch(e){console.warn(e);}}
 const worker=new Worker(new URL('worker.js?v=2.4.0',import.meta.url),{type:'module'}),requests=new Map();
 function request(type,data){return new Promise((resolve,reject)=>{const id=++sequence;requests.set(id,{resolve,reject});worker.postMessage({id,type,...data});});}
 worker.onmessage=({data})=>{const r=requests.get(data.id);if(!r)return;requests.delete(data.id);data.error?r.reject(Error(data.error)):r.resolve(data);};
 worker.onerror=e=>{for(const r of requests.values())r.reject(Error('The modeling engine could not start. Close and reopen the app.'));requests.clear();toast('The modeling engine could not start: '+e.message,true);};
 function toast(message,error=false){clearTimeout(toastTimer);$('toast').textContent=message;$('toast').classList.toggle('error',error);$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,error?7000:3500);}
 function status(s){$('busy').textContent=s;}
-function autosave(){if(touch?.isDragging()||touch?.isCommitting())return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{if(touch?.isDragging()||touch?.isCommitting())return;try{localStorage.setItem('tristancad.autosave',JSON.stringify(project));dirty=false;}catch(e){toast('Autosave is full. Use Project → Export project to back up this model.',true);}},350);}
+function autosave(){if(touch?.isDragging()||touch?.isCommitting())return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{if(touch?.isDragging()||touch?.isCommitting())return;if(keepV1){try{localStorage.setItem(BACKUP,localStorage.getItem('tristancad.autosave'));keepV1=false;}catch(e){return;}}try{localStorage.setItem('tristancad.autosave',JSON.stringify(project));dirty=false;}catch(e){toast('Autosave is full. Use Project → Export project to back up this model.',true);}},350);}
 // historySelection/futureSelection run parallel to history/future so Undo/Redo also restore the selection.
 let historySelection=[],futureSelection=[];
 function pushHistory(snapshot,ids=null){history.push(snapshot);historySelection.push(ids);if(history.length>40){history.shift();historySelection.shift();}future=[];futureSelection=[];}
