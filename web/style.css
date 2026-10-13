@@ -18,3 +18,4 @@ header{gap:8px}.brand{min-width:0;flex:1}.brand>span{min-width:0}.brand small{ma
 .unsavedmark{color:#ffb35c;font-size:12px;font-weight:600;margin-left:6px;white-space:nowrap}.unsavedmark[hidden]{display:none}
 body:not(.desktop) #desktopHelp{position:absolute;top:16px;left:83px;color:#b4c8cd;font-size:10px;line-height:1.7;pointer-events:none;padding:9px 12px;background:#14232bc9;border-radius:8px}
 @media (hover:none) and (pointer:coarse){body:not(.desktop) #desktopHelp{display:none}}
+#objectsPanel:not([hidden])~#desktopHelp{display:none}
