@@ -6,7 +6,7 @@ import {initKernel,buildModel,writeSTL} from '../web/kernel.mjs';
 import {initLocalEngine} from '../web/local-engine.mjs';
 import {displayGeometry} from '../web/display-geometry.mjs';
 import {blank,object,defaults,plate,tray} from '../web/templates.mjs';
-import {withRoundover,booleanResult} from '../web/operations.mjs';
+import {withRoundover,mergeResult} from '../web/operations.mjs';
 import {evaluateBoolean} from '../web/boolean-model.mjs';
 
 const K=await initKernel(),start=performance.now();
@@ -32,17 +32,17 @@ for(const type of Object.keys(defaults)){
  if(!['box','threadrod','threadtube','wedge','pyramid'].includes(type)){const fixed={...shape,resolution:{mode:'faces',count:type==='rounded'?3:32}};previewParity({...blank(),objects:[fixed]},.03);}
 }
 const smooth=object('sphere',{diameter:20});smooth.resolution={mode:'tolerance',tolerance:.005};const faceted=object('sphere',{diameter:20},[8,0,0]);faceted.resolution={mode:'faces',count:32};
-const info=evaluateBoolean(K,[smooth,faceted],'add'),mixed=booleanResult([smooth,faceted],'add','mixed-local',info.bounds);previewParity({...blank(),objects:[mixed]},.15);
-const cutter=object('cylinder',{diameter:5,h:30});cutter.resolution={mode:'faces',count:12};const cutInfo=evaluateBoolean(K,[cutter,smooth],'subtract'),cut=booleanResult([cutter,smooth],'subtract','cut-local',cutInfo.bounds);previewParity({...blank(),objects:[cut]},.15);
+const info=evaluateBoolean(K,[smooth,faceted],'add'),mixed=mergeResult([smooth,faceted],'mixed-local',info.bounds);previewParity({...blank(),objects:[mixed]},.15);
+const cutter=object('cylinder',{diameter:5,h:30});cutter.resolution={mode:'faces',count:12};previewParity({...blank(),objects:[smooth,{...cutter,mode:'cut'}]},.15);
 const box=object('box',{w:30,d:20,h:10}),rounded=withRoundover(box,Array.from({length:12},(_,i)=>i),1);previewParity({...blank(),objects:[rounded]},.01);
 const roundedFacet=withRoundover({...cutter,params:{diameter:20,h:20}},[0],.5);previewParity({...blank(),objects:[roundedFacet]},.03);
 const fillA=object('box',{w:20,d:20,h:10}),fillB=object('box',{w:20,d:20,h:10},[10,0,0]),fillOther=object('box',{w:10,d:10,h:10},[40,8,0]),stripe=object('box',{w:100,d:4,h:20},[0,8,0]);stripe.mode='cut';
-const fillInfo=evaluateBoolean(K,[fillA,fillB],'add',.03,[stripe],true),fill=booleanResult([fillA,fillB],'add','fill-local',fillInfo.bounds,[stripe],true);fill.excludedCutouts=[stripe.id];previewParity({...blank(),objects:[fill,fillOther,stripe]},.03);
-for(const operation of ['add','subtract']){
- const shapes=operation==='add'?[smooth,faceted]:[cutter,smooth],expected=evaluateBoolean(K,shapes,operation,.03),actual=run({type:'boolean',objects:shapes,operation,tolerance:.03});
+const fillInfo=evaluateBoolean(K,[fillA,fillB],'add',.03,[stripe],true),fill=mergeResult([fillA,fillB],'fill-local',fillInfo.bounds,[stripe],true);fill.excludedCutouts=[stripe.id];previewParity({...blank(),objects:[fill,fillOther,stripe]},.03);
+for(const operation of ['add']){
+ const shapes=[smooth,faceted],expected=evaluateBoolean(K,shapes,operation,.03),actual=run({type:'boolean',objects:shapes,operation,tolerance:.03});
  for(const key of ['count','bounds','volume','removedVolume','targetVolume'])assert.deepEqual(actual[key],expected[key]);checks++;
 }
-const bad=runtime.process({id:++id,type:'boolean',objects:[{...cutter,position:[100,0,0]},smooth],operation:'subtract',tolerance:.03});assert.ok(bad.error.includes('do not overlap'));checks++;
+const bad=runtime.process({id:++id,type:'boolean',objects:[cutter,smooth],operation:'subtract',tolerance:.03});assert.ok(bad.error.includes('Only Merge'));const lone=runtime.process({id:++id,type:'boolean',objects:[smooth],operation:'add',tolerance:.03});assert.ok(lone.error.includes('at least two'));checks++;
 assert.throws(()=>runtime.rust.prepare(new Float32Array([0,0,0]),new Uint32Array([0,1,2])),/invalid mesh/);
 assert.throws(()=>runtime.rust.writeSTL(new Float32Array([NaN,0,0]),new Uint32Array([0,0,0])),/invalid STL/);
 assert.throws(()=>runtime.rust.prepare(new Float32Array([0,0,0]),new Uint32Array([0,0,0]),new Uint8Array(2)),/invalid mesh/);checks++;

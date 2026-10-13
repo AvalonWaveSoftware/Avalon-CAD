@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build:web": "node build-web.mjs",
-    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs",
+    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs && node tests/migration.mjs && node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs",
     "build:rust": "./build-rust.sh",
     "test:local": "node tests/local-runtime.mjs",
     "test:browser": "node tests/browser-runtime.mjs",
@@ -20,7 +20,9 @@
     "build:mac": "npm run build:web && node desktop/build-mac.mjs",
     "stage:desktop": "node desktop/stage.mjs",
     "test:desktop": "node tests/desktop-files.mjs && node desktop/stage.mjs && node tests/desktop-shell.mjs",
-    "test:desktop-browser": "node tests/desktop-runtime.mjs"
+    "test:desktop-browser": "node tests/desktop-runtime.mjs",
+    "test:migration": "node tests/migration.mjs",
+    "test:panel": "node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs"
   },
   "keywords": [],
   "author": "",

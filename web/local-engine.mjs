@@ -1,6 +1,5 @@
 import {makeObject,meshData,validateProject} from './kernel.mjs';
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
-import {prepareSubtractTargets} from './operations.mjs';
 import {objectTopology} from './cad-solid.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
 import {isThread,threadTopology} from './threads.mjs';
@@ -18,7 +17,7 @@ export async function initLocalEngine(K,options={}){
  const bridge={runtime_info:version=>({python:version,rust:rust.version,local:true}),
   place_object:placeObject,ground_project:groundProject,
   floor_solid:(o,s)=>{const z=s.isEmpty()?0:s.boundingBox().min[2],delta=Math.max(0,-z);return delta>0?{solid:s.translate([0,0,delta]),adjustment:{id:o.id,sourcePosition:Array.from(o.position),position:[o.position[0],o.position[1],o.position[2]+delta]}}:null;},
-  validate_layers:validateLayers,assert_same_layer:assertSameLayer,subtract_targets:prepareSubtractTargets,
+  validate_layers:validateLayers,assert_same_layer:assertSameLayer,
   styles:()=>new Map(),make_object:(o,tolerance,styles)=>makeObject(K,o,tolerance,styles),
   dispose:s=>s.delete(),union:solids=>K.Manifold.union(solids),
   part:(o,s,styles)=>({id:o.id,mode:o.mode,...meshData(s,styles),bounds:s.boundingBox(),topology:structuredClone(isThread(o)?threadTopology(K.threadMesh(o,resolutionTolerance(o,.15)),o):objectTopology(o))}),

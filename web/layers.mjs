@@ -17,10 +17,10 @@ export function normalizeLayers(project){
 }
 export function assertSameLayer(objects,cutouts=[]){
  const id=layerOf(objects[0]||{});
- if([...objects,...cutouts].some(o=>layerOf(o)!==id))throw Error('Add and Subtract must use shapes on the same layer. Move them to one layer in Edit first.');
+ if([...objects,...cutouts].some(o=>layerOf(o)!==id))throw Error('Merge needs shapes on the same layer. Move them to one layer in Edit first.');
  return id;
 }
-export function booleanProject(objects){const ids=new Set();function visit(o){ids.add(layerOf(o));if(o.type!=='prefab')for(const c of o.params?.children||[])visit(c);}objects.forEach(visit);return {format:'tristancad',version:1,objects,layers:[...ids].map(id=>({id,name:id}))};}
+export function booleanProject(objects){const ids=new Set();function visit(o){ids.add(layerOf(o));if(o.type!=='prefab')for(const c of o.params?.children||[])visit(c);}objects.forEach(visit);return {format:'tristancad',version:2,objects,layers:[...ids].map(id=>({id,name:id}))};}
 export function materialGroups(objects){
  const enabled=objects.filter(o=>o.enabled!==false),cuts=enabled.filter(o=>o.mode==='cut'),groups=new Map();
  for(const o of enabled.filter(o=>o.mode!=='cut')){const active=cuts.filter(c=>layerOf(c)===layerOf(o)&&!o.excludedCutouts?.includes(c.id)),key=active.map(c=>c.id).join('\0');if(!groups.has(key))groups.set(key,{solids:[],cuts:active});groups.get(key).solids.push(o);}

@@ -14,7 +14,7 @@ export function segments(radius, tolerance) {
   return Math.min(1024, Math.max(24, Math.ceil(Math.PI/Math.acos(Math.max(-1,1-Math.min(tolerance,radius)/radius))/4)*4));
 }
 export function validateProject(p) {
-  if (!p || p.format!=='tristancad' || p.version!==1 || !Array.isArray(p.objects) || p.objects.length>100) throw Error('This is not a supported AvalonCad project (maximum 100 objects).');
+  if (!p || p.format!=='tristancad' || p.version!==2 || !Array.isArray(p.objects) || p.objects.length>100) throw Error('This is not a supported AvalonCad project (maximum 100 objects).');
   const out=structuredClone(p);
   normalizeLayers(out);
   if(out.buildPlaneEnabled!==undefined&&typeof out.buildPlaneEnabled!=='boolean')throw Error('Invalid build-plane setting.');
@@ -41,8 +41,8 @@ export function validateProject(p) {
     }
     if(o.scale && (!Array.isArray(o.scale)||o.scale.length!==3||o.scale.some(v=>!Number.isFinite(v)||v<.001||v>1000)))throw Error('Invalid object scale.');
     if(o.fillets && (!Array.isArray(o.fillets)||o.fillets.length>100||o.fillets.some(f=>!Number.isFinite(f.radius)||f.radius<0||f.radius>10000||!Array.isArray(f.edges)||f.edges.length>500||f.edges.some(i=>!Number.isInteger(i)||i<0||i>10000))))throw Error('Invalid roundover.');
-    if(o.type==='joined') {if(!Array.isArray(o.params.children)||o.params.children.length<2)throw Error('A combined solid needs at least two components.');if(!o.params.children.some(c=>c.mode!=='cut'))throw Error('Combined objects need positive material.');validateProject({format:'tristancad',version:1,objects:o.params.children,layers:out.layers,activeLayer:out.activeLayer});}
-    if(o.type==='prefab'){if(!Array.isArray(o.params.children)||!o.params.children.length||o.params.children.length>100||!o.params.children.some(c=>c.enabled!==false&&c.mode!=='cut'))throw Error('A prefab needs 1–100 components with positive material.');if(!Array.isArray(o.params.layers))throw Error('The prefab is missing its internal layers.');validateProject({format:'tristancad',version:1,objects:o.params.children,layers:o.params.layers});}
+    if(o.type==='joined') {if(!Array.isArray(o.params.children)||o.params.children.length<2)throw Error('A combined solid needs at least two components.');if(!o.params.children.some(c=>c.mode!=='cut'))throw Error('Combined objects need positive material.');validateProject({format:'tristancad',version:2,objects:o.params.children,layers:out.layers,activeLayer:out.activeLayer});}
+    if(o.type==='prefab'){if(!Array.isArray(o.params.children)||!o.params.children.length||o.params.children.length>100||!o.params.children.some(c=>c.enabled!==false&&c.mode!=='cut'))throw Error('A prefab needs 1–100 components with positive material.');if(!Array.isArray(o.params.layers))throw Error('The prefab is missing its internal layers.');validateProject({format:'tristancad',version:2,objects:o.params.children,layers:o.params.layers});}
     for(const v of Object.values(o.params)) if(typeof v==='number' && (!Number.isFinite(v)||Math.abs(v)>10000)) throw Error('Invalid dimensions.');
     const positiveKeys={wedge:['w','d','h'],pyramid:['w','d','h'],box:['w','d','h'],rounded:['w','d','h','r'],cylinder:['diameter','h'],cone:['diameter','h'],sphere:['diameter'],tube:['diameter','inner','h'],polygon:['h']}[o.type]||[];
     if(positiveKeys.some(k=>!(o.params[k]>=0.05))) throw Error('Dimensions must be at least 0.05 mm.');

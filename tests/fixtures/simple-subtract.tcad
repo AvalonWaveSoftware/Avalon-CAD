@@ -1,0 +1,86 @@
+{
+ "format": "tristancad",
+ "version": 1,
+ "name": "Simple subtract",
+ "objects": [
+  {
+   "id": "simple-result",
+   "layerId": "layer-1",
+   "name": "target − cutter",
+   "type": "joined",
+   "mode": "solid",
+   "enabled": true,
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "params": {
+    "children": [
+     {
+      "id": "target",
+      "name": "target",
+      "type": "box",
+      "params": {
+       "w": 20,
+       "d": 20,
+       "h": 10
+      },
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "solid",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     },
+     {
+      "id": "cutter",
+      "name": "cutter",
+      "type": "box",
+      "params": {
+       "w": 10,
+       "d": 10,
+       "h": 20
+      },
+      "position": [
+       2,
+       1,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "cut",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     }
+    ],
+    "operation": "subtract"
+   }
+  }
+ ],
+ "layers": [
+  {
+   "id": "layer-1",
+   "name": "Layer 1"
+  }
+ ],
+ "activeLayer": "layer-1",
+ "buildPlaneEnabled": false
+}

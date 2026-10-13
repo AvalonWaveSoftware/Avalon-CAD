@@ -4,7 +4,7 @@ import {loadPyodide} from 'pyodide';
 import {initKernel,makeObject,validateProject,readSTL} from '../web/kernel.mjs';
 import {initLocalEngine} from '../web/local-engine.mjs';
 import {defaults,object,blank} from '../web/templates.mjs';
-import {stretch,dimensions,booleanResult} from '../web/operations.mjs';
+import {stretch,dimensions,mergeResult} from '../web/operations.mjs';
 import {parseThreadNumber} from '../web/threads.mjs';
 
 const K=await initKernel(),runtime=await initLocalEngine(K,{loadPyodide,pythonURL:process.cwd()+'/node_modules/pyodide/',pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
@@ -52,8 +52,8 @@ const imperial=object('threadrod',{...defaults.threadrod,units:'imperial',diamet
 const a=run({type:'export',project:project(imperial),tolerance:.005,ground:true}),b=run({type:'export',project:project(metric),tolerance:.005,ground:true});assert.ok(Buffer.from(a.buffer).equals(Buffer.from(b.buffer)));assert.equal(imperial.params.h/imperial.params.pitch,40);
 const imported=object('mesh',{mesh:readSTL(a.buffer)}),s=makeObject(K,imported,.005);assert.equal(s.status(),'NoError');assert.ok(Math.abs(s.volume()-a.volume)<1e-5);s.delete();cases++;
 const rod=object('threadrod',{...defaults.threadrod,h:30},[0,0,15]),plate=object('box',{w:30,d:30,h:4},[0,0,1]);
-const add=run({type:'boolean',operation:'add',objects:[plate,rod],tolerance:.005});assert.equal(add.count,1);const joined=booleanResult([plate,rod],'add','threaded-plate',add.bounds);const jm=run({type:'preview',project:project(joined),tolerance:.005});closed(jm.vertices,jm.triangles);assert.equal(jm.parts[0].topology,null);assert.throws(()=>stretch(joined,2,1,10),/Separate/);cases++;
-const cut=run({type:'boolean',operation:'subtract',objects:[rod,plate],tolerance:.005});assert.ok(cut.removedVolume>0);const hole=booleanResult([rod,plate],'subtract','threaded-hole',cut.bounds);const hm=run({type:'preview',project:project(hole),tolerance:.005});closed(hm.vertices,hm.triangles);cases++;
+const add=run({type:'boolean',operation:'add',objects:[plate,rod],tolerance:.005});assert.equal(add.count,1);const joined=mergeResult([plate,rod],'threaded-plate',add.bounds);const jm=run({type:'preview',project:project(joined),tolerance:.005});closed(jm.vertices,jm.triangles);assert.equal(jm.parts[0].topology,null);assert.throws(()=>stretch(joined,2,1,10),/Separate/);cases++;
+const plateOnly=run({type:'preview',project:project(plate),tolerance:.005});const hm=run({type:'preview',project:{...project(plate),objects:[plate,{...rod,mode:'cut'}]},tolerance:.005});assert.ok(hm.volume<plateOnly.volume);closed(hm.vertices,hm.triangles);cases++;
 for(const change of [{pitch:0},{pitch:10},{h:700},{clearance:-.1},{outer:defaults.threadtube.diameter},{units:'unknown'},{hand:'unknown'}])assert.throws(()=>project(object('threadtube',{...defaults.threadtube,...change})));cases++;
 for(const [s,want] of [['1/4',.25],['3/8',.375],['1 1/2',1.5],['0.025',.025]])assert.equal(parseThreadNumber(s),want);for(const s of ['1/0','NaN','Infinity','a'])assert.throws(()=>parseThreadNumber(s));cases++;
 const backup=JSON.parse(JSON.stringify(project(stretch(imperial,2,-1,4.37))));assert.equal(backup.objects[0].params.units,'imperial');assert.equal(backup.objects[0].params.pitch,1.27);assert.ok(backup.objects[0].params.phase>0);run({type:'preview',project:validateProject(backup),tolerance:.005});assert.ok(Math.abs(dimensions(backup.objects[0])[2]-55.17)<1e-10);cases++;

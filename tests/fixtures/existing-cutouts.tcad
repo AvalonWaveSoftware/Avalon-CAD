@@ -1,0 +1,251 @@
+{
+ "format": "tristancad",
+ "version": 1,
+ "name": "Subtract over existing cutouts",
+ "objects": [
+  {
+   "id": "layered-result",
+   "layerId": "layer-1",
+   "name": "2 parts − drill",
+   "type": "joined",
+   "mode": "solid",
+   "enabled": true,
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "params": {
+    "children": [
+     {
+      "id": "a",
+      "layerId": "layer-1",
+      "name": "a",
+      "type": "joined",
+      "mode": "solid",
+      "enabled": true,
+      "position": [
+       -5,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "params": {
+       "children": [
+        {
+         "id": "a",
+         "name": "a",
+         "type": "box",
+         "params": {
+          "w": 10,
+          "d": 10,
+          "h": 10
+         },
+         "position": [
+          -5,
+          0,
+          0
+         ],
+         "rotation": [
+          0,
+          0,
+          0
+         ],
+         "mode": "solid",
+         "enabled": true,
+         "layerId": "layer-1"
+        },
+        {
+         "id": "stripe",
+         "name": "stripe",
+         "type": "box",
+         "params": {
+          "w": 100,
+          "d": 2,
+          "h": 20
+         },
+         "position": [
+          5,
+          0,
+          0
+         ],
+         "rotation": [
+          0,
+          0,
+          0
+         ],
+         "mode": "cut",
+         "enabled": true,
+         "layerId": "layer-1"
+        }
+       ]
+      },
+      "sourceMode": "solid"
+     },
+     {
+      "id": "b",
+      "name": "b",
+      "type": "box",
+      "params": {
+       "w": 10,
+       "d": 10,
+       "h": 10
+      },
+      "position": [
+       10,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "solid",
+      "enabled": true,
+      "layerId": "layer-1",
+      "excludedCutouts": [
+       "stripe"
+      ],
+      "sourceMode": "solid"
+     },
+     {
+      "id": "drill",
+      "name": "drill",
+      "type": "cylinder",
+      "params": {
+       "diameter": 30,
+       "h": 3
+      },
+      "position": [
+       0,
+       3,
+       0
+      ],
+      "rotation": [
+       90,
+       0,
+       0
+      ],
+      "mode": "cut",
+      "enabled": true,
+      "layerId": "layer-1",
+      "sourceMode": "solid"
+     }
+    ],
+    "operation": "subtract"
+   },
+   "excludedCutouts": [
+    "stripe"
+   ]
+  },
+  {
+   "id": "stripe",
+   "name": "stripe",
+   "type": "box",
+   "params": {
+    "w": 100,
+    "d": 2,
+    "h": 20
+   },
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "mode": "cut",
+   "enabled": true,
+   "layerId": "layer-1"
+  },
+  {
+   "id": "far-hole",
+   "name": "far-hole",
+   "type": "cylinder",
+   "params": {
+    "diameter": 3,
+    "h": 30
+   },
+   "position": [
+    60,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "mode": "cut",
+   "enabled": true,
+   "layerId": "layer-1"
+  },
+  {
+   "id": "bystander",
+   "name": "bystander",
+   "type": "box",
+   "params": {
+    "w": 10,
+    "d": 10,
+    "h": 10
+   },
+   "position": [
+    40,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "mode": "solid",
+   "enabled": true,
+   "layerId": "layer-1"
+  },
+  {
+   "id": "late-hole",
+   "name": "late-hole",
+   "type": "box",
+   "params": {
+    "w": 3,
+    "d": 30,
+    "h": 30
+   },
+   "position": [
+    -12,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "mode": "cut",
+   "enabled": true,
+   "layerId": "layer-1"
+  }
+ ],
+ "layers": [
+  {
+   "id": "layer-1",
+   "name": "Layer 1"
+  }
+ ],
+ "activeLayer": "layer-1",
+ "buildPlaneEnabled": false
+}

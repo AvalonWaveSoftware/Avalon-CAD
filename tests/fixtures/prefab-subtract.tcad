@@ -1,0 +1,176 @@
+{
+ "format": "tristancad",
+ "version": 1,
+ "name": "Prefab containing subtract",
+ "objects": [
+  {
+   "id": "prefab-instance",
+   "name": "Prefab with subtract",
+   "type": "prefab",
+   "mode": "solid",
+   "enabled": true,
+   "layerId": "layer-1",
+   "position": [
+    5,
+    5,
+    7
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "localBounds": {
+    "min": [
+     -10,
+     -10,
+     -5
+    ],
+    "max": [
+     10,
+     10,
+     5
+    ]
+   },
+   "params": {
+    "children": [
+     {
+      "id": "mv5xvc3k-2-6loc8",
+      "layerId": "A",
+      "name": "p-target − p-cutter",
+      "type": "joined",
+      "mode": "solid",
+      "enabled": true,
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "params": {
+       "children": [
+        {
+         "id": "mv5xvc3k-5-dzju1",
+         "name": "p-target",
+         "type": "box",
+         "params": {
+          "w": 20,
+          "d": 20,
+          "h": 10
+         },
+         "position": [
+          0,
+          0,
+          0
+         ],
+         "rotation": [
+          0,
+          0,
+          0
+         ],
+         "mode": "solid",
+         "enabled": true,
+         "layerId": "A",
+         "sourceMode": "solid"
+        },
+        {
+         "id": "mv5xvc3k-6-exog7",
+         "name": "p-cutter",
+         "type": "box",
+         "params": {
+          "w": 6,
+          "d": 30,
+          "h": 30
+         },
+         "position": [
+          0,
+          0,
+          0
+         ],
+         "rotation": [
+          0,
+          0,
+          0
+         ],
+         "mode": "cut",
+         "enabled": true,
+         "layerId": "A",
+         "sourceMode": "solid"
+        }
+       ],
+       "operation": "subtract"
+      }
+     },
+     {
+      "id": "mv5xvc3k-3-uyip4",
+      "name": "p-plug",
+      "type": "box",
+      "params": {
+       "w": 4,
+       "d": 4,
+       "h": 4
+      },
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "solid",
+      "enabled": true,
+      "layerId": "B"
+     },
+     {
+      "id": "mv5xvc3k-4-c5sr9",
+      "name": "p-hole",
+      "type": "box",
+      "params": {
+       "w": 2,
+       "d": 2,
+       "h": 20
+      },
+      "position": [
+       8,
+       8,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       0
+      ],
+      "mode": "cut",
+      "enabled": true,
+      "layerId": "A"
+     }
+    ],
+    "layers": [
+     {
+      "id": "A",
+      "name": "First"
+     },
+     {
+      "id": "B",
+      "name": "Second"
+     }
+    ]
+   }
+  }
+ ],
+ "layers": [
+  {
+   "id": "layer-1",
+   "name": "Layer 1"
+  }
+ ],
+ "activeLayer": "layer-1",
+ "buildPlaneEnabled": false
+}
