@@ -17,7 +17,7 @@ if (!fs.existsSync(zip)) {
 }
 if (createHash('sha256').update(fs.readFileSync(zip)).digest('hex') !== expected) throw Error('Runtime checksum mismatch. Delete the incomplete cached ZIP and build again.');
 const dirs = await packager({dir: stageDesktop(root), out: path.join(root, 'build', 'mac'), platform: 'darwin', arch: 'arm64', electronVersion: version, electronZipDir: cache,
-  name: 'AvalonCad', appBundleId: 'com.avaloncad.desktop', appVersion: '2.6.1', buildVersion: '19', overwrite: true, asar: false, prune: false,
+  name: 'AvalonCad', appBundleId: 'com.avaloncad.desktop', appVersion: '2.6.1', buildVersion: '20', overwrite: true, asar: false, prune: false,
   icon: path.join(root, 'desktop', 'AvalonCad.icns'), extendInfo: {LSMinimumSystemVersion: '13.0', NSHighResolutionCapable: true,
     CFBundleDocumentTypes: [{CFBundleTypeName: 'AvalonCad model', CFBundleTypeExtensions: ['tcad', 'avprefab', 'stl'], CFBundleTypeRole: 'Editor', LSHandlerRank: 'Alternate'}]}});
 const bundle = path.join(dirs[0], 'AvalonCad.app');
