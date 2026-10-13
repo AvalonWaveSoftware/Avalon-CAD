@@ -35,4 +35,14 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 // 4: invalid v1 autosave with full storage: no backup possible, so the original autosave is left untouched.
 {const bad=JSON.stringify({format:'tristancad',version:1,name:'Broken',objects:'nope'}),U=await H.boot({'tristancad.autosave':bad},{fill:true});
  await U.wait(()=>/untouched|backed up/.test(U.$('toast').textContent),'full invalid');U.w.__cad.load(savedProject);await pause(500);assert.equal(U.w.localStorage.getItem('tristancad.autosave'),bad);U.close();checks++;}
-console.log('PASS:',checks,'storage recovery cases: all startup warnings shown together, paused autosave marker and throttled re-warning, backup kept unless a v1 load is resaved, full localStorage still loads the v1 autosave and saved projects without overwriting either, backup always refreshed for v1, invalid v1 autosave names the backup key or is left untouched.');
+// 5: desktop close (beforeunload) with full storage must not overwrite a v1 autosave that has no backup, nor saved projects.
+{const U=await H.boot({'tristancad.autosave':legacy,'tristancad.projects':projects},{fill:true,desktop:true}),{w}=U;
+ await U.wait(()=>w.__cad.model.parts.length>0,'desktop full load');assert.equal(w.localStorage.getItem(BACKUP),null);
+ w.__cad.load(savedProject);await pause(500);w.dispatchEvent(new w.Event('beforeunload'));
+ assert.equal(w.localStorage.getItem('tristancad.autosave'),legacy,'close kept v1 autosave');assert.equal(w.localStorage.getItem('tristancad.projects'),projects);assert.equal(w.localStorage.getItem(BACKUP),null);U.close();checks++;}
+// 6: desktop close with an invalid v1 that was left untouched must not replace it with an empty 'My model'.
+{// padded so an empty 'My model' snapshot is smaller than it and would fit in full storage.
+ const bad=JSON.stringify({format:'tristancad',version:1,name:'Broken',objects:'nope',notes:'x'.repeat(8000)}),U=await H.boot({'tristancad.autosave':bad,'tristancad.projects':projects},{fill:true,desktop:true}),{w}=U;
+ await U.wait(()=>/untouched/.test(U.$('toast').textContent),'desktop invalid');w.__cad.load(savedProject);await pause(500);w.dispatchEvent(new w.Event('beforeunload'));
+ assert.equal(w.localStorage.getItem('tristancad.autosave'),bad,'close kept invalid v1');assert.equal(w.localStorage.getItem('tristancad.projects'),projects);U.close();checks++;}
+console.log('PASS:',checks,'storage recovery cases: desktop close never overwrites an unbacked v1 (valid or invalid), all startup warnings shown together, paused autosave marker and throttled re-warning, backup kept unless a v1 load is resaved, full localStorage still loads the v1 autosave and saved projects without overwriting either, backup always refreshed for v1, invalid v1 autosave names the backup key or is left untouched.');
