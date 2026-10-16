@@ -21,8 +21,12 @@ async function measure(root,checkStale){
    const P=WebGL2RenderingContext.prototype;for(const f of ['drawArrays','drawElements','drawArraysInstanced','drawElementsInstanced']){const o=P[f];P[f]=function(...a){window.__n.draws++;return o.apply(this,a);};}});
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);await page.waitForFunction(()=>window.__cad?.model,null,{timeout:120000});
   const cdp=await page.context().newCDPSession(page);await cdp.send('Performance.enable');const taskSec=async()=>(await cdp.send('Performance.getMetrics')).metrics.find(m=>m.name==='TaskDuration').value;
-  const idle=async()=>{await page.waitForTimeout(9000);// the load toast hides on its own 7 s timer, and every DOM change lingers 1 s
-await page.evaluate(()=>{window.__n.raf=0;window.__n.draws=0;});const t0=await taskSec();await page.waitForTimeout(5000);const t1=await taskSec();const n=await page.evaluate(()=>({...window.__n}));return {rafCallbacks:n.raf,draws:n.draws,mainTaskMs:Math.round((t1-t0)*1000)};};
+  // QA: the idle window is timed from the model's arrival, not from the load call. Wait until the last preview has
+  // arrived (model object unchanged for 1 s), then 9 s from that arrival (the load toast hides on its own 7 s timer and
+  // every DOM change lingers 1 s), and check the model did not change during the window.
+  const arrival=()=>page.evaluate(()=>new Promise(r=>{let m=window.__cad.model,at=performance.now();const f=()=>{if(window.__cad.model!==m){m=window.__cad.model;at=performance.now();}if(performance.now()-at>=1000)r(at);else setTimeout(f,50);};f();}));
+  const idle=async()=>{const at=await arrival();await page.evaluate(at=>new Promise(r=>setTimeout(r,Math.max(0,at+9000-performance.now()))),at);await page.evaluate(()=>{window.__idleModel=window.__cad.model;});
+await page.evaluate(()=>{window.__n.raf=0;window.__n.draws=0;});const t0=await taskSec();await page.waitForTimeout(5000);const t1=await taskSec();const n=await page.evaluate(()=>({...window.__n}));if(!await page.evaluate(()=>window.__idleModel===window.__cad.model))throw Error('the model changed during the idle window');return {rafCallbacks:n.raf,draws:n.draws,mainTaskMs:Math.round((t1-t0)*1000)};};
   const out={};await page.evaluate(()=>window.__cad.load(window.__cad.templates.blank()));out.idleBlank=await idle();
   const load=n=>page.evaluate(n=>{const p=window.__cad.templates.blank();const types=['box','cylinder','sphere','tube','cone'],D={box:{w:30,d:30,h:15},cylinder:{diameter:20,h:20},sphere:{diameter:25},tube:{diameter:25,inner:18,h:20},cone:{diameter:25,top:8,h:25}};
    for(let i=0;i<n;i++){const t=types[i%5],q={...D[t]};q.h=(q.h||10)+i*.1;if(t==='sphere')q.diameter+=i*.1;p.objects.push({id:'o'+i,name:t+i,type:t,params:q,position:[(i%10)*35,Math.floor(i/10)*35,0],rotation:[0,0,0],mode:'solid',enabled:true,layerId:p.activeLayer});}window.__cad.load(p);},n);
