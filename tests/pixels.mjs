@@ -17,9 +17,18 @@ const H={
  async open(env,{desktop=false}={}){
   const ctx=await env.browser.newContext(desktop?{viewport:{width:1440,height:900},deviceScaleFactor:1,serviceWorkers:'block'}:{viewport:{width:412,height:915},deviceScaleFactor:2,hasTouch:true,isMobile:true,serviceWorkers:'block'});
   await ctx.route('**/*',r=>r.request().url().startsWith(env.origin+'/')?r.continue():r.abort());
-  const page=await ctx.newPage();page.on('pageerror',e=>console.error('pageerror',e.message));
+  // Under heavy load a screenshot or navigation can take >30 s; give every Playwright step 3 min instead of failing.
+  const page=await ctx.newPage();page.setDefaultTimeout(180000);page.on('pageerror',e=>console.error('pageerror',e.message));
+  // Deterministic UI timers: the app's long UI timers (live-measure hide 1.6 s, toasts 7 s, render linger 1 s) fire on
+  // wall-clock time, so under load a capture could land before or after them. While __pixelHold is set, callbacks of
+  // timers of ≥1 s are deferred until __pixelRelease(); the app's code and output are unchanged, only when they fire.
+  await page.addInitScript(()=>{const set=window.setTimeout.bind(window),held=[];window.__pixelHold=true;
+   const clear=window.clearTimeout.bind(window);
+   window.setTimeout=function(fn,ms,...a){if(typeof fn!=='function'||!(ms>=1000))return set(fn,ms,...a);const id=set(()=>{if(window.__pixelHold)held.push({id,run:()=>fn(...a)});else fn(...a);},ms);return id;};
+   window.clearTimeout=id=>{const i=held.findIndex(h=>h.id===id);if(i>=0)held.splice(i,1);clear(id);};
+   window.__pixelRelease=()=>{window.__pixelHold=false;while(held.length)held.shift().run();};window.__pixelRehold=()=>{window.__pixelHold=true;};});
   await page.addInitScript(()=>{window.Android={beginFile(name,mime){window.savedFile={name,mime,chunks:[]}},appendFile(x){window.savedFile.chunks.push(x)},finishFile(){window.savedFile.done=true}};});
-  await page.goto(env.origin+'/index.html');
+  await page.goto(env.origin+'/index.html',{timeout:180000});
   await page.waitForFunction(()=>window.__cad?.model?.engine?.local===true,{},{timeout:90000});
   return page;},
  tap:(page,mode,points,times=1)=>page.evaluate(([mode,points,times])=>{const t=window.__cad.touch;if(mode)t.setMode(mode);const c=document.querySelector('#scene');for(const p of points){const at=t.pointScreen(p);for(let i=0;i<times;i++)for(const type of ['pointerdown','pointerup'])c.dispatchEvent(new PointerEvent(type,{clientX:at[0],clientY:at[1],pointerId:1,pointerType:'touch',bubbles:true}));}},[mode,points,times]),
@@ -47,6 +56,19 @@ async function settle(page){await idle(page);await page.waitForFunction(()=>!win
 // float equality cost 10–13 s per capture. Motion below 1e-6 px for 3 polls cannot move a rasterized pixel; the gate itself
 // stays at 0 differing pixels (a capture taken too early would fail, not pass).
  await page.waitForFunction(()=>{const p=window.__cad.touch.pointScreen([10,-5,5]),q=window.__probe;window.__same=q&&Math.abs(p[0]-q[0])<1e-6&&Math.abs(p[1]-q[1])<1e-6?window.__same+1:0;window.__probe=p;return window.__same>=3;},null,{polling:100,timeout:60000});}
+// QA flake fix: under load, labels (#dims/#liveMeasure text and positions), late font swaps and the last damping
+// frames could still be in flight after settle(). Capture only once the scene is provably still: fonts loaded, no
+// worker job running, camera stable, and then two consecutive captures (screenshot + DOM snapshot) taken ≥250 ms and
+// several frames apart are identical. A frame that is still changing is retried, never compared; the app is untouched.
+async function frames(page,n){await page.evaluate(n=>new Promise(r=>{const f=k=>k?requestAnimationFrame(()=>f(k-1)):r();f(n);}),n);}
+async function stillShot(page){
+ await page.evaluate(()=>document.fonts.ready.then(()=>{}));await settle(page);
+ let prev=null,prevDom=null;
+ for(let i=0;i<40;i++){await frames(page,3);await page.waitForTimeout(250);await idle(page);
+  const png=await page.screenshot({animations:'disabled',caret:'hide'}),dom=JSON.stringify(await domSnapshot(page));
+  if(prev&&png.equals(prev)&&dom===prevDom&&await page.evaluate(()=>document.fonts.status==='loaded'))return {png,dom:JSON.parse(dom),tries:i+1};
+  prev=png;prevDom=dom;}
+ throw Error('scene never settled (40 captures)');}
 const ob=(id,type,params,position,extra={})=>({id,name:extra.name||id,type,params,position,rotation:[0,0,0],mode:'solid',enabled:true,layerId:'layer-1',...extra});
 const proj=(name,objects,extra={})=>({format:'tristancad',version:2,name,objects,layers:[{id:'layer-1',name:'Layer 1'}],activeLayer:'layer-1',...extra});
 const D={box:{w:30,d:30,h:15},cylinder:{diameter:20,h:20},sphere:{diameter:25},tube:{diameter:25,inner:18,h:20},cone:{diameter:25,top:8,h:25}};
@@ -106,9 +128,9 @@ const scenes={
    const a=t.pointScreen(o.position),b=t.pointScreen([o.position[0]+5,o.position[1],o.position[2]]),c=document.querySelector('#scene');const ev=(type,at)=>c.dispatchEvent(new PointerEvent(type,{clientX:at[0],clientY:at[1],pointerId:1,pointerType:'touch',bubbles:true}));
    ev('pointerdown',a);for(let i=1;i<=10;i++)ev('pointermove',[a[0]+(b[0]-a[0])*i/10,a[1]+(b[1]-a[1])*i/10]);ev('pointerup',b);return o.id;});
   await p.waitForFunction(()=>!window.__cad.touch.isCommitting());await idle(p);await s('move-5mm');
-  // The move's live measure hides on its own 1.6 s timer; the baseline captured it hidden because the old always-on
-  // render loop made these steps slower. Wait for that timer (WS4 made the steps faster, not the timer).
-  await p.locator('#undo').click();await idle(p);await p.waitForFunction(()=>document.querySelector('#liveMeasure')?.hidden!==false,null,{timeout:5000});await s('undo');
+  // The move's live measure hides on its own 1.6 s timer: shown in the move-5mm baseline, hidden in undo. Long timers
+  // are held (see open()), so release them and wait for the hide before the undo capture.
+  await p.locator('#undo').click();await idle(p);await p.evaluate(()=>window.__pixelRelease());await p.waitForFunction(()=>document.querySelector('#liveMeasure')?.hidden!==false,null,{timeout:5000});await p.evaluate(()=>window.__pixelRehold());await s('undo');
   await p.locator('#redo').click();await idle(p);await s('redo');},
 };
 const viewports=[['phone',false],['desktop',true]];
@@ -118,7 +140,7 @@ const env=await start();const results=[];const t0=Date.now();
 async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[];const ts=Date.now();
  try{page=await H.open(env,{desktop});await clean(page);const to=Date.now()-ts;if(process.env.PIXEL_TRACE)console.log(`  open ${name}@${vp} ${to}ms`);
   const tr=(l,t)=>process.env.PIXEL_TRACE&&console.log(`    ${name}@${vp} ${l} ${Date.now()-t}ms`);
-  await scenes[name](page,async(step)=>{let t=Date.now();await settle(page);tr('settle',t);t=Date.now();const id=`${name}${step?'.'+step:''}@${vp}`,png=await page.screenshot({animations:'disabled',caret:'hide'});tr('shot',t);t=Date.now();const dom=await domSnapshot(page);tr('dom',t);
+  await scenes[name](page,async(step)=>{let t=Date.now();const id=`${name}${step?'.'+step:''}@${vp}`,{png,dom,tries}=await stillShot(page);tr('still shot ('+tries+' captures)',t);
    const dir=update?null:OUT;if(update){fs.writeFileSync(path.join(PX,id+'.png'),png);fs.writeFileSync(path.join(DOM,id+'.json'),JSON.stringify(dom));}else{fs.writeFileSync(path.join(dir,id+'.png'),png);fs.writeFileSync(path.join(dir,id+'.json'),JSON.stringify(dom));}
    caps.push(id);if(!update){const bp=path.join(PX,id+'.png'),bd=path.join(DOM,id+'.json');const r={id,errors:[]};
     if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
