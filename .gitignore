@@ -25,3 +25,4 @@ desktop/build/
 desktop/dist/
 *.rpm
 tests/perf/.ws2-off/
+tests/perf/.ws3-off/

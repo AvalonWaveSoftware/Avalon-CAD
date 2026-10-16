@@ -10,3 +10,7 @@ export const OCCT_CACHE_ENTRIES=128;
 // LRU (64 entries plus a byte cap), parts carry topologyHash, and the worker ships a packed body only for hashes the
 // UI has not acknowledged. false restores per-preview structuredClone and the shared OCCT_CACHE_ENTRIES cache.
 export const TOPOLOGY_SERVICE=true;
+// WS3: persistent render resources. Display, pick, wire, selection and tool materials are created once per parameter
+// set and reused (same parameters → same program and pixels), snap/handle spheres share one geometry per radius,
+// pick meshes skip vertex normals, and same-length buffers are updated in place. false restores per-edit creation.
+export const PERSISTENT_GL=true;
