@@ -14,3 +14,7 @@ export const TOPOLOGY_SERVICE=true;
 // set and reused (same parameters → same program and pixels), snap/handle spheres share one geometry per radius,
 // pick meshes skip vertex normals, and same-length buffers are updated in place. false restores per-edit creation.
 export const PERSISTENT_GL=true;
+// WS4: render on demand. Frames are drawn only after something changed (controls, scene graph, model, resize,
+// visibility) and while OrbitControls damping is still moving the camera; idle costs no rAF and no draws.
+// false restores the unconditional setAnimationLoop.
+export const RENDER_ON_DEMAND=true;

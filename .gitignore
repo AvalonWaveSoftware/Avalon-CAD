@@ -26,3 +26,4 @@ desktop/dist/
 *.rpm
 tests/perf/.ws2-off/
 tests/perf/.ws3-off/
+tests/perf/.ws4-off/

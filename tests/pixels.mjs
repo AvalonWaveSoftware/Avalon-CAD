@@ -106,7 +106,9 @@ const scenes={
    const a=t.pointScreen(o.position),b=t.pointScreen([o.position[0]+5,o.position[1],o.position[2]]),c=document.querySelector('#scene');const ev=(type,at)=>c.dispatchEvent(new PointerEvent(type,{clientX:at[0],clientY:at[1],pointerId:1,pointerType:'touch',bubbles:true}));
    ev('pointerdown',a);for(let i=1;i<=10;i++)ev('pointermove',[a[0]+(b[0]-a[0])*i/10,a[1]+(b[1]-a[1])*i/10]);ev('pointerup',b);return o.id;});
   await p.waitForFunction(()=>!window.__cad.touch.isCommitting());await idle(p);await s('move-5mm');
-  await p.locator('#undo').click();await idle(p);await s('undo');
+  // The move's live measure hides on its own 1.6 s timer; the baseline captured it hidden because the old always-on
+  // render loop made these steps slower. Wait for that timer (WS4 made the steps faster, not the timer).
+  await p.locator('#undo').click();await idle(p);await p.waitForFunction(()=>document.querySelector('#liveMeasure')?.hidden!==false,null,{timeout:5000});await s('undo');
   await p.locator('#redo').click();await idle(p);await s('redo');},
 };
 const viewports=[['phone',false],['desktop',true]];
