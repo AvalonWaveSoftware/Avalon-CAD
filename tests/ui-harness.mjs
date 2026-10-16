@@ -1,5 +1,6 @@
 // Shared jsdom harness: the real app bundle with the real local Python/Rust/Manifold runtime.
 // Rendering is stubbed (tests/three-test.mjs). Every worker message is logged for no-rebuild checks.
+import {shipTopologies} from '../web/topology-pack.mjs';
 import fs from 'node:fs';
 import {JSDOM} from 'jsdom';
 import {build} from 'esbuild';
@@ -21,7 +22,7 @@ export async function harness(){
   w.HTMLCanvasElement.prototype.getBoundingClientRect=function(){return {left:0,top:0,right:412,bottom:600,width:412,height:600}};w.structuredClone=structuredClone;w.TextEncoder=TextEncoder;w.TextDecoder=TextDecoder;
   w.ResizeObserver=class{constructor(fn){this.fn=fn}observe(){resizes.count++;this.fn()}};Object.defineProperty(w.HTMLCanvasElement.prototype,'clientWidth',{get:()=>412});Object.defineProperty(w.HTMLCanvasElement.prototype,'clientHeight',{get:()=>600});
   w.Element.prototype.scrollIntoView=function(){scrolled.push(this.dataset?.row);};
-  w.Worker=class {postMessage(input){posted.push(input.type);const data=structuredClone(input);setTimeout(()=>{try{const result=runtime.process(data);result.engine=runtime.info;this.onmessage({data:result});}catch(e){this.onmessage({data:{id:data.id,error:e.message}})}},0)}};
+  w.Worker=class {postMessage(input){posted.push(input.type);const data=structuredClone(input);setTimeout(()=>{try{const result=runtime.process(data);result.engine=runtime.info;shipTopologies(result);this.onmessage({data:result});}catch(e){this.onmessage({data:{id:data.id,error:e.message}})}},0)}};
   w.Android={beginFile(name,mime){w.testSaved={name,mime,chunks:[]}},appendFile(x){w.testSaved.chunks.push(x)},finishFile(){w.testSaved.done=true}};
   // desktop: stub the Electron bridge the way tests/desktop-runtime.mjs does.
   if(desktop){w.desktopActions=[];w.AvalonDesktop={platform:'mac',saveFile:async(bytes,name)=>({canceled:false,name}),openFile:async()=>({canceled:true}),onAction:fn=>w.desktopActions.push(fn),onFile:()=>{},onNotice:()=>{}};}

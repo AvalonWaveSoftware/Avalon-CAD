@@ -10,6 +10,8 @@ import {resolutionPanel,bindResolution,readResolution,sameTopology,faceSummary,a
 import {displayGeometry} from './display-geometry.mjs';
 import {startAtOrigin,applyFloorAdjustments} from './placement.mjs';
 import {isThread} from './threads.mjs';
+import {TOPOLOGY_SERVICE} from './perf-flags.mjs';
+import {topologyClient} from './topology-client.mjs';
 import {threadPanel,bindThreads} from './threads-ui.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {validateProject,readSTL,QUALITY,assertSimplePolygon} from './kernel.mjs';
@@ -30,10 +32,10 @@ let keepV1=false,v1Loaded=false,lastAutosaveWarning=0;const AUTOSAVE_REWARN_MS=6
  if(v1){try{localStorage.setItem(BACKUP,raw);backedUp=true;}catch(e){console.warn(e);keepV1=true;pendingWarnings.push('Storage is full, so your older autosave could not be backed up. Autosave is paused to keep it; use Project → Export project or free space.');}}
  if(value){try{project=loadProject(value);v1Loaded=!!v1;}catch(e){console.warn(e);if(v1){keepV1=keepV1||!backedUp;const reason=String(e.message).replace(/[.\s]+$/,'');pendingWarnings.push(backedUp?'Your older autosave could not be opened ('+reason+'). A copy is kept under tristancad.autosave.v1-backup.':'Your older autosave could not be opened ('+reason+'). It was left untouched.');}}}
  try{saved=JSON.parse(localStorage.getItem('tristancad.projects')||'{}');}catch(e){console.warn(e);}}
-const worker=new Worker(new URL('worker.js?v=2.6.1',import.meta.url),{type:'module'}),requests=new Map();
-function request(type,data){return new Promise((resolve,reject)=>{const id=++sequence;requests.set(id,{resolve,reject});worker.postMessage({id,type,...data});});}
-worker.onmessage=({data})=>{const r=requests.get(data.id);if(!r)return;requests.delete(data.id);data.error?r.reject(Error(data.error)):r.resolve(data);};
-worker.onerror=e=>{for(const r of requests.values())r.reject(Error('The modeling engine could not start. Close and reopen the app.'));requests.clear();toast('The modeling engine could not start: '+e.message,true);};
+const worker=new Worker(new URL('worker.js?v=2.6.1',import.meta.url),{type:'module'}),requests=new Map(),topologies=TOPOLOGY_SERVICE?topologyClient():null;
+function request(type,data){return new Promise((resolve,reject)=>{const id=++sequence;requests.set(id,{resolve,reject});worker.postMessage(topologies?topologies.outgoing({id,type,...data}):{id,type,...data});});}
+worker.onmessage=({data})=>{if(topologies)topologies.incoming(data);const r=requests.get(data.id);if(!r)return;requests.delete(data.id);data.error?r.reject(Error(data.error)):r.resolve(data);};
+worker.onerror=e=>{topologies?.reset();for(const r of requests.values())r.reject(Error('The modeling engine could not start. Close and reopen the app.'));requests.clear();toast('The modeling engine could not start: '+e.message,true);};
 function toast(message,error=false){clearTimeout(toastTimer);$('toast').textContent=message;$('toast').classList.toggle('error',error);$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,error?7000:3500);}
 function status(s){$('busy').textContent=s;}
 // While the v1 autosave can't be backed up, edits are not autosaved: show a persistent marker and re-warn at most once a minute.

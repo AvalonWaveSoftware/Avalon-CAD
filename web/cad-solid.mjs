@@ -3,7 +3,8 @@ import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
 import {isThread} from './threads.mjs';
-import {OCCT_SCOPE,OCCT_CACHE_ENTRIES} from './perf-flags.mjs';
+import {OCCT_SCOPE,OCCT_CACHE_ENTRIES,TOPOLOGY_SERVICE} from './perf-flags.mjs';
+import {geometryHash} from './topology-pack.mjs';
 import {withScope,setHeapSource} from './occt-scope.mjs';
 export {heapBytes} from './occt-scope.mjs';
 const cache=new Map();
@@ -119,14 +120,36 @@ function scopedTopology(s,edges){return withScope(own=>{
 // (they share TShapes, so cleaning one earlier could change a later mesh), and both are stripped with
 // BRepTools.Clean and deleted together when the entry leaves the cache. Nothing is cleaned while still in use.
 function release(entry){if(OCCT_SCOPE){const oc=R.getOC();for(const x of [entry.s,entry.base]){try{if(x)oc.BRepTools.Clean(x.wrapped,true);}catch{}}}dispose(entry.s);dispose(entry.base);}
+const geometryKey=o=>JSON.stringify([o.type,o.params,o.fillets||[],o.resolution||null]);
+// WS2: the B-rep LRU holds 64 entries and an estimated byte budget; topology lives in its own map (below), so a
+// preview whose topology is cached never touches the B-rep, and evicting a B-rep keeps its topology.
+const BREP_ENTRIES=64,BREP_BYTES=128*1048576,TOPOLOGY_BYTES=32*1048576;let brepBytes=0;
 function cached(o) {
- const key=JSON.stringify([o.type,o.params,o.fillets||[],o.resolution||null]);
+ const key=geometryKey(o);
  if(cache.has(key)){const v=cache.get(key);cache.delete(key);cache.set(key,v);return v;}
  const base=baseShape(o),edges=explore(base,'edge');let s,t,ok=false;
  try{t=topology(base,edges);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
  const surfaceFaces=explore(s,'face');t.faceCount=surfaceFaces.length;t.flatFaces=surfaceFaces.filter(f=>f.geomType==='PLANE').length;surfaceFaces.forEach(dispose);
+ if(TOPOLOGY_SERVICE){const entry=OCCT_SCOPE?{s,base}:{s};entry.bytes=brepEstimate(t);brepBytes+=entry.bytes;cache.set(key,entry);storeTopology(key,t);
+  while(cache.size>1&&(cache.size>BREP_ENTRIES||brepBytes>BREP_BYTES)){const first=cache.keys().next().value,old=cache.get(first);release(old);brepBytes-=old.bytes;cache.delete(first);}return entry;}
  const entry=OCCT_SCOPE?{s,base,topology:t}:{s,topology:t};cache.set(key,entry);while(cache.size>OCCT_CACHE_ENTRIES){const first=cache.keys().next().value;release(cache.get(first));cache.delete(first);}return entry;
 }
+// Byte estimates: the B-rep plus its attached triangulations scale with the tessellation that topology() produced.
+function topologyBytes(t){let n=(t.vertices?.byteLength||0)+(t.triangles?.byteLength||0)+48*(t.groups?.length||0);for(const f of t.faces||[])n+=160+8*(f.edges.length+f.loops.reduce((a,l)=>a+l.length,0));for(const e of t.edges||[])n+=32+8*e.points.length;return n;}
+function brepEstimate(t){return 65536+4*((t.vertices?.byteLength||0)+(t.triangles?.byteLength||0));}
+const topologies=new Map();let topologyTotal=0;
+function storeTopology(key,t){const old=topologies.get(key);if(old){topologyTotal-=old.bytes;topologies.delete(key);}const bytes=topologyBytes(t);topologies.set(key,{t,bytes,hash:geometryHash(key)});topologyTotal+=bytes;
+ while(topologies.size>1&&topologyTotal>TOPOLOGY_BYTES){const first=topologies.keys().next().value;topologyTotal-=topologies.get(first).bytes;topologies.delete(first);}}
+function topologyEntry(key){const v=topologies.get(key);if(v){topologies.delete(key);topologies.set(key,v);}return v;}
+// Topology for o by geometry hash. A miss whose B-rep is still cached rebuilds that entry, so topology always comes
+// from a fresh base shape exactly as before.
+function shapeTopology(o){if(!TOPOLOGY_SERVICE)return cached(o).topology;const key=geometryKey(o);let v=topologyEntry(key);
+ if(!v){if(cache.has(key)){const old=cache.get(key);release(old);brepBytes-=old.bytes;cache.delete(key);}cached(o);v=topologyEntry(key);}return v.t;}
+// Content-addressed topology for any cacheable value (thread rods use it so threadMesh runs once per geometry).
+export function memoTopology(key,build){let v=topologyEntry(key);if(!v){storeTopology(key,build());v=topologyEntry(key);}return v;}
+// {hash, topology} for a part, or null topology (mesh content) with a null hash.
+export function objectTopologyEntry(o){const t=objectTopology(o);if(!t)return {hash:null,topology:t};return {hash:topologyEntry(geometryKey(o)).hash,topology:t};}
+export const topologyCacheStats=()=>({brepEntries:cache.size,brepBytes,topologyEntries:topologies.size,topologyBytes:topologyTotal});
 export function solidMesh(o,tolerance,display=false) {
  tolerance=resolutionTolerance(o,tolerance);
  const {s}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
@@ -134,9 +157,9 @@ export function solidMesh(o,tolerance,display=false) {
  if(display){const faces=s.faces,planes=new Set(faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode));faces.forEach(dispose);result.displayGroups=m.faceGroups.map(g=>({start:g.start,count:g.count,flat:planes.has(g.faceId)})).sort((a,b)=>a.start-b.start);}
  return result;
 }
-export function objectTopology(o) {if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;try{return cached(o).topology;}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
+export function objectTopology(o) {if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;try{return shapeTopology(o);}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
 function containsScale(o){return o.scale?.some(v=>Math.abs(v-1)>1e-8)||o.params?.children?.some(containsScale);}
 function containsMesh(o){return o.type==='mesh'||isThread(o)||o.params?.children?.some(containsMesh);}
-export function disposeSolidCache(){for(const entry of cache.values())release(entry);cache.clear();}
+export function disposeSolidCache(){for(const entry of cache.values())release(entry);cache.clear();brepBytes=0;topologies.clear();topologyTotal=0;}
 // Test hook (WS1 parity): topology of o through the legacy or the scoped extractor, without touching the cache.
 export function topologyVariant(o,scoped){const base=baseShape(o),edges=base.edges;try{return (scoped?scopedTopology:legacyTopology)(base,edges);}finally{edges.forEach(dispose);if(scoped){try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}}dispose(base);}}
