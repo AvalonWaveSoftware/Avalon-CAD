@@ -3,7 +3,7 @@ import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
 import {isThread} from './threads.mjs';
-import {OCCT_SCOPE,OCCT_CACHE_ENTRIES,TOPOLOGY_SERVICE} from './perf-flags.mjs';
+import {OCCT_SCOPE,OCCT_CACHE_ENTRIES,TOPOLOGY_SERVICE,FILLET_MESH_CACHE} from './perf-flags.mjs';
 import {geometryHash} from './topology-pack.mjs';
 import {withScope,setHeapSource} from './occt-scope.mjs';
 export {heapBytes} from './occt-scope.mjs';
@@ -150,7 +150,20 @@ export function memoTopology(key,build){let v=topologyEntry(key);if(!v){storeTop
 // {hash, topology} for a part, or null topology (mesh content) with a null hash.
 export function objectTopologyEntry(o){const t=objectTopology(o);if(!t)return {hash:null,topology:t};return {hash:topologyEntry(geometryKey(o)).hash,topology:t};}
 export const topologyCacheStats=()=>({brepEntries:cache.size,brepBytes,topologyEntries:topologies.size,topologyBytes:topologyTotal});
+// WS6: tessellated B-rep meshes (fillets, faces resolution) by (geometry key, effective tolerance, display), LRU
+// with a 64 MB cap. A move or a re-export of an unchanged shape reuses the mesh; callers get fresh copies.
+const MESH_BYTES=64*1048576,meshes=new Map();let meshBytes=0;
+const copyMesh=m=>({...m,vertices:m.vertices.slice(),triangles:m.triangles.slice(),...(m.displayGroups?{displayGroups:m.displayGroups.map(g=>({...g}))}:{})});
+export const filletMeshStats=()=>({entries:meshes.size,bytes:meshBytes});
 export function solidMesh(o,tolerance,display=false) {
+ if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display);
+ const key=geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|'+(display?1:0);let e=meshes.get(key);
+ if(e){meshes.delete(key);meshes.set(key,e);return copyMesh(e.m);}
+ const m=tessellate(o,tolerance,display),bytes=m.vertices.byteLength+m.triangles.byteLength+64*(m.displayGroups?.length||0)+256;
+ if(bytes<=MESH_BYTES){meshes.set(key,{m:copyMesh(m),bytes});meshBytes+=bytes;for(const [k,v] of meshes){if(meshBytes<=MESH_BYTES)break;meshes.delete(k);meshBytes-=v.bytes;}}
+ return m;
+}
+function tessellate(o,tolerance,display) {
  tolerance=resolutionTolerance(o,tolerance);
  const {s}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
  const result={vertices:new Float32Array(m.vertices),triangles:new Uint32Array(m.triangles)};
@@ -160,6 +173,6 @@ export function solidMesh(o,tolerance,display=false) {
 export function objectTopology(o) {if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;try{return shapeTopology(o);}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
 function containsScale(o){return o.scale?.some(v=>Math.abs(v-1)>1e-8)||o.params?.children?.some(containsScale);}
 function containsMesh(o){return o.type==='mesh'||isThread(o)||o.params?.children?.some(containsMesh);}
-export function disposeSolidCache(){for(const entry of cache.values())release(entry);cache.clear();brepBytes=0;topologies.clear();topologyTotal=0;}
+export function disposeSolidCache(){meshes.clear();meshBytes=0;for(const entry of cache.values())release(entry);cache.clear();brepBytes=0;topologies.clear();topologyTotal=0;}
 // Test hook (WS1 parity): topology of o through the legacy or the scoped extractor, without touching the cache.
 export function topologyVariant(o,scoped){const base=baseShape(o),edges=base.edges;try{return (scoped?scopedTopology:legacyTopology)(base,edges);}finally{edges.forEach(dispose);if(scoped){try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}}dispose(base);}}

@@ -29,6 +29,7 @@
     "test:ws3": "node tests/perf/gl-bench.mjs --check",
     "test:ws4": "node tests/perf/idle-bench.mjs --check",
     "test:ws5": "node tests/perf/ws5-bench.mjs --check",
+    "test:ws6": "node tests/perf/ws6-bench.mjs --check",
     "test:picks": "node tests/pick-reuse.mjs"
   },
   "keywords": [],

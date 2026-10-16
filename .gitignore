@@ -29,3 +29,4 @@ tests/perf/.ws3-off/
 tests/perf/.ws4-off/
 tests/perf/.ws5-off/
 tests/.engine-parity-off/
+tests/perf/.ws6-*/

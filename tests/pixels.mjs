@@ -74,7 +74,7 @@ async function stillShot(page){
 // in these two scenes. Allowed only while that merge is on; the DOM must still be identical; every other scene is 0 px.
 const ACCEPTED_NOTE="Sean's ruling: WS5 fast preview merge, geometrically equal";
 const {ENGINE_CACHE,ENGINE_CACHE_MERGE}=await import('../web/perf-flags.mjs');
-const ACCEPTED_DIFFS=ENGINE_CACHE&&ENGINE_CACHE_MERGE==='concat'?{'distinct-30@phone':3,'distinct-100@phone':3}:{};
+const ACCEPTED_DIFFS=ENGINE_CACHE&&ENGINE_CACHE_MERGE==='concat'?{'distinct-30@phone':1,'distinct-100@phone':3}:{};
 const ob=(id,type,params,position,extra={})=>({id,name:extra.name||id,type,params,position,rotation:[0,0,0],mode:'solid',enabled:true,layerId:'layer-1',...extra});
 const proj=(name,objects,extra={})=>({format:'tristancad',version:2,name,objects,layers:[{id:'layer-1',name:'Layer 1'}],activeLayer:'layer-1',...extra});
 const D={box:{w:30,d:30,h:15},cylinder:{diameter:20,h:20},sphere:{diameter:25},tube:{diameter:25,inner:18,h:20},cone:{diameter:25,top:8,h:25}};

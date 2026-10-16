@@ -28,3 +28,6 @@ export const ENGINE_CACHE=true;
 // ACCEPTED_DIFFS); 'compose' is 0 px but misses the thread-rod budget. Exports and saves always use the full union.
 // 'compose' = Manifold compose (full-union triangle order); 'concat' = JS concatenation of cached part meshes; false = full union.
 export const ENGINE_CACHE_MERGE='concat';
+// WS6: cache tessellated fillet / faces-resolution meshes by (geometry key, tolerance) so moves and re-exports skip
+// OCCT BRepMesh. false re-tessellates on every build.
+export const FILLET_MESH_CACHE=true;
