@@ -1,7 +1,8 @@
 import {makeObject,meshData,validateProject} from './kernel.mjs';
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
 import {objectTopology,objectTopologyEntry,memoTopology} from './cad-solid.mjs';
-import {TOPOLOGY_SERVICE} from './perf-flags.mjs';
+import {TOPOLOGY_SERVICE,ENGINE_CACHE} from './perf-flags.mjs';
+import {engineCache} from './engine-cache.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
 import {isThread,threadTopology} from './threads.mjs';
 import {resolutionTolerance} from './facets.mjs';
@@ -15,20 +16,21 @@ export async function initLocalEngine(K,options={}){
  const python=await load({indexURL:options.pythonURL||new URL('python/',options.baseURL).href,stdout:()=>{},stderr:()=>{}});
  function placeObject(value,requested,floor){const o=structuredClone(value),at=Array.from(requested);if(at.length!==3||at.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('Invalid placement coordinates.');if(floor)at[2]=Math.max(0,at[2]);o.position=[0,0,0];validateProject(booleanProject([o]));const s=makeObject(K,o,.005);try{const b=s.boundingBox();if(s.isEmpty())throw Error('This object contains no material.');o.position=[at[0]-(b.min[0]+b.max[0])/2,at[1]-(b.min[1]+b.max[1])/2,at[2]-b.min[2]];o.positionReference='base';o.placement=at;validateProject(booleanProject([o]));return {object:o};}finally{s.delete();}}
  function groundProject(value){const p=validateProject(value);let min=0;for(const o of p.objects.filter(o=>o.enabled)){const s=makeObject(K,o,.005);try{if(!s.isEmpty())min=Math.min(min,s.boundingBox().min[2]);}finally{s.delete();}}if(min<0)for(const o of p.objects){o.position[2]-=min;if(o.placement)o.placement[2]-=min;}p.buildPlaneEnabled=true;return {project:validateProject(p),lift:-min};}
- let acknowledged=null;
+ let acknowledged=null;const cache=ENGINE_CACHE?engineCache(K):null,cachedJob=d=>cache&&['preview','check','export'].includes(d?.type);let active=false;
  const threadEntry=o=>{const tolerance=resolutionTolerance(o,.15);const v=memoTopology(JSON.stringify(['thread',o.type,o.params,tolerance]),()=>threadTopology(K.threadMesh(o,tolerance),o));return {hash:v.hash,topology:v.t};};
  const bridge={runtime_info:version=>({python:version,rust:rust.version,local:true}),
   place_object:placeObject,ground_project:groundProject,
-  floor_solid:(o,s)=>{const z=s.isEmpty()?0:s.boundingBox().min[2],delta=Math.max(0,-z);return delta>0?{solid:s.translate([0,0,delta]),adjustment:{id:o.id,sourcePosition:Array.from(o.position),position:[o.position[0],o.position[1],o.position[2]+delta]}}:null;},
+  floor_solid:(o,s)=>active?cache.floor(o,s):(()=>{const z=s.isEmpty()?0:s.boundingBox().min[2],delta=Math.max(0,-z);return delta>0?{solid:s.translate([0,0,delta]),adjustment:{id:o.id,sourcePosition:Array.from(o.position),position:[o.position[0],o.position[1],o.position[2]+delta]}}:null;})(),
   validate_layers:validateLayers,assert_same_layer:assertSameLayer,
-  styles:()=>new Map(),make_object:(o,tolerance,styles)=>makeObject(K,o,tolerance,styles),
-  dispose:s=>s.delete(),union:solids=>K.Manifold.union(solids),
-  part:(o,s,styles)=>{if(!TOPOLOGY_SERVICE)return {id:o.id,mode:o.mode,...meshData(s,styles),bounds:s.boundingBox(),topology:structuredClone(isThread(o)?threadTopology(K.threadMesh(o,resolutionTolerance(o,.15)),o):objectTopology(o))};
+  styles:()=>new Map(),make_object:(o,tolerance,styles)=>active?cache.makeObject(o,tolerance,styles):makeObject(K,o,tolerance,styles),
+  dispose:s=>{if(!(active&&cache.owns(s)))s.delete();},union:solids=>active?cache.union(solids):K.Manifold.union(solids),
+  part:(o,s,styles)=>{if(!TOPOLOGY_SERVICE)return {id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topology:structuredClone(isThread(o)?threadTopology(K.threadMesh(o,resolutionTolerance(o,.15)),o):objectTopology(o))};
    // WS2: topology by geometry hash; the body rides along only when the requester has not acknowledged the hash
    // (no acknowledgement list means a direct caller, which always gets it). Cached bodies are shared, never mutated.
-   const {hash,topology}=isThread(o)?threadEntry(o):objectTopologyEntry(o),part={id:o.id,mode:o.mode,...meshData(s,styles),bounds:s.boundingBox(),topologyHash:hash};
+   const {hash,topology}=isThread(o)?threadEntry(o):objectTopologyEntry(o),part={id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topologyHash:hash};
    if(!hash||!acknowledged?.has(hash))part.topology=topology;return part;},
   empty_result:(parts,styles)=>({vertices:new Float32Array(),triangles:new Uint32Array(),...(styles?{flatTriangles:new Uint8Array(),smoothingGroups:new Uint32Array()}:{}),parts,volume:0,bounds:null}),
+  preview_merge:(groups,parts,styles)=>active?cache.previewMerge(groups,parts,styles):undefined,
   model_result:(s,parts,styles)=>({...meshData(s,styles),parts,volume:s.volume(),bounds:s.isEmpty()?null:s.boundingBox()}),
   boolean_result:(s,removedVolume,targetVolume)=>{const pieces=s.decompose();try{return {count:pieces.filter(p=>p.volume()>0).length,bounds:s.boundingBox(),volume:s.volume(),removedVolume,targetVolume};}finally{pieces.forEach(p=>p.delete());}},
   finish_result:(model,kind,ground)=>{
@@ -43,5 +45,5 @@ export async function initLocalEngine(K,options={}){
  python.registerJsModule('avalon_native',bridge);
  const source=options.pythonSource||await(async()=>{const r=await fetch(new URL('python/model_jobs.py',options.baseURL));if(!r.ok)throw Error('The bundled Python jobs could not load.');return r.text();})();
  python.runPython(source);const process=python.globals.get('process_job'),getInfo=python.globals.get('runtime_info');const info=getInfo();getInfo.destroy();
- return {python,rust,info,process:data=>{acknowledged=TOPOLOGY_SERVICE&&Array.isArray(data?.topologyAck)?new Set(data.topologyAck):null;try{return process(data);}finally{acknowledged=null;}},destroy:()=>process.destroy()};
+ return {python,rust,info,process:data=>{acknowledged=TOPOLOGY_SERVICE&&Array.isArray(data?.topologyAck)?new Set(data.topologyAck):null;active=cachedJob(data);if(active)cache.begin();try{return process(data);}finally{if(active)cache.end();active=false;acknowledged=null;}},engineCache:cache,destroy:()=>process.destroy()};
 }

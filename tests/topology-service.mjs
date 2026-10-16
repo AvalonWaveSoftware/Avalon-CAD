@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';import fs from 'node:fs';import {loadPyo
 import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';
 import {objectTopology,topologyVariant,topologyCacheStats,disposeSolidCache} from '../web/cad-solid.mjs';
 import {packTopology,unpackTopology,shipTopologies,packedBytes} from '../web/topology-pack.mjs';
-import {topologyClient} from '../web/topology-client.mjs';import {TOPOLOGY_SERVICE} from '../web/perf-flags.mjs';
+import {topologyClient} from '../web/topology-client.mjs';import {TOPOLOGY_SERVICE,ENGINE_CACHE} from '../web/perf-flags.mjs';
 import {object,defaults,blank} from '../web/templates.mjs';import {withRoundover} from '../web/operations.mjs';import {migrateProject} from '../web/migrate.mjs';
 if(!TOPOLOGY_SERVICE){console.log('topology-service: TOPOLOGY_SERVICE is off; skipped');process.exit(0);}
 // 1. pack/unpack is exact, including typed arrays, -0, NaN, Infinity, empty and nested arrays.
@@ -46,5 +46,6 @@ assert.equal(s.topologyEntries,100);assert.ok(s.brepEntries<=64&&s.topologyBytes
 big.objects[7].position[0]+=1;const t0=performance.now();run({type:'preview',project:big,tolerance:.15,topologyAck:[]});const ms=performance.now()-t0;assert.equal(topologyCacheStats().brepEntries,s.brepEntries,'a move rebuilds no B-rep');
 // 5. Thread rods: threadMesh once per preview (makeObject) instead of twice.
 {const mesh=K.threadMesh;let calls=0;K.threadMesh=(...a)=>{calls++;return mesh(...a);};const tp=blank();for(let i=0;i<3;i++){const o=object('threadrod',{...defaults.threadrod},[i*40,0,0]);o.layerId=tp.activeLayer;tp.objects.push(o);}
- run({type:'preview',project:tp,tolerance:.15});calls=0;tp.objects[0].position[0]+=1;run({type:'preview',project:tp,tolerance:.15});assert.equal(calls,3,'threadMesh calls per preview');K.threadMesh=mesh;}
+ run({type:'preview',project:tp,tolerance:.15});calls=0;tp.objects[0].position[0]+=1;run({type:'preview',project:tp,tolerance:.15});// WS5: with ENGINE_CACHE the moved thread reuses its cached local solid, so a move meshes no thread at all.
+ assert.equal(calls,ENGINE_CACHE?0:3,'threadMesh calls per preview');K.threadMesh=mesh;}
 console.log(`topology-service: ${compared} objects match the scoped extractor; protocol, caps and thread cache ok (100-object move ${ms.toFixed(0)} ms)`);

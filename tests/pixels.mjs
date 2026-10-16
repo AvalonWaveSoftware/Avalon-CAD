@@ -69,6 +69,12 @@ async function stillShot(page){
   if(prev&&png.equals(prev)&&dom===prevDom&&await page.evaluate(()=>document.fonts.status==='loaded'))return {png,dom:JSON.parse(dom),tries:i+1};
   prev=png;prevDom=dom;}
  throw Error('scene never settled (40 captures)');}
+// Accepted exceptions (Sean's ruling, 2026-10-16, WS5 fast preview merge ENGINE_CACHE_MERGE='concat'): the merged
+// preview mesh of disjoint solids is geometrically equal but in another triangle order, which moves 1-3 edge pixels
+// in these two scenes. Allowed only while that merge is on; the DOM must still be identical; every other scene is 0 px.
+const ACCEPTED_NOTE="Sean's ruling: WS5 fast preview merge, geometrically equal";
+const {ENGINE_CACHE,ENGINE_CACHE_MERGE}=await import('../web/perf-flags.mjs');
+const ACCEPTED_DIFFS=ENGINE_CACHE&&ENGINE_CACHE_MERGE==='concat'?{'distinct-30@phone':3,'distinct-100@phone':3}:{};
 const ob=(id,type,params,position,extra={})=>({id,name:extra.name||id,type,params,position,rotation:[0,0,0],mode:'solid',enabled:true,layerId:'layer-1',...extra});
 const proj=(name,objects,extra={})=>({format:'tristancad',version:2,name,objects,layers:[{id:'layer-1',name:'Layer 1'}],activeLayer:'layer-1',...extra});
 const D={box:{w:30,d:30,h:15},cylinder:{diameter:20,h:20},sphere:{diameter:25},tube:{diameter:25,inner:18,h:20},cone:{diameter:25,top:8,h:25}};
@@ -143,7 +149,7 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
   await scenes[name](page,async(step)=>{let t=Date.now();const id=`${name}${step?'.'+step:''}@${vp}`,{png,dom,tries}=await stillShot(page);tr('still shot ('+tries+' captures)',t);
    const dir=update?null:OUT;if(update){fs.writeFileSync(path.join(PX,id+'.png'),png);fs.writeFileSync(path.join(DOM,id+'.json'),JSON.stringify(dom));}else{fs.writeFileSync(path.join(dir,id+'.png'),png);fs.writeFileSync(path.join(dir,id+'.json'),JSON.stringify(dom));}
    caps.push(id);if(!update){const bp=path.join(PX,id+'.png'),bd=path.join(DOM,id+'.json');const r={id,errors:[]};
-    if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
+    if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
     if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');results.push(r);}
    console.log((update?'baseline ':'checked ')+id);});
   if(!caps.length)throw Error('scene captured nothing');}
@@ -159,4 +165,4 @@ if(update){const failed=results.filter(r=>r.errors.length);if(failed.length)cons
 if(!only.length){const m=JSON.parse(fs.readFileSync(path.join(BASE,'manifest.json'),'utf8'));const seen=new Set(results.map(r=>r.id));for(const id of m.captures)if(!seen.has(id))results.push({id,errors:['baseline capture not produced']});}
 const bad=results.filter(r=>r.errors.length);fs.writeFileSync(path.join(OUT,'report.json'),JSON.stringify({secs,results},null,1));
 for(const r of bad)console.error('FAIL',r.id,'—',r.errors.join(' | '));
-console.log(`test:pixels: ${results.length-bad.length}/${results.length} captures identical (0 differing pixels, DOM/styles equal) in ${secs}s`);process.exit(bad.length?1:0);
+const acc=results.filter(r=>r.accepted&&!r.errors.length).length;console.log(`test:pixels: ${results.length-bad.length-acc}/${results.length} captures identical, ${acc} accepted exception(s) (0 differing pixels, DOM/styles equal) in ${secs}s`);process.exit(bad.length?1:0);

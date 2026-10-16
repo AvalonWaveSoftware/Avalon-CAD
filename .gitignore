@@ -27,3 +27,5 @@ desktop/dist/
 tests/perf/.ws2-off/
 tests/perf/.ws3-off/
 tests/perf/.ws4-off/
+tests/perf/.ws5-off/
+tests/.engine-parity-off/

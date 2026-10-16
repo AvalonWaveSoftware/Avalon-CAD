@@ -1,5 +1,6 @@
 import {primitiveMesh} from './polyhedra.mjs';
-import {initSolid,solidMesh,objectTopology} from './cad-solid.mjs';
+import {initSolid,solidMesh,objectTopology,objectTopologyEntry} from './cad-solid.mjs';
+import {TOPOLOGY_SERVICE} from './perf-flags.mjs';
 import {facetedSphere,facetMesh,curvedTypes,resolutionTolerance,customFaces} from './facets.mjs';
 import {isThread,containsThreads,validateThread} from './threads.mjs';
 import {layerOf,normalizeLayers,materialGroups} from './layers.mjs';
@@ -78,7 +79,17 @@ export function assertSimplePolygon(points) {
   }
   if(Math.abs(area)<0.01) throw Error('Sketch needs an enclosed area.');
 }
-export function makeObject(K,o,tolerance=0.15,styles) {
+// WS5: makeObject = placeObjectSolid(makeLocalSolid(...)). The local solid (shape, styles) depends only on the
+// object's content and tolerance; scale, rotation and translation are applied last (one lazy transform), exactly as before, so a cached local
+// solid placed again gives the same solid as a fresh build.
+export function makeObject(K,o,tolerance=0.15,styles){return placeObjectSolid(o,makeLocalSolid(K,o,tolerance,styles));}
+export function placeObjectSolid(o,local,keepLocal=false){const keep=keepLocal?[]:[local];const own=x=>(keep.push(x),x);let s=local;
+  try{if(o.scale)s=own(s.scale(o.scale));s=own(s.rotate(o.rotation));s=own(s.translate(o.position));
+    const status=s.status();if(status!=='NoError')throw Error(o.name+': '+status+'. The mesh must be a closed solid.');
+    keep.pop();return s;
+  } finally {for(const x of keep)x.delete();}
+}
+export function makeLocalSolid(K,o,tolerance=0.15,styles) {
   tolerance=resolutionTolerance(o,tolerance);
   const {Manifold:M}=K,p=o.params,custom=customFaces(o),n=custom||segments((p.diameter||p.r*2||20)/2,tolerance);
   let s,tagged=false; const keep=[]; const own=x=>(keep.push(x),x);
@@ -115,9 +126,6 @@ export function makeObject(K,o,tolerance=0.15,styles) {
       default:throw Error('Unsupported shape.');
     }
     if(styles&&!tagged&&!['joined','prefab'].includes(o.type)){if(s.originalID()<0)s=own(s.asOriginal());styles.set(s.originalID(),custom>0||['box','polygon','wedge','pyramid'].includes(o.type));}
-    if(o.scale)s=own(s.scale(o.scale));
-    s=own(s.rotate(o.rotation));s=own(s.translate(o.position));
-    const status=s.status();if(status!=='NoError')throw Error(o.name+': '+status+'. The mesh must be a closed solid.');
     keep.pop();return s;
   } finally {for(const x of keep)x.delete();}
 }
@@ -129,13 +137,15 @@ export function meshData(s,styles) {
   if(styles){const flat=new Uint8Array(m.triVerts.length/3),groups=new Uint32Array(flat.length);for(let i=0;i<m.runOriginalID.length;i++){const start=m.runIndex[i]/3,end=m.runIndex[i+1]/3;groups.fill(i+1,start,end);if(styles.get(m.runOriginalID[i]))flat.fill(1,start,end);}result.flatTriangles=flat;result.smoothingGroups=groups;}
   return result;
 }
+// WS5 (Sean's ruling): parts share the memoised topology by reference with its hash, as the worker's parts do (WS2).
+const partTopology=o=>{if(!TOPOLOGY_SERVICE)return {topology:structuredClone(objectTopology(o))};const {hash,topology}=objectTopologyEntry(o);return {topology,topologyHash:hash};};
 export function buildModel(K,project,tolerance,individual=false) {
   const owned=[],parts=[],styles=individual?new Map():undefined; const own=x=>(owned.push(x),x);
   try {
     const solid=[],cut=[];
     for(const o of project.objects.filter(x=>x.enabled)) {
       const s=own(makeObject(K,o,tolerance,styles));(o.mode==='cut'?cut:solid).push({o,s});
-      if(individual)parts.push({id:o.id,mode:o.mode,...meshData(s,styles),bounds:s.boundingBox(),topology:structuredClone(objectTopology(o))});
+      if(individual)parts.push({id:o.id,mode:o.mode,...meshData(s,styles),bounds:s.boundingBox(),...partTopology(o)});
     }
     if(!solid.length)return {vertices:new Float32Array(),triangles:new Uint32Array(),...(styles?{flatTriangles:new Uint8Array(),smoothingGroups:new Uint32Array()}:{}),parts,volume:0,bounds:null};
     // Add can fill an existing cutout in its selected shapes without changing other parts.

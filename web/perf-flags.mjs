@@ -18,3 +18,13 @@ export const PERSISTENT_GL=true;
 // visibility) and while OrbitControls damping is still moving the camera; idle costs no rAF and no draws.
 // false restores the unconditional setAnimationLoop.
 export const RENDER_ON_DEMAND=true;
+// WS5: incremental engine. The worker caches each object's local solid by content + tolerance (reused only while
+// Manifold run IDs keep full-rebuild order), its placed and floored solid by transform, and per-part mesh data, so an
+// edit rebuilds only what changed. Parts, checks and exports are byte-identical to a full rebuild. false restores
+// the full rebuild on every job.
+export const ENGINE_CACHE=true;
+// WS5 sub-flag: how a preview of pairwise-disjoint solids is merged. Ruling by Sean (2026-10-16): 'concat' (fast merge)
+// is accepted, with its 1-3 px edge differences on distinct-30@phone and distinct-100@phone (tests/pixels.mjs
+// ACCEPTED_DIFFS); 'compose' is 0 px but misses the thread-rod budget. Exports and saves always use the full union.
+// 'compose' = Manifold compose (full-union triangle order); 'concat' = JS concatenation of cached part meshes; false = full union.
+export const ENGINE_CACHE_MERGE='concat';
