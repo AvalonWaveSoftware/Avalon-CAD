@@ -10,7 +10,10 @@ ROOT="$(cd .. && pwd)"
 if [ "${1:-}" != "--skip-web" ]; then
   (cd "$ROOT" && ./build-rust.sh && npm run build:web)
 fi
-for f in index.html main.js worker.js cad-kernel.wasm manifold.wasm mesh-core.wasm python/pyodide.mjs python/pyodide.asm.wasm python/python_stdlib.zip python/model_jobs.py; do
+# WS7: the Pyodide assets ship only when web/perf-flags.mjs has JS_ENGINE=false.
+ASSETS="index.html main.js worker.js cad-kernel.wasm manifold.wasm mesh-core.wasm"
+grep -q "JS_ENGINE=false" "$ROOT/web/perf-flags.mjs" && ASSETS="$ASSETS python/pyodide.mjs python/pyodide.asm.wasm python/python_stdlib.zip python/model_jobs.py"
+for f in $ASSETS; do
   [ -f "$ROOT/app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
 done
 rm -rf build/web build/icons dist

@@ -1,19 +1,18 @@
 import {makeObject,meshData,validateProject} from './kernel.mjs';
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
 import {objectTopology,objectTopologyEntry,memoTopology} from './cad-solid.mjs';
-import {TOPOLOGY_SERVICE,ENGINE_CACHE} from './perf-flags.mjs';
+import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE} from './perf-flags.mjs';
+import {jsJobs} from './js-engine.mjs';
 import {engineCache} from './engine-cache.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
 import {isThread,threadTopology} from './threads.mjs';
 import {resolutionTolerance} from './facets.mjs';
 
-// Only interop and buffer ownership live here. Python owns model/job assembly;
+// Only interop and buffer ownership live here. js-engine.mjs (WS7) or Python owns model/job assembly;
 // Rust owns preview mesh preparation and binary STL generation.
 export async function initLocalEngine(K,options={}){
  const rust=await initRustMesh(options.rust||{});
  K.threadMesh=(o,tolerance)=>rust.threadMesh(o.type,o.params,tolerance);
- const load=options.loadPyodide||(await import(new URL('python/pyodide.mjs',options.baseURL).href)).loadPyodide;
- const python=await load({indexURL:options.pythonURL||new URL('python/',options.baseURL).href,stdout:()=>{},stderr:()=>{}});
  function placeObject(value,requested,floor){const o=structuredClone(value),at=Array.from(requested);if(at.length!==3||at.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('Invalid placement coordinates.');if(floor)at[2]=Math.max(0,at[2]);o.position=[0,0,0];validateProject(booleanProject([o]));const s=makeObject(K,o,.005);try{const b=s.boundingBox();if(s.isEmpty())throw Error('This object contains no material.');o.position=[at[0]-(b.min[0]+b.max[0])/2,at[1]-(b.min[1]+b.max[1])/2,at[2]-b.min[2]];o.positionReference='base';o.placement=at;validateProject(booleanProject([o]));return {object:o};}finally{s.delete();}}
  function groundProject(value){const p=validateProject(value);let min=0;for(const o of p.objects.filter(o=>o.enabled)){const s=makeObject(K,o,.005);try{if(!s.isEmpty())min=Math.min(min,s.boundingBox().min[2]);}finally{s.delete();}}if(min<0)for(const o of p.objects){o.position[2]-=min;if(o.placement)o.placement[2]-=min;}p.buildPlaneEnabled=true;return {project:validateProject(p),lift:-min};}
  let acknowledged=null;const cache=ENGINE_CACHE?engineCache(K):null,cachedJob=d=>cache&&['preview','check','export'].includes(d?.type);let active=false;
@@ -42,8 +41,15 @@ export async function initLocalEngine(K,options={}){
   response:(result,id,type)=>({...result,id,type}),
   error_response:(id,error)=>({id,error:String(error).replace(/^Error: /,'')}),
  };
- python.registerJsModule('avalon_native',bridge);
- const source=options.pythonSource||await(async()=>{const r=await fetch(new URL('python/model_jobs.py',options.baseURL));if(!r.ok)throw Error('The bundled Python jobs could not load.');return r.text();})();
- python.runPython(source);const process=python.globals.get('process_job'),getInfo=python.globals.get('runtime_info');const info=getInfo();getInfo.destroy();
- return {python,rust,info,process:data=>{acknowledged=TOPOLOGY_SERVICE&&Array.isArray(data?.topologyAck)?new Set(data.topologyAck):null;active=cachedJob(data);if(active)cache.begin();try{return process(data);}finally{if(active)cache.end();active=false;acknowledged=null;}},engineCache:cache,destroy:()=>process.destroy()};
+ // WS7: JS_ENGINE runs the JS port of model_jobs.py (no Pyodide); options.oracle forces the Python path (tests).
+ let python=null,process,info,destroy=()=>{};
+ if(JS_ENGINE&&!options.oracle){const jobs=jsJobs(bridge);process=jobs.process;info=jobs.info;}
+ else{
+  const load=options.loadPyodide||(await import(new URL('python/pyodide.mjs',options.baseURL).href)).loadPyodide;
+  python=await load({indexURL:options.pythonURL||new URL('python/',options.baseURL).href,stdout:()=>{},stderr:()=>{}});
+  python.registerJsModule('avalon_native',bridge);
+  const source=options.pythonSource||await(async()=>{const r=await fetch(new URL('python/model_jobs.py',options.baseURL));if(!r.ok)throw Error('The bundled Python jobs could not load.');return r.text();})();
+  python.runPython(source);const job=python.globals.get('process_job'),getInfo=python.globals.get('runtime_info');info=getInfo();getInfo.destroy();process=job;destroy=()=>job.destroy();
+ }
+ return {python,rust,info,process:data=>{acknowledged=TOPOLOGY_SERVICE&&Array.isArray(data?.topologyAck)?new Set(data.topologyAck):null;active=cachedJob(data);if(active)cache.begin();try{return process(data);}finally{if(active)cache.end();active=false;acknowledged=null;}},engineCache:cache,destroy};
 }

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build:web": "node build-web.mjs",
-    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs && node tests/migration.mjs && node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs && node tests/occt-scope.mjs && node tests/topology-service.mjs && node tests/render-resources.mjs && node tests/render-scheduler.mjs && node tests/engine-parity.mjs",
+    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs && node tests/migration.mjs && node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs && node tests/occt-scope.mjs && node tests/topology-service.mjs && node tests/render-resources.mjs && node tests/render-scheduler.mjs && node tests/engine-parity.mjs && node tests/js-engine-parity.mjs",
     "build:rust": "./build-rust.sh",
     "test:local": "node tests/local-runtime.mjs",
     "test:browser": "node tests/browser-runtime.mjs",
@@ -30,6 +30,7 @@
     "test:ws4": "node tests/perf/idle-bench.mjs --check",
     "test:ws5": "node tests/perf/ws5-bench.mjs --check",
     "test:ws6": "node tests/perf/ws6-bench.mjs --check",
+    "test:ws7": "node tests/perf/ws7-bench.mjs --check",
     "test:picks": "node tests/pick-reuse.mjs"
   },
   "keywords": [],

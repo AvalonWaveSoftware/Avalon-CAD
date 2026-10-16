@@ -130,6 +130,8 @@ try{
  await page.waitForFunction(()=>window.__cad.project.name==='Mounting plate'&&window.__cad.model.volume>0);
  await page.waitForFunction(()=>window.__cad.model.parts.length===window.__cad.project.objects.filter(o=>o.enabled).length);
  assert.equal(blocked.length,0,'App attempted an external request');assert.equal(errors.length,0,errors.join('\n'));
- for(const name of ['pyodide.mjs','pyodide.asm.js','pyodide.asm.wasm','python_stdlib.zip','pyodide-lock.json','model_jobs.py','mesh-core.wasm','cad-kernel.wasm','manifold.wasm'])assert.ok(requests.some(u=>new URL(u).pathname.endsWith('/'+name)),'Missing local runtime request: '+name);
+ // WS7: with JS_ENGINE the worker must not fetch any Python asset.
+ const {JS_ENGINE}=await import('../web/perf-flags.mjs');if(JS_ENGINE)assert.ok(!requests.some(u=>new URL(u).pathname.includes('/python/')),'JS engine fetched Python assets');
+ for(const name of [...(JS_ENGINE?[]:['pyodide.mjs','pyodide.asm.js','pyodide.asm.wasm','python_stdlib.zip','pyodide-lock.json','model_jobs.py']),'mesh-core.wasm','cad-kernel.wasm','manifold.wasm'])assert.ok(requests.some(u=>new URL(u).pathname.endsWith('/'+name)),'Missing local runtime request: '+name);
  console.log('PASS: actual mobile-sized WebGL browser, restrictive app CSP, module Worker, bundled Python/Rust startup, face picking, triple-tap all edges, real fillet, Rust STL and mounting-plate project. All app requests stayed local with external requests blocked.');
 }finally{await browser?.close();await new Promise(r=>server.close(r));}

@@ -31,3 +31,6 @@ export const ENGINE_CACHE_MERGE='concat';
 // WS6: cache tessellated fillet / faces-resolution meshes by (geometry key, tolerance) so moves and re-exports skip
 // OCCT BRepMesh. false re-tessellates on every build.
 export const FILLET_MESH_CACHE=true;
+// WS7: model/job assembly in JS (web/js-engine.mjs) instead of Pyodide. Build-time as well: build-web.mjs ships
+// app/assets/python only when this is false (ADR: -12.29 MB). false restores the Pyodide engine.
+export const JS_ENGINE=true;
