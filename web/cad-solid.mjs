@@ -1,5 +1,5 @@
 import {primitiveFaces} from './polyhedra.mjs';
-import {glyphSolid} from './glyph-geometry.mjs';
+import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid} from './glyph-geometry.mjs';
 import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
@@ -9,6 +9,11 @@ import {geometryHash} from './topology-pack.mjs';
 import {withScope,setHeapSource} from './occt-scope.mjs';
 export {heapBytes} from './occt-scope.mjs';
 const cache=new Map();
+// Test hook: GLYPH_FAST=false runs the full OCCT topology (mesh, edges, face data) for torus and glyphs (parity check in tests/new-shapes.mjs).
+let GLYPH_FAST=true;export function setGlyphFastPath(v){GLYPH_FAST=v;}
+// Amendment A2: polygon triangulator for glyph caps (Manifold's triangulate, set by kernel.mjs). Without it (the
+// OCCT sidecar has no Manifold) glyph topology uses the OCCT mesh as before.
+let triangulator=null;export function setTriangulator(fn){triangulator=fn;}
 // WS14 (OCCT_SIDECAR): in the geometry worker OCCT is not loaded; solidMesh and objectTopology answer from the remote
 // cache of web/occt-remote.mjs, which records a miss (mesh → null, topology → null) for the sidecar to fill.
 let remote=null;
@@ -73,15 +78,22 @@ function fullShape(o) {
  if(o.position)r=r.translate(o.position);return r;
 }
 function safeTuple(v){try{return v.toTuple();}finally{dispose(v);}}
-function topology(s,edges){return OCCT_SCOPE?scopedTopology(s,edges):legacyTopology(s,edges);}
+function topology(s,edges,o){return OCCT_SCOPE?scopedTopology(s,edges,o):legacyTopology(s,edges);}
 function legacyTopology(s,edges) {
  const faces=s.faces,edgeIds=new Map(edges.map((e,i)=>[e.hashCode,i]));
  const mesh=s.mesh({tolerance:.08,angularTolerance:.12});
  const groups=mesh.faceGroups.map(g=>({...g,face:faces.findIndex(f=>f.hashCode===g.faceId)}));
- const lines=s.meshEdges({tolerance:.06,angularTolerance:.12});
+ // A torus has only its two seam edges, each bordering the one face twice, so it never has a pick edge; meshEdges
+ // would triangulate the whole surface (≈190 ms) just to drop them.
+ const lines=GLYPH_FAST&&o?.type==='torus'&&faces.length===1?{edgeGroups:[],lines:[]}:s.meshEdges({tolerance:.06,angularTolerance:.12});
  const edgeData=lines.edgeGroups.map(g=>({index:edgeIds.get(g.edgeId),points:Array.from(lines.lines.slice(g.start*3,(g.start+g.count)*3))})).filter(e=>e.index!==undefined);
  const faceData=faces.map((f,i)=>{const es=f.edges;let center=[0,0,0],normal=[0,0,1];try{center=safeTuple(f.center);normal=safeTuple(f.normalAt());}catch{}const indices=es.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);es.forEach(dispose);const wires=[f.clone().outerWire(),...f.clone().innerWires()],loops=wires.map(w=>{const eds=w.edges,result=eds.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);eds.forEach(dispose);dispose(w);return result;});return {index:i,kind:f.geomType,center,normal,edges:indices,loops};});
- const pickEdges=edgeData.filter(e=>{const adjacent=faceData.filter(f=>f.edges.includes(e.index)).map(f=>faces[f.index]);if(adjacent.length<2)return false;try{const at=safeTuple(edges[e.index].pointAt(.5)),a=safeTuple(adjacent[0].normalAt(at)),b=safeTuple(adjacent[1].normalAt(at)),dot=a.reduce((sum,v,i)=>sum+v*b[i],0)/(Math.hypot(...a)*Math.hypot(...b));return Math.abs(dot)<.9999;}catch{return true;}});
+ // Amendment A2 (glyphs, ~170 edges): adjacency is collected once, and an edge on a cap (a ±Z plane) is always a
+ // sharp edge because every side face of an extrusion is vertical. tests/new-shapes.mjs checks this against the full
+ // computation for all 94 glyphs.
+ const glyph=o?.type==='glyph',adjacency=new Map();if(glyph)for(const f of faceData)for(const e of f.edges){const l=adjacency.get(e);if(l)l.push(f);else adjacency.set(e,[f]);}
+ const cap=f=>f.kind==='PLANE'&&Math.abs(f.normal[0])<1e-12&&Math.abs(f.normal[1])<1e-12&&f.normal[2]!==0;
+ const pickEdges=edgeData.filter(e=>{const fs=glyph?adjacency.get(e.index)||[]:faceData.filter(f=>f.edges.includes(e.index)),adjacent=fs.map(f=>faces[f.index]);if(adjacent.length<2)return false;if(glyph&&GLYPH_FAST&&(cap(fs[0])||cap(fs[1])))return true;try{const at=safeTuple(edges[e.index].pointAt(.5)),a=safeTuple(adjacent[0].normalAt(at)),b=safeTuple(adjacent[1].normalAt(at)),dot=a.reduce((sum,v,i)=>sum+v*b[i],0)/(Math.hypot(...a)*Math.hypot(...b));return Math.abs(dot)<.9999;}catch{return true;}});
  faces.forEach(dispose);
  return {vertices:new Float32Array(mesh.vertices),triangles:new Uint32Array(mesh.triangles),groups,faces:faceData,edges:pickEdges};
 }
@@ -93,8 +105,10 @@ function legacyTopology(s,edges) {
 // walks the same explorer in the same order with the same IsSame de-duplication, and deletes those copies.
 const KIND={edge:[E=>E.TopAbs_EDGE,T=>x=>T.Edge(x),()=>R.Edge],face:[E=>E.TopAbs_FACE,T=>x=>T.Face(x),()=>R.Face],wire:[E=>E.TopAbs_WIRE,T=>x=>T.Wire(x),()=>R.Wire]};
 function explore(shape,kind){if(!OCCT_SCOPE)return shape[kind+'s'];const oc=R.getOC(),[abs,cast,wrap]=KIND[kind],E=oc.TopAbs_ShapeEnum,Wrap=wrap();
- const explorer=new oc.TopExp_Explorer(shape.wrapped,abs(E),E.TopAbs_SHAPE),seen=[],out=[];
- try{while(explorer.More()){const item=explorer.Current();if(seen.some(x=>x.IsSame(item)))item.delete();else{seen.push(item);out.push(new Wrap(cast(oc.TopoDS)(item)));}explorer.Next();}}
+ // Amendment A2: candidates are bucketed by OCCT's shape hash (equal for IsSame shapes), so the de-duplication is no
+ // longer quadratic; the same shapes come out in the same first-seen order.
+ const explorer=new oc.TopExp_Explorer(shape.wrapped,abs(E),E.TopAbs_SHAPE),seen=[],out=[],buckets=new Map(),hash=oc.ReplicadShapeHasher;
+ try{while(explorer.More()){const item=explorer.Current(),h=hash.HashCode(item,2147483647),b=buckets.get(h);if(b?.some(x=>x.IsSame(item)))item.delete();else{if(b)b.push(item);else buckets.set(h,[item]);seen.push(item);out.push(new Wrap(cast(oc.TopoDS)(item)));}explorer.Next();}}
  finally{seen.forEach(x=>x.delete());explorer.delete();}
  return out;}
 // Value-for-value re-implementations of replicad's faceCenter/faceNormalAt/curvePointAt that delete every OCCT
@@ -112,16 +126,68 @@ function occNormal(f,at){const oc=R.getOC(),face=f.wrapped;let u,v;
  const point=new oc.gp_Pnt(),normal=new oc.gp_Vec();
  try{gpropFace.Normal(u,v,point,normal);return [normal.X(),normal.Y(),normal.Z()];}finally{normal.delete();point.delete();}}
 function occMidpoint(e,own){const curve=own(e.curve).wrapped,first=curve.FirstParameter(),p=curve.Value(first+(curve.LastParameter()-first)*.5);try{return [p.X(),p.Y(),p.Z()];}finally{p.delete();}}
-function scopedTopology(s,edges){return withScope(own=>{
+// Amendment A2: the torus is one TORUS face, so its pick/highlight mesh is the exact parametric surface sampled on a
+// regular grid (at least OCCT's 105 × 105 at the default size, finer when the 0.08 mm deflection needs it) instead of
+// a 200 ms BRepMesh run. It is used only for face picking and highlights; preview and STL come from Manifold.
+export function torusTopologyMesh({diameter,tube},faceId){
+ const r=tube/2,R0=(diameter-tube)/2,seg=rad=>Math.max(105,Math.ceil(2*Math.PI/(2*Math.acos(Math.max(-1,1-.08/rad))))),nu=seg(R0+r),nv=seg(r);
+ const vertices=new Float32Array((nu+1)*(nv+1)*3),triangles=new Uint32Array(nu*nv*6);let k=0,t=0;
+ for(let i=0;i<=nu;i++){const u=2*Math.PI*i/nu,cu=Math.cos(u),su=Math.sin(u);for(let j=0;j<=nv;j++){const v=2*Math.PI*j/nv,w=R0+r*Math.cos(v);vertices[k++]=w*cu;vertices[k++]=w*su;vertices[k++]=r*Math.sin(v);}}
+ for(let i=0;i<nu;i++)for(let j=0;j<nv;j++){const a=i*(nv+1)+j,b=a+nv+1;triangles.set([a,b,b+1,a,b+1,a+1],t);t+=6;}
+ return {vertices,triangles,faceGroups:[{start:0,count:triangles.length,faceId}]};}
+// Amendment A2.4: glyph face data from the glyph tables. The OCCT solid (needed for edge/face ids, roundovers and
+// face counts) is the same; its faces and edges are matched to the outline segments by their end points. Face
+// records keep OCCT's ids, order, kinds, edges, loops, normals and plane centres; side-face centres are the exact
+// arc-length centroids. The pick/highlight mesh and edge polylines are sampled from the same segments at the same
+// tolerances (0.08 / 0.06 mm). Returns null (full OCCT path) if any face or edge cannot be matched.
+// tests/new-shapes.mjs compares this with the full OCCT computation for all 94 glyphs.
+function glyphTopology(s,edges,o){return withScope(own=>{
+ const {size,depth,char}=o.params,z0=-depth/2,z1=depth/2,key=(x,y)=>Math.round(x*1e5)+','+Math.round(y*1e5);
+ const contours=glyphSegments(char,size),pair=new Map(),vin=new Map(),vout=new Map();
+ for(const list of contours)for(const g of list){pair.set(key(...g.p0)+'|'+key(...g.p1),g);pair.set(key(...g.p1)+'|'+key(...g.p0),g);vout.set(key(...g.p0),g);vin.set(key(...g.p1),g);}
+ const info=edges.map(e=>{const c=own(e.curve).wrapped,a=c.Value(c.FirstParameter()),b=c.Value(c.LastParameter());try{const A=[a.X(),a.Y(),a.Z()],B=[b.X(),b.Y(),b.Z()];
+  if(Math.abs(A[0]-B[0])<1e-7&&Math.abs(A[1]-B[1])<1e-7)return {vertical:true,A,B,k:key(A[0],A[1])};return {seg:pair.get(key(A[0],A[1])+'|'+key(B[0],B[1])),A,B};}finally{a.delete();b.delete();}});
+ if(info.some(e=>e.vertical?!(vin.has(e.k)&&vout.has(e.k)):!e.seg))return null;
+ const faces=own.all(explore(s,'face')),edgeIds=new Map(edges.map((e,i)=>[e.hashCode,i])),capOf=[],segOf=[];
+ const faceData=faces.map((f,i)=>{const es=own.all(explore(f,'edge')),indices=es.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined),horiz=indices.filter(k=>!info[k].vertical);
+  const kind=f.geomType;let center=[0,0,0],normal=[0,0,1];
+  try{normal=occNormal(f);const cap=kind==='PLANE'&&Math.abs(normal[0])<1e-12&&Math.abs(normal[1])<1e-12;
+   if(cap)capOf[i]=new Set(horiz.map(k=>info[k].seg.contour));else segOf[i]=info[horiz[0]]?.seg;
+   if(kind==='PLANE')center=occCenter(f);else{const [x,y]=segmentCentroid(segOf[i]);center=[x,y,0];}}catch{return null;}
+  const outer=own(own(f.clone()).outerWire()),all=own.all(explore(f,'wire')),inner=all.filter(w=>!outer.isSame(w));
+  const loops=[outer,...inner].map(w=>own.all(explore(w,'edge')).map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined));return {index:i,kind,center,normal,edges:indices,loops};});
+ if(faceData.some((f,i)=>!f||!capOf[i]&&!segOf[i]))return null;
+ const V=[],Tr=[],groups=[];
+ for(const f of faceData){const i=f.index,start=Tr.length,base=V.length/3,n=f.normal;
+  if(segOf[i]){const pts=segmentPoints(segOf[i],.08,.12);for(const [x,y] of pts)V.push(x,y,z0,x,y,z1);
+   const d=[pts[1][0]-pts[0][0],pts[1][1]-pts[0][1]],flip=d[0]*n[1]-d[1]*n[0]<0;
+   for(let k=0;k+1<pts.length;k++){const a=base+2*k,b=a+2;if(flip)Tr.push(a,a+1,b+1,a,b+1,b);else Tr.push(a,b,b+1,a,b+1,a+1);}}
+  else{const z=n[2]>0?z1:z0,polys=[];for(let c=0;c<contours.length;c++)if(capOf[i].has(c)){const loop=[];for(const g of contours[c]){const pts=segmentPoints(g,.08,.12);for(let k=0;k+1<pts.length;k++)loop.push(pts[k]);}loop.reverse();polys.push(loop);}
+   const flat=polys.flat();for(const [x,y] of flat)V.push(x,y,z);for(const t of triangulator(polys,1e-9))if(n[2]>0)Tr.push(base+t[0],base+t[1],base+t[2]);else Tr.push(base+t[0],base+t[2],base+t[1]);}
+  groups.push({start,count:Tr.length-start,faceId:faces[i].hashCode,face:i});}
+ const pickEdges=[];for(let k=0;k<info.length;k++){const e=info[k];
+  if(!e.vertical){const pts=segmentPoints(e.seg,.06,.12),fwd=Math.hypot(pts[0][0]-e.A[0],pts[0][1]-e.A[1])<1e-6;if(!fwd)pts.reverse();pickEdges.push({index:k,points:pts.flatMap(([x,y])=>[x,y,e.A[2]])});continue;}
+  const gi=vin.get(e.k),go=vout.get(e.k),ti=gi.c?[gi.p1[0]-gi.c[0],gi.p1[1]-gi.c[1]]:[gi.p1[0]-gi.p0[0],gi.p1[1]-gi.p0[1]],to=go.c?[go.c[0]-go.p0[0],go.c[1]-go.p0[1]]:[go.p1[0]-go.p0[0],go.p1[1]-go.p0[1]];
+  const dot=(ti[0]*to[0]+ti[1]*to[1])/(Math.hypot(...ti)*Math.hypot(...to));if(Math.abs(dot)<.9999)pickEdges.push({index:k,points:[...e.A,...e.B]});}
+ return {vertices:new Float32Array(V),triangles:new Uint32Array(Tr),groups,faces:faceData,edges:pickEdges};
+});}
+function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulator){const t=glyphTopology(s,edges,o);if(t)return t;}return withScope(own=>{
  const faces=own.all(explore(s,'face')),edgeIds=new Map(edges.map((e,i)=>[e.hashCode,i]));
- const mesh=s.mesh({tolerance:.08,angularTolerance:.12});
+ const mesh=GLYPH_FAST&&o?.type==='torus'&&faces.length===1?torusTopologyMesh(o.params,faces[0].hashCode):s.mesh({tolerance:.08,angularTolerance:.12});
  const groups=mesh.faceGroups.map(g=>({...g,face:faces.findIndex(f=>f.hashCode===g.faceId)}));
- const lines=s.meshEdges({tolerance:.06,angularTolerance:.12});
+ // A torus has only its two seam edges, each bordering the one face twice, so it never has a pick edge; meshEdges
+ // would triangulate the whole surface (≈190 ms) just to drop them.
+ const lines=GLYPH_FAST&&o?.type==='torus'&&faces.length===1?{edgeGroups:[],lines:[]}:s.meshEdges({tolerance:.06,angularTolerance:.12});
  const edgeData=lines.edgeGroups.map(g=>({index:edgeIds.get(g.edgeId),points:Array.from(lines.lines.slice(g.start*3,(g.start+g.count)*3))})).filter(e=>e.index!==undefined);
  const faceData=faces.map((f,i)=>{const es=own.all(explore(f,'edge'));let center=[0,0,0],normal=[0,0,1];try{center=occCenter(f);normal=occNormal(f);}catch{}const indices=es.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);
   const outer=own(own(f.clone()).outerWire()),all=own.all(explore(f,'wire')),inner=all.filter(w=>!outer.isSame(w));
   const loops=[outer,...inner].map(w=>own.all(explore(w,'edge')).map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined));return {index:i,kind:f.geomType,center,normal,edges:indices,loops};});
- const pickEdges=edgeData.filter(e=>{const adjacent=faceData.filter(f=>f.edges.includes(e.index)).map(f=>faces[f.index]);if(adjacent.length<2)return false;try{const at=occMidpoint(edges[e.index],own),a=occNormal(adjacent[0],at),b=occNormal(adjacent[1],at),dot=a.reduce((sum,v,i)=>sum+v*b[i],0)/(Math.hypot(...a)*Math.hypot(...b));return Math.abs(dot)<.9999;}catch{return true;}});
+ // Amendment A2 (glyphs, ~170 edges): adjacency is collected once, and an edge on a cap (a ±Z plane) is always a
+ // sharp edge because every side face of an extrusion is vertical. tests/new-shapes.mjs checks this against the full
+ // computation for all 94 glyphs.
+ const glyph=o?.type==='glyph',adjacency=new Map();if(glyph)for(const f of faceData)for(const e of f.edges){const l=adjacency.get(e);if(l)l.push(f);else adjacency.set(e,[f]);}
+ const cap=f=>f.kind==='PLANE'&&Math.abs(f.normal[0])<1e-12&&Math.abs(f.normal[1])<1e-12&&f.normal[2]!==0;
+ const pickEdges=edgeData.filter(e=>{const fs=glyph?adjacency.get(e.index)||[]:faceData.filter(f=>f.edges.includes(e.index)),adjacent=fs.map(f=>faces[f.index]);if(adjacent.length<2)return false;if(glyph&&GLYPH_FAST&&(cap(fs[0])||cap(fs[1])))return true;try{const at=occMidpoint(edges[e.index],own),a=occNormal(adjacent[0],at),b=occNormal(adjacent[1],at),dot=a.reduce((sum,v,i)=>sum+v*b[i],0)/(Math.hypot(...a)*Math.hypot(...b));return Math.abs(dot)<.9999;}catch{return true;}});
  return {vertices:new Float32Array(mesh.vertices),triangles:new Uint32Array(mesh.triangles),groups,faces:faceData,edges:pickEdges};
 });}
 // WS1: a Poly_Triangulation that mesh()/meshEdges() attach to a B-rep stays in the OCCT heap after the replicad
@@ -137,7 +203,7 @@ function cached(o) {
  const key=geometryKey(o);
  if(cache.has(key)){const v=cache.get(key);cache.delete(key);cache.set(key,v);return v;}
  const base=baseShape(o),edges=explore(base,'edge');let s,t,ok=false;
- try{t=topology(base,edges);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
+ try{t=topology(base,edges,o);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
  const surfaceFaces=explore(s,'face');t.faceCount=surfaceFaces.length;t.flatFaces=surfaceFaces.filter(f=>f.geomType==='PLANE').length;surfaceFaces.forEach(dispose);
  if(TOPOLOGY_SERVICE){const entry=OCCT_SCOPE?{s,base}:{s};entry.bytes=brepEstimate(t);brepBytes+=entry.bytes;cache.set(key,entry);storeTopology(key,t);
   while(cache.size>1&&(cache.size>BREP_ENTRIES||brepBytes>BREP_BYTES)){const first=cache.keys().next().value,old=cache.get(first);release(old);brepBytes-=old.bytes;cache.delete(first);}return entry;}
@@ -190,3 +256,7 @@ export function disposeSolidCache(){meshes.clear();meshBytes=0;for(const entry o
 export function topologyVariant(o,scoped){const base=baseShape(o),edges=base.edges;try{return (scoped?scopedTopology:legacyTopology)(base,edges);}finally{edges.forEach(dispose);if(scoped){try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}}dispose(base);}}
 // Test hook (new-primitives ADR §5.4, exact STEP): the exact base B-rep of o, outside the cache; the caller deletes it.
 export function baseShapeForTest(o){return baseShape(o);}
+// Amendment A2.5: warm the torus / glyph topology code paths once (JIT and wasm tier-up) on a tiny shape, outside the
+// caches, so the first real Add does not pay that cost. Returns ms. The worker calls it only when it is idle.
+export function warmShape(o){const t=performance.now(),base=baseShape(o),edges=explore(base,'edge');
+ try{topology(base,edges,o);}finally{edges.forEach(dispose);try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}dispose(base);}return performance.now()-t;}

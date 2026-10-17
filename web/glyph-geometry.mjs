@@ -72,3 +72,19 @@ export function glyphSolid(R,{char,size,depth}){return glyphBlueprints(R,char,si
 export async function glyphOutlines(){const F=await loadGlyphs(),out={};
  for(const c of F.GLYPH_CHARS){let d='';for(const cmd of F.glyphPath(c)){if(cmd[0]==='Z'){d+='Z';continue;}d+=cmd[0];for(let i=1;i<cmd.length;i+=2)d+=(i>1?' ':'')+cmd[i]+' '+(-cmd[i+1]);}out[c]=[F.glyphInfo(c).adv,d];}
  return out;}
+// Amendment A2 (face data from the tables): the exact outline segments the OCCT solid is built from (same scaling,
+// same skipped zero-length segments as glyphBlueprints), and a polyline of one segment at a chord tolerance.
+export function glyphSegments(char,size){
+ const out=[];
+ for(const [ci,{start,segs}] of scaledContours(char,size).entries()){let last=start;const list=[];
+  for(const s of segs){const end=s[0]==='L'?s[1]:s[2];if(same(end,last))continue;list.push(s[0]==='L'?{contour:ci,p0:last,p1:end}:{contour:ci,p0:last,c:s[1],p1:end});last=end;}
+  out.push(list);}
+ return out;}
+export function segmentPoints(s,tol,angle=0){if(!s.c)return [s.p0,s.p1];const a=[s.c[0]-s.p0[0],s.c[1]-s.p0[1]],b=[s.p1[0]-s.c[0],s.p1[1]-s.c[1]],turn=Math.abs(Math.atan2(a[0]*b[1]-a[1]*b[0],a[0]*b[0]+a[1]*b[1]));
+ const n=Math.min(64,Math.max(quadSteps(s.p0,s.c,s.p1,Math.max(1e-4,tol)),angle>0?Math.ceil(turn/angle):1)),pts=[s.p0];
+ for(let i=1;i<=n;i++){const t=i/n,u=1-t;pts.push(i===n?s.p1:[u*u*s.p0[0]+2*u*t*s.c[0]+t*t*s.p1[0],u*u*s.p0[1]+2*u*t*s.c[1]+t*t*s.p1[1]]);}return pts;}
+// Arc-length centroid of a segment (the surface centroid of its extruded side face), 24-point Gauss–Legendre.
+const GL=(()=>{const n=24,x=[],w=[];for(let i=1;i<=n;i++){let z=Math.cos(Math.PI*(i-.25)/(n+.5)),pp;for(let k=0;k<100;k++){let p1=1,p2=0;for(let j=1;j<=n;j++){const p3=p2;p2=p1;p1=((2*j-1)*z*p2-(j-1)*p3)/j;}pp=n*(z*p1-p2)/(z*z-1);const z1=z;z=z1-p1/pp;if(Math.abs(z-z1)<1e-15)break;}x.push(z);w.push(2/((1-z*z)*pp*pp));}return {x,w};})();
+export function segmentCentroid(s){if(!s.c)return [(s.p0[0]+s.p1[0])/2,(s.p0[1]+s.p1[1])/2];let L=0,X=0,Y=0;
+ for(let i=0;i<GL.x.length;i++){const t=(GL.x[i]+1)/2,u=1-t,dx=2*(u*(s.c[0]-s.p0[0])+t*(s.p1[0]-s.c[0])),dy=2*(u*(s.c[1]-s.p0[1])+t*(s.p1[1]-s.c[1])),sp=Math.hypot(dx,dy)*GL.w[i]/2;
+  L+=sp;X+=sp*(u*u*s.p0[0]+2*u*t*s.c[0]+t*t*s.p1[0]);Y+=sp*(u*u*s.p0[1]+2*u*t*s.c[1]+t*t*s.p1[1]);}return [X/L,Y/L];}

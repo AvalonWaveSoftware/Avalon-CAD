@@ -20,7 +20,12 @@ const polyMax=k=>Math.max(...Object.values(out.polyhedra).map(v=>v[k]));
 const checks={polyManifoldMs:[polyMax('manifoldMs'),2],polyTris:[Math.max(...poly.filter(t=>t!=='triprism').map(t=>out.polyhedra[t].tris)),36],prismTris:[out.polyhedra.triprism.tris,8],
  torusMaxMs:[out.torus.maximum.manifoldMs,25],torusDraftTris:[out.torus.draft.tris,1200],torusFineTris:[out.torus.fine.tris,3000],torusUltraTris:[out.torus.ultra.tris,8500],torusMaxTris:[out.torus.maximum.tris,16000],
  glyphManifoldMs:[out.glyph.manifoldMaxMs,10],glyphTris:[out.glyph.maxTrisAtMaximum,2000],polyOcctMs:[polyMax('occtMs'),60],torusOcctMs:[out.torus.occtMs,20],glyphOcctMs:[out.glyph.occtMaxMs,80]};
-// Known misses pending Sean's ruling (ADR phase B budget ruling, 2026-10-17): reported, not gated. Options: accept <=250/<=270 ms, or keep targets and fix later.
-const KNOWN_MISSES=new Set(['torusOcctMs','glyphOcctMs']);
+// Amendment A3: first-time torus/'@' are real gates, median of 5 fresh worker processes (first-shape-probe.mjs) after the
+// worker's idle warm-up; the no-warm-up cold numbers are reported alongside (not gated). The in-process occtMs above stay reported.
+import {execFileSync} from 'node:child_process';
+const probe=(mode,...a)=>med(Array.from({length:5},()=>JSON.parse(execFileSync(process.execPath,[R+'tests/perf/first-shape-probe.mjs',mode,...a],{encoding:'utf8'}).trim().split('\n').pop()).ms));
+out.firstTime={torusWarmMs:probe('warm','torus'),glyphAtWarmMs:probe('warm','glyph','@'),torusColdMs:probe('cold','torus'),glyphAtColdMs:probe('cold','glyph','@')};
+checks.torusFirstMs=[out.firstTime.torusWarmMs,20];checks.glyphAtFirstMs=[out.firstTime.glyphAtWarmMs,80];
+const KNOWN_MISSES=new Set(['torusOcctMs','glyphOcctMs']);// in-process cache-disposed numbers: reported only, gated by the fresh-process checks
 const over=Object.entries(checks).filter(([,[v,b]])=>v>b).map(([k])=>k);const fail=over.filter(k=>!KNOWN_MISSES.has(k));const known=over.filter(k=>KNOWN_MISSES.has(k));if(known.length)out.knownMisses=known;out.loadEnd=+os.loadavg()[0].toFixed(2);out.checks=checks;out.pass=!fail.length;if(fail.length)out.failed=fail;
 console.log(JSON.stringify(out));if(process.argv.includes('--check')&&fail.length)process.exit(1);

@@ -1,12 +1,12 @@
 import {initKernel} from './kernel.mjs';
 import {initLocalEngine} from './local-engine.mjs';
 import {TOPOLOGY_SERVICE,PARALLEL_INIT,BUNDLE_SPLIT,OCCT_SIDECAR} from './perf-flags.mjs';
-import {initSolid,solidMeshFresh,objectTopology} from './cad-solid.mjs';
+import {initSolid,solidMeshFresh,objectTopology,warmShape} from './cad-solid.mjs';
 import {solidRemote,runJob,packError} from './occt-remote.mjs';
 import {needsSolid} from './solid-gate.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
 import {shipTopologies} from './topology-pack.mjs';
-import {prepareGlyphs,glyphOutlines} from './glyph-geometry.mjs';
+import {prepareGlyphs,glyphOutlines,glyphsReady} from './glyph-geometry.mjs';
 // WS8: with PARALLEL_INIT the Rust core, Manifold and OCCT start together, and every wasm carries the worker's ?v=
 // token (worker.js?v=<version>) so the immutable responses are cached per release.
 function geometryWorker(){
@@ -29,9 +29,19 @@ function askSidecar(requests){startSidecar();return Promise.all(requests.map(r=>
 // buffer is detached.
 function postInterim(id,r){const d={id,interim:true};for(const k of ['vertices','triangles','flatTriangles','smoothingGroups','displayPositions','displayNormals','displayIndex'])if(r[k])d[k]=r[k];self.postMessage(d);}
 let queue=[],running=false,current=null;
+// Amendment A2.5: idle warm-up of the torus and glyph topology paths. The UI asks once, after the first user
+// interaction (never during startup, on every platform). The torus is warmed once OCCT is ready; the glyph once the
+// outlines are loaded (the Letters sheet loads them), so glyphs.mjs stays lazy. Each warm-up runs only while no job
+// is queued or running, and never in the sidecar build (its OCCT lives in the other worker).
+const warmed={torus:false,glyph:false};let warmAsked=false;
+function warmIdle(){if(!warmAsked||OCCT_SIDECAR||warmed.torus&&warmed.glyph)return;
+ (BUNDLE_SPLIT?startSolid():runtime).then(()=>setTimeout(function step(){if(running||queue.length)return setTimeout(step,50);
+  try{if(!warmed.torus){warmed.torus=true;warmShape({type:'torus',params:{diameter:3,tube:1}});return setTimeout(step,0);}
+   if(!warmed.glyph&&glyphsReady()){warmed.glyph=true;warmShape({type:'glyph',params:{char:'B',size:2,depth:1,font:'roboto-bold@1'}});}}catch{}},0),()=>{});}
 self.onmessage=({data})=>{
+ if(data?.type==='warmShapes'){warmAsked=true;warmIdle();return;}
  // The Letters, numbers & symbols picker asks for the outlines once; this loads them (no engine or OCCT needed).
- if(data?.type==='glyphOutlines'){glyphOutlines().then(outlines=>self.postMessage({id:data.id,outlines}),e=>self.postMessage({id:data.id,error:e.message||String(e)}));return;}
+ if(data?.type==='glyphOutlines'){glyphOutlines().then(outlines=>{self.postMessage({id:data.id,outlines});warmIdle();},e=>self.postMessage({id:data.id,error:e.message||String(e)}));return;}
  if(OCCT_SIDECAR){if(data?.type==='warm'){startSidecar();return;}if(needsSolid(data))startSidecar();}
  else{if(BUNDLE_SPLIT&&data?.type==='warm'){startSolid().catch(()=>{});return;}
  // A job that may need OCCT starts its compile at once, alongside the Manifold/Rust init it also waits for.

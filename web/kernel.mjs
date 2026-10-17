@@ -1,6 +1,6 @@
 import {primitiveMesh,PLANAR_TYPES} from './polyhedra.mjs';
 import {glyphManifold} from './glyph-geometry.mjs';
-import {initSolid,solidMesh,objectTopology,objectTopologyEntry} from './cad-solid.mjs';
+import {initSolid,solidMesh,objectTopology,objectTopologyEntry,setTriangulator} from './cad-solid.mjs';
 import {TOPOLOGY_SERVICE,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {facetedSphere,facetMesh,curvedTypes,resolutionTolerance,customFaces} from './facets.mjs';
 import {isThread,containsThreads,validateThread} from './threads.mjs';
@@ -11,8 +11,8 @@ export {QUALITY,segments,validateProject,ccwPoints,assertSimplePolygon,readSTL};
 export async function initKernel(options={}) {
   const {default:Module}=await import('manifold-3d');
   // WS8 (options.parallel): Manifold and OCCT download and compile concurrently; neither depends on the other.
-  if(options.parallel&&options.solidOptions!==false){const [K]=await Promise.all([Module(options).then(K=>{K.setup();return K;}),initSolid(options.solidOptions||{})]);return K;}
-  const K = await Module(options); K.setup(); if(options.solidOptions!==false)await initSolid(options.solidOptions||{}); return K;
+  if(options.parallel&&options.solidOptions!==false){const [K]=await Promise.all([Module(options).then(K=>{K.setup();setTriangulator(K.triangulate);return K;}),initSolid(options.solidOptions||{})]);return K;}
+  const K = await Module(options); K.setup(); setTriangulator(K.triangulate); if(options.solidOptions!==false)await initSolid(options.solidOptions||{}); return K;
 }
 // WS5: makeObject = placeObjectSolid(makeLocalSolid(...)). The local solid (shape, styles) depends only on the
 // object's content and tolerance; scale, rotation and translation are applied last (one lazy transform), exactly as before, so a cached local
