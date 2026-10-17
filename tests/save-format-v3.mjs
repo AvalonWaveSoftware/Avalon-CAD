@@ -52,6 +52,9 @@ let r=readAutosave(ls);assert.equal(r.key,AUTOSAVE_V3);assert.equal(r.value.vers
 // Downgrade simulation: 2.x reads only tristancad.autosave and gets the last v2 state; after 2.x edits, 3.0 opens the newer v2.
 assert.equal(JSON.parse(ls.getItem(AUTOSAVE)).version,2);
 ls.setItem(AUTOSAVE,JSON.stringify({...p2,name:'edited in 2.x'}));r=readAutosave(ls);assert.equal(r.key,AUTOSAVE);assert.equal(r.value.name,'edited in 2.x');
+// Round-2 ruling 3: the losing v3 record is kept as a backup; a session that opened the 2.x state never removes it.
+assert.equal(r.v3Backup,true);const keep=ls.getItem(AUTOSAVE_V3);writeAutosave(ls,{...p2,name:'saved in 3.0'},5,r.v3Backup);assert.equal(ls.getItem(AUTOSAVE_V3),keep,'v3 backup kept');
+assert.equal(readAutosave(ls).key,AUTOSAVE,'2.x/3.0 v2 state still wins');writeAutosave(ls,p3,9);assert.equal(JSON.parse(ls.getItem(AUTOSAVE_V3)).savedAt,9,'a newer 3.0 autosave replaces it');
 // Back to a v2-compatible state: the v3 record is superseded and removed.
 ls=mem();writeAutosave(ls,p3,1);writeAutosave(ls,p2);assert.equal(ls.getItem(AUTOSAVE_V3),null);assert.equal(readAutosave(ls).key,AUTOSAVE);
 // Corrupt v3 record falls back to the v2 key.

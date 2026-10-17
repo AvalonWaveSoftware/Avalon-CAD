@@ -16,7 +16,13 @@ try{const page=await H.open(env,{desktop:true});
  await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('tristancad.autosave'));p.name='Edited in 2.x';localStorage.setItem('tristancad.autosave',JSON.stringify(p));});
  await page.reload();await page.waitForFunction(()=>window.__cad?.model?.engine?.local===true,{},{timeout:90000});
  assert.equal(await page.evaluate(()=>window.__cad.project.name),'Edited in 2.x','the newer 2.x autosave wins');
- await settle(page);assert.equal(await page.evaluate(()=>localStorage.getItem('tristancad.autosave.v3')),null,'a v2-compatible autosave removes the v3 record');
+ // Round-2 ruling 3: the v3 record stays as a backup after a 2.x edit wins, even across autosaves of the 2.x state.
+ await page.evaluate(()=>{window.__cad.change(p=>{p.name='Edited in 2.x, then 3.0';});});await settle(page);
+ assert.equal(JSON.parse(await page.evaluate(()=>localStorage.getItem('tristancad.autosave.v3'))).project.name,'Needs v3','v3 backup kept');
+ // Opening the v3 record and returning to a v2-compatible project in 3.0 removes it.
+ await page.evaluate(()=>{const p=window.__cad.templates.plate();p.objects[0].mirrored=true;window.__cad.load(p);});await settle(page);
+ await page.evaluate(()=>window.__cad.load(window.__cad.templates.tray()));await settle(page);
+ assert.equal(await page.evaluate(()=>localStorage.getItem('tristancad.autosave.v3')),null,'v2-compatible again in 3.0 removes the v3 record');
  await page.context().close();}
 finally{await env.close();}
-console.log('PASS: dual-key autosave in the app: v3 record written, v2 key untouched, reload opens v3, a 2.x edit wins, v3 record removed on return to v2');
+console.log('PASS: dual-key autosave in the app: v3 record written, v2 key untouched, reload opens v3, a 2.x edit wins, v3 record kept as backup after a 2.x win, removed only on return to v2 in 3.0 or replaced by newer v3');
