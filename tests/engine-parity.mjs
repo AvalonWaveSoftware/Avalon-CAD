@@ -10,6 +10,7 @@ import {initLocalEngine} from '../web/local-engine.mjs';
 import {object,defaults,blank} from '../web/templates.mjs';
 import {migrateProject} from '../web/migrate.mjs';
 import {ENGINE_CACHE,ENGINE_CACHE_MERGE} from '../web/perf-flags.mjs';
+import {corners} from './display-corners.mjs';
 // The reference is full-rebuild mode itself: a second engine loaded from a temporary copy of web/ with ENGINE_CACHE=false
 // (its own manifold instance, so its run IDs are independent).
 const offDir=new URL('./.engine-parity-off/',import.meta.url).pathname;fs.rmSync(offDir,{recursive:true,force:true});fs.cpSync('web',offDir+'web',{recursive:true});
@@ -21,7 +22,12 @@ const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:new URL('../node_mo
 const reference=await offEngine.initLocalEngine(K0,{loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});assert.equal(reference.engineCache,null);
 const cache=runtime.engineCache;if(!ENGINE_CACHE){assert.equal(cache,null);console.log('Engine parity skipped: ENGINE_CACHE is off');process.exit(0);}
 let id=0,jobs=0;const run=data=>runtime.process({id:++id,...data}),rebuild=data=>{const r=reference.process({id,...data});return r;};
-const KEYS=['vertices','triangles','flatTriangles','smoothingGroups','displayPositions','displayNormals','buffer'];
+const KEYS=['vertices','triangles','flatTriangles','smoothingGroups','displayPositions','displayNormals','displayIndex','buffer'];
+// WS10: the cached preview's display (assembled from per-part displays) must be byte-identical, expanded, to a fresh
+// preparation of its own mesh.
+let displayExact=0;
+const displayCheck=(m,what)=>{if(!m.displayPositions||m.error)return;const D=corners(m),fresh=runtime.rust.prepare(m.vertices,m.triangles,m.flatTriangles,m.smoothingGroups);
+ assert.ok(bytes(D.positions).equals(bytes(fresh.positions))&&bytes(D.normals).equals(bytes(fresh.normals)),what+' display');displayExact++;};
 const bytes=v=>(v instanceof ArrayBuffer||Object.prototype.toString.call(v)==="[object ArrayBuffer]")?Buffer.from(v):Buffer.from(v.buffer,v.byteOffset,v.byteLength);
 // Architect ruling (WS5 option 1): the preview's merged mesh may be geometrically equal. Volume, bounds and the
 // canonicalized (sorted, de-duplicated) vertex set must agree within 1e-9 (relative for volume); the triangle count
@@ -37,7 +43,7 @@ const same=(a,b,what,geo=false)=>{assert.equal(a.error,b.error,what+' error');if
  if(!geo){assert.equal(a.volume,b.volume,what+' volume');assert.deepEqual(a.bounds,b.bounds,what+' bounds');assert.deepEqual(a.floorAdjustments,b.floorAdjustments,what+' floor');assert.equal(a.triangles?.length,b.triangles?.length);}
  assert.equal(a.parts?.length,b.parts?.length,what+' parts');for(let i=0;i<(a.parts||[]).length;i++){const p=a.parts[i],q=b.parts[i];assert.equal(p.id,q.id);assert.equal(p.topologyHash,q.topologyHash);assert.deepEqual(p.bounds,q.bounds);for(const k of ['vertices','triangles','flatTriangles','smoothingGroups'])assert.ok(Buffer.from(p[k].buffer).equals(Buffer.from(q[k].buffer)),what+' part '+k);}};
 function check(project,tolerance,what){
- for(const type of ['check','preview','export']){const job={type,project,tolerance,ground:true},hit=run(job),full=rebuild(job);same(hit,full,what+' '+type,type==='preview'&&!!ENGINE_CACHE_MERGE);jobs++;
+ for(const type of ['check','preview','export']){const job={type,project,tolerance,ground:true},hit=run(job),full=rebuild(job);same(hit,full,what+' '+type,type==='preview'&&!!ENGINE_CACHE_MERGE);if(type==='preview'){displayCheck(hit,what);displayCheck(full,what+' full');}jobs++;
   if(type==='export'&&!full.error&&!project.buildPlaneEnabled){const m=buildModel(K,project,tolerance);if(m.triangles.length)assert.ok(bytes(hit.buffer).equals(Buffer.from(writeSTL(m.vertices,m.triangles,true))),what+' legacy STL');}
   if(type==='preview'&&!full.error&&!project.buildPlaneEnabled){const legacy=buildModel(K,project,tolerance,true);geometric(hit,legacy,what+' legacy');}}
  // and once more warm, after the full rebuild refilled the caches
@@ -68,10 +74,10 @@ for(let n=0;n<SEQUENCES;n++){
   pick(EDITS)(p);const tolerance=pick([.15,.15,.05]);
   const hx=run({type:'export',project:p,tolerance,ground:true}),fx=rebuild({type:'export',project:p,tolerance,ground:true});same(hx,fx,'sequence '+n+' export');jobs++;
    const hit=run({type:'preview',project:p,tolerance}),full=rebuild({type:'preview',project:p,tolerance}),hit2=run({type:'check',project:p,tolerance}),full2=rebuild({type:'check',project:p,tolerance});if(step===2&&n%50===0)cache.clear();
-  try{same(hit,full,'sequence '+n+' step '+step+' preview',!!ENGINE_CACHE_MERGE);same(hit2,full2,'sequence '+n+' step '+step+' check');}catch(e){if(process.env.DUMP)fs.writeFileSync(process.env.DUMP,JSON.stringify({p,tolerance}));throw e;}jobs+=2;
+  try{same(hit,full,'sequence '+n+' step '+step+' preview',!!ENGINE_CACHE_MERGE);displayCheck(hit,'sequence '+n+' step '+step);same(hit2,full2,'sequence '+n+' step '+step+' check');}catch(e){if(process.env.DUMP)fs.writeFileSync(process.env.DUMP,JSON.stringify({p,tolerance}));throw e;}jobs+=2;
   if(!p.buildPlaneEnabled&&!full.error){const lp=buildModel(K,p,tolerance,true);geometric(hit,lp,'sequence '+n+' legacy preview');}
  }
 }
 const size=cache.size();assert.ok(size.localMB+size.derivedMB<=150);
-console.log('Engine parity:',jobs,'jobs match a full rebuild (parts, checks, STL exports byte-identical; previews '+(ENGINE_CACHE_MERGE?'geometrically equal within 1e-9':'byte-identical')+')',JSON.stringify(cache.stats),JSON.stringify(size));
+console.log('Engine parity:',jobs,'jobs match a full rebuild (parts, checks, STL exports byte-identical; previews '+(ENGINE_CACHE_MERGE?'geometrically equal within 1e-9':'byte-identical')+')',JSON.stringify(cache.stats),JSON.stringify(size),'displays byte-identical to a fresh preparation: '+displayExact);
 runtime.destroy();reference.destroy();

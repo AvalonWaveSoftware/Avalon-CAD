@@ -34,7 +34,9 @@
     "test:ws7": "node tests/perf/ws7-bench.mjs --check",
     "test:ws8": "node tests/perf/ws8-bench.mjs --check",
     "test:ws9": "node tests/perf/ws9-bench.mjs --check",
-    "test:picks": "node tests/pick-reuse.mjs"
+    "test:picks": "node tests/pick-reuse.mjs",
+    "test:ws10": "node tests/perf/ws10-bench.mjs --check",
+    "test:display-move": "node tests/display-move-frames.mjs"
   },
   "keywords": [],
   "author": "",

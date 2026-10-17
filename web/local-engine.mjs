@@ -1,7 +1,7 @@
 import {makeObject,meshData,validateProject} from './kernel.mjs';
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
 import {objectTopology,objectTopologyEntry,memoTopology} from './cad-solid.mjs';
-import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE,BUNDLE_SPLIT} from './perf-flags.mjs';
+import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE,BUNDLE_SPLIT,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {jsJobs} from './js-engine.mjs';
 import {engineCache} from './engine-cache.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
@@ -15,7 +15,7 @@ export async function initLocalEngine(K,options={}){
  K.threadMesh=(o,tolerance)=>rust.threadMesh(o.type,o.params,tolerance);
  function placeObject(value,requested,floor){const o=structuredClone(value),at=Array.from(requested);if(at.length!==3||at.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('Invalid placement coordinates.');if(floor)at[2]=Math.max(0,at[2]);o.position=[0,0,0];validateProject(booleanProject([o]));const s=makeObject(K,o,.005);try{const b=s.boundingBox();if(s.isEmpty())throw Error('This object contains no material.');o.position=[at[0]-(b.min[0]+b.max[0])/2,at[1]-(b.min[1]+b.max[1])/2,at[2]-b.min[2]];o.positionReference='base';o.placement=at;validateProject(booleanProject([o]));return {object:o};}finally{s.delete();}}
  function groundProject(value){const p=validateProject(value);let min=0;for(const o of p.objects.filter(o=>o.enabled)){const s=makeObject(K,o,.005);try{if(!s.isEmpty())min=Math.min(min,s.boundingBox().min[2]);}finally{s.delete();}}if(min<0)for(const o of p.objects){o.position[2]-=min;if(o.placement)o.placement[2]-=min;}p.buildPlaneEnabled=true;return {project:validateProject(p),lift:-min};}
- let acknowledged=null;const cache=ENGINE_CACHE?engineCache(K,{budget:options.engineCacheBudget}):null,cachedJob=d=>cache&&['preview','check','export'].includes(d?.type);let active=false;
+ let acknowledged=null;const cache=ENGINE_CACHE?engineCache(K,{budget:options.engineCacheBudget,prepare:INDEXED_DISPLAY?d=>rust.prepareIndexed(d.vertices,d.triangles,d.flatTriangles,d.smoothingGroups):null}):null,cachedJob=d=>cache&&['preview','check','export'].includes(d?.type);let active=false;
  const threadEntry=o=>{const tolerance=resolutionTolerance(o,.15);const v=memoTopology(JSON.stringify(['thread',o.type,o.params,tolerance]),()=>threadTopology(K.threadMesh(o,tolerance),o));return {hash:v.hash,topology:v.t};};
  const bridge={runtime_info:version=>({python:version,rust:rust.version,local:true}),
   place_object:placeObject,ground_project:groundProject,
@@ -36,7 +36,9 @@ export async function initLocalEngine(K,options={}){
    if(kind==='export')return {buffer:rust.writeSTL(model.vertices,model.triangles,ground),triangles:model.triangles.length/3,bounds:model.bounds,volume:model.volume};
    // WS9: the dead conjoin result is dropped with BUNDLE_SPLIT (the JS engine rejects the job; Python keeps it).
    if(kind==='conjoin'&&!(BUNDLE_SPLIT&&JS_ENGINE)){const solid=new K.Manifold(new K.Mesh({numProp:3,vertProperties:model.vertices,triVerts:model.triangles}));const pieces=solid.decompose();try{return {count:pieces.length,bounds:model.bounds};}finally{pieces.forEach(p=>p.delete());solid.delete();}}
-   if(kind==='preview'){const display=rust.prepare(model.vertices,model.triangles,model.flatTriangles,model.smoothingGroups);model.displayPositions=display.positions;model.displayNormals=display.normals;}
+   // WS10: indexed display (assembled per part by the cache for merged previews, else prepared here for the whole mesh).
+   if(kind==='preview'&&INDEXED_DISPLAY){const display=model.display||rust.prepareIndexed(model.vertices,model.triangles,model.flatTriangles,model.smoothingGroups);delete model.display;model.displayPositions=display.positions;model.displayNormals=display.normals;model.displayIndex=display.index;}
+   else if(kind==='preview'){const display=rust.prepare(model.vertices,model.triangles,model.flatTriangles,model.smoothingGroups);model.displayPositions=display.positions;model.displayNormals=display.normals;}
    return model;
   },
   response:(result,id,type)=>({...result,id,type}),

@@ -22,6 +22,7 @@ export function prepareDisplayMesh(vertices,triangles,flat=false,groups){
 }
 export function displayGeometry(vertices,triangles,flat=false,prepared,groups){
  const data=prepared||prepareDisplayMesh(vertices,triangles,flat,groups);
- if(data.positions.length!==triangles.length*3||data.normals.length!==data.positions.length)throw Error('Invalid prepared display mesh.');
- const g=new BufferGeometry();g.setAttribute('position',new BufferAttribute(data.positions,3));g.setAttribute('normal',new BufferAttribute(data.normals,3));return g;
+ // WS10: an indexed display (prepared.index) draws the same corners through the index buffer.
+ if((data.index?data.index.length!==triangles.length:data.positions.length!==triangles.length*3)||data.normals.length!==data.positions.length)throw Error('Invalid prepared display mesh.');
+ const g=new BufferGeometry();g.setAttribute('position',new BufferAttribute(data.positions,3));g.setAttribute('normal',new BufferAttribute(data.normals,3));if(data.index)g.setIndex(new BufferAttribute(data.index,1));return g;
 }

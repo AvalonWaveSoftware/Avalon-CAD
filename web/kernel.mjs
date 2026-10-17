@@ -1,6 +1,6 @@
 import {primitiveMesh} from './polyhedra.mjs';
 import {initSolid,solidMesh,objectTopology,objectTopologyEntry} from './cad-solid.mjs';
-import {TOPOLOGY_SERVICE} from './perf-flags.mjs';
+import {TOPOLOGY_SERVICE,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {facetedSphere,facetMesh,curvedTypes,resolutionTolerance,customFaces} from './facets.mjs';
 import {isThread,containsThreads,validateThread} from './threads.mjs';
 import {layerOf,normalizeLayers,materialGroups} from './layers.mjs';
@@ -65,9 +65,11 @@ export function makeLocalSolid(K,o,tolerance=0.15,styles) {
 }
 export function meshData(s,styles) {
   const m=s.getMesh();
-  const vertices=new Float32Array(m.numVert*3);
-  for(let i=0;i<m.numVert;i++) for(let k=0;k<3;k++)vertices[i*3+k]=m.vertProperties[i*m.numProp+k];
-  const result={vertices,triangles:new Uint32Array(m.triVerts)};
+  // WS10: getMesh returns JS-owned, exactly sized arrays; with three properties they are the result as they are.
+  const own=INDEXED_DISPLAY&&m.numProp===3&&m.vertProperties instanceof Float32Array&&m.triVerts instanceof Uint32Array;
+  const vertices=own?m.vertProperties:new Float32Array(m.numVert*3);
+  if(!own)for(let i=0;i<m.numVert;i++) for(let k=0;k<3;k++)vertices[i*3+k]=m.vertProperties[i*m.numProp+k];
+  const result={vertices,triangles:own?m.triVerts:new Uint32Array(m.triVerts)};
   if(styles){const flat=new Uint8Array(m.triVerts.length/3),groups=new Uint32Array(flat.length);for(let i=0;i<m.runOriginalID.length;i++){const start=m.runIndex[i]/3,end=m.runIndex[i+1]/3;groups.fill(i+1,start,end);if(styles.get(m.runOriginalID[i]))flat.fill(1,start,end);}result.flatTriangles=flat;result.smoothingGroups=groups;}
   return result;
 }

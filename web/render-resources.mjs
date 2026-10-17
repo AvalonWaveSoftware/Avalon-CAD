@@ -38,3 +38,16 @@ export function updateInPlace(g,attributes,index){if(!PERSISTENT_GL)return false
 let unique=0;export const pooled=(pool,build)=>PERSISTENT_GL?pool.get('u'+(++unique),build):build();
 export const toolPool=spheres,overlayPool=geometryPool();
 export const sharedCounts=()=>({materials:materials.size,spheres:spheres.size()});
+// WS10: copy only what changed into an indexed geometry of the same layout: per attribute (and the index) the first to
+// last differing element is written and uploaded as one update range; an unchanged array is not uploaded at all. The GL
+// buffers end up holding exactly the new arrays (ranges added before a render are merged by three.js, never dropped). uploads.bytes counts the bytes handed to WebGL by the display mesh.
+export const uploads={bytes:0};
+const words=a=>new Uint32Array(a.buffer,a.byteOffset,a.byteLength>>2);
+const changed=(a,b)=>{const x=words(a),y=words(b);let i=0,j=x.length;while(i<j&&x[i]===y[i])i++;if(i===j)return null;while(x[j-1]===y[j-1])j--;return [i,j];};
+export function updateChanged(g,attributes,index){if(!PERSISTENT_GL||!g.index||!index)return false;
+ const list=[...Object.entries(attributes).map(([name,array])=>[g.attributes[name],array]),[g.index,index]];
+ if(Object.keys(g.attributes).length!==Object.keys(attributes).length)return false;
+ for(const [a,array] of list)if(!a||a.array.length!==array.length||a.array.constructor!==array.constructor||array.BYTES_PER_ELEMENT!==4)return false;
+ for(const [a,array] of list){const r=changed(a.array,array);if(!r)continue;a.array.set(array.subarray(r[0],r[1]),r[0]);a.addUpdateRange(r[0],r[1]-r[0]);a.needsUpdate=true;uploads.bytes+=(r[1]-r[0])*4;
+  if(a===g.attributes.position){g.boundingBox=null;g.boundingSphere=null;}}
+ return true;}

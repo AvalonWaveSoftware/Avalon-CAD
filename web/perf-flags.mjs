@@ -46,3 +46,8 @@ export const PARALLEL_INIT=true;
 // wait for it. false restores the single bundle, the conjoin job and OCCT in the startup path (build-web.mjs aliases
 // kernel-ui.mjs back to kernel.mjs for the UI).
 export const BUNDLE_SPLIT=true;
+// WS10 (ADR v2): indexed display mesh. Rust prepare_indexed shares a vertex between corners whose position and normal
+// bits are identical (the same crease rule and normals as prepare_mesh); the merged preview's display is assembled from
+// per-part displays (unchanged parts reuse theirs exactly); the UI uploads only the changed ranges of the display
+// buffers. false restores the per-corner arrays.
+export const INDEXED_DISPLAY=true;

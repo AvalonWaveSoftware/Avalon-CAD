@@ -56,8 +56,8 @@ try{
  await page.evaluate(()=>window.__cad.touch.radiusMenu());await page.locator('#exactRadius').fill('1');await page.locator('#applyRadius').click();
  await page.waitForFunction(()=>document.querySelector('#sheet').hidden&&window.__cad.project.objects[0].fillets?.[0]?.radius===1);
  await page.waitForFunction(()=>window.__cad.model.volume<12000&&window.__cad.model.volume>11000);
- const display=await page.evaluate(()=>({positions:window.__cad.display.geometry.attributes.position.count,normals:window.__cad.display.geometry.attributes.normal.count,engine:window.__cad.model.engine}));
- assert.ok(display.positions>36);assert.equal(display.normals,display.positions);
+ const display=await page.evaluate(()=>({positions:window.__cad.display.geometry.index?.count??window.__cad.display.geometry.attributes.position.count,vertices:window.__cad.display.geometry.attributes.position.count,normals:window.__cad.display.geometry.attributes.normal.count,engine:window.__cad.model.engine}));
+ assert.ok(display.positions>36);assert.equal(display.normals,display.vertices);
  await page.locator('#exportBtn').click();await page.locator('#quality').selectOption('maximum');await page.locator('#downloadSTL').click();
  await page.waitForFunction(()=>window.savedFile?.done,{},{timeout:60000});
  const file=await page.evaluate(()=>window.savedFile);const bytes=Buffer.concat(file.chunks.map(s=>Buffer.from(s,'base64')));
@@ -122,7 +122,7 @@ try{
  // A curved overlap must not make the neighboring flat face appear dented.
  await page.evaluate(()=>{window.__cad.touch.deselect();const o=(id,type,params,position)=>({id,name:id,type,params,position,rotation:[0,0,0],mode:'solid',enabled:true,layerId:'layer-1'});const sphere=o('overlap-sphere','sphere',{diameter:20},[0,0,-5]);sphere.resolution={mode:'tolerance',tolerance:.005};window.__cad.load({...window.__cad.templates.blank(),objects:[o('overlap-box','box',{w:30,d:30,h:8},[0,0,0]),sphere]});});
  await page.waitForFunction(()=>window.__cad.model.parts.length===2&&window.__cad.model.parts[0].id==='overlap-box');
- const flatTop=()=>{const m=window.__cad.model,n=window.__cad.display.geometry.attributes.normal.array;let triangles=0,bent=0;for(let f=0;f<m.triangles.length/3;f++)if([0,1,2].every(j=>Math.abs(m.vertices[m.triangles[f*3+j]*3+2]-4)<1e-5)){triangles++;for(let j=0;j<3;j++)if(Math.abs(n[f*9+j*3+2]-1)>1e-6)bent++;}return {triangles,bent,volume:m.volume,groups:new Set(m.smoothingGroups).size};};
+ const flatTop=()=>{const m=window.__cad.model,g=window.__cad.display.geometry,a=g.attributes.normal.array,x=g.index?.array,n=x?Float32Array.from({length:x.length*3},(_,i)=>a[x[(i/3)|0]*3+i%3]):a;let triangles=0,bent=0;for(let f=0;f<m.triangles.length/3;f++)if([0,1,2].every(j=>Math.abs(m.vertices[m.triangles[f*3+j]*3+2]-4)<1e-5)){triangles++;for(let j=0;j<3;j++)if(Math.abs(n[f*9+j*3+2]-1)>1e-6)bent++;}return {triangles,bent,volume:m.volume,groups:new Set(m.smoothingGroups).size};};
  const overlapBefore=await page.evaluate(flatTop);assert.ok(overlapBefore.triangles>0);assert.equal(overlapBefore.bent,0);assert.ok(overlapBefore.groups>=2);
  await page.evaluate(()=>{window.__cad.touch.setMulti(['overlap-box','overlap-sphere']);window.__cad.touch.mergeMenu();});await page.locator('#confirmMerge').click();await page.waitForFunction(()=>document.querySelector('#sheet').hidden&&window.__cad.project.objects.length===1&&window.__cad.model.parts.length===1);await page.locator('#deselectBtn').click();const overlapAfter=await page.evaluate(flatTop);assert.equal(overlapAfter.bent,0);assert.ok(Math.abs(overlapAfter.volume-overlapBefore.volume)<1e-6);assert.equal(await page.evaluate(()=>window.__cad.project.objects[0].params.children.find(o=>o.type==='sphere').params.diameter),20);
  console.log('PASS: actual WebGL flat-face normals stay flat where a smooth sphere overlaps a box, both before and after Merge; source smoothing groups, volume and primitive dimensions are preserved.');

@@ -26,7 +26,7 @@ async function drain(){if(running)return;running=true;
  try{while(queue.length){const data=queue.shift();try{
   const engine=await runtime;if(BUNDLE_SPLIT&&needsSolid(data))await startSolid();const result=engine.process(data);result.engine=engine.info;
   const transfers=[];if(result.buffer)transfers.push(result.buffer);
-  for(const key of ['vertices','triangles','flatTriangles','smoothingGroups','displayPositions','displayNormals'])if(ArrayBuffer.isView(result[key]))transfers.push(result[key].buffer);
+  for(const key of ['vertices','triangles','flatTriangles','smoothingGroups','displayPositions','displayNormals','displayIndex'])if(ArrayBuffer.isView(result[key]))transfers.push(result[key].buffer);
   for(const p of result.parts||[]){for(const key of ['vertices','triangles','flatTriangles','smoothingGroups'])if(p[key])transfers.push(p[key].buffer);if(!TOPOLOGY_SERVICE&&p.topology)transfers.push(p.topology.vertices.buffer,p.topology.triangles.buffer);}
   if(TOPOLOGY_SERVICE)transfers.push(...shipTopologies(result));
   self.postMessage(result,transfers);

@@ -8,11 +8,13 @@
 // of order, and every object after it, is rebuilt. Moves keep IDs, so a move rebuilds nothing.
 // Cached solids are owned here: the bridge's dispose() skips them. Derived entries unused for two jobs are freed;
 // local solids are evicted least-recently-used above the byte budget.
-import {ENGINE_CACHE_MERGE as MERGE} from './perf-flags.mjs';
+import {ENGINE_CACHE_MERGE as MERGE,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {makeLocalSolid,placeObjectSolid,meshData} from './kernel.mjs';
-export function engineCache(K,{budget=150*1048576}={}){
+// dst[at+i]=src[i]+base (a plain copy when base is 0): one small monomorphic loop for every merged index buffer.
+const offsetInto=(dst,src,at,base)=>{if(!base){dst.set(src,at);return;}for(let i=0;i<src.length;i++)dst[at+i]=src[i]+base;};
+export function engineCache(K,{budget=150*1048576,prepare=null}={}){
  const M=K.Manifold,owned=new WeakSet(),serials=new WeakMap(),local=new Map(),unions=new Map(),parts=new Map(),floors=new Map();
- let job=0,maxId=-Infinity,seen=new Map(),next=0,localBytes=0,derivedBytes=0;const stats={localBuilds:0,localHits:0,mergedPreviews:0};
+ let job=0,maxId=-Infinity,seen=new Map(),next=0,localBytes=0,derivedBytes=0;const stats={localBuilds:0,localHits:0,mergedPreviews:0,displayBuilds:0,displayHits:0};
  const boxes=new WeakMap();
  const box=s=>{let b=boxes.get(s);if(!b){b=s.boundingBox();boxes.set(s,b);}return b;};
  // Conservative gap: well above Manifold's own touch tolerance (relative precision × box scale), so anything Manifold
@@ -24,6 +26,10 @@ export function engineCache(K,{budget=150*1048576}={}){
  const free=s=>{owned.delete(s);derivedBytes-=s.__bytes||0;s.__bytes=0;s.delete();};
  const adopt=s=>{owned.add(s);s.__bytes=estimate(s);derivedBytes+=s.__bytes;return s;};
  const releaseLocal=e=>{for(const p of e.placed.values())free(p.s);owned.delete(e.s);e.s.delete();localBytes-=e.bytes;};
+ // WS10: per-part indexed displays. A part entry is one placed solid (a byte-identical mesh), so it keeps its display;
+ // a moved part is a new placed solid and is prepared afresh. (Reusing a moved part's normals was tried and dropped:
+ // normals from translated float32 positions differ in the last bits, which flipped 1-10 pixels by one level.)
+ const partDisplay=(s,styles,data)=>{const p=parts.get(serial(s)+(styles?'S':''));if(!p.display){p.display=prepare(data);stats.displayBuilds++;}else stats.displayHits++;return p.display;};
  return {stats,
   owns:s=>owned.has(s),
   begin(){job++;maxId=-Infinity;seen=new Map();},
@@ -65,11 +71,17 @@ export function engineCache(K,{budget=150*1048576}={}){
    const datas=final.map(s=>partData(s,styles));let nv=0,nt=0;for(const d of datas){nv+=d.vertices.length;nt+=d.triangles.length;}
    const out={vertices:new Float32Array(nv),triangles:new Uint32Array(nt),...(styles?{flatTriangles:new Uint8Array(nt/3),smoothingGroups:new Uint32Array(nt/3)}:{})};
    let v=0,t=0,group=0;
-   for(const d of datas){out.vertices.set(d.vertices,v);const base=v/3;for(let i=0;i<d.triangles.length;i++)out.triangles[t+i]=d.triangles[i]+base;
+   for(const d of datas){out.vertices.set(d.vertices,v);offsetInto(out.triangles,d.triangles,t,v/3);
     if(styles){out.flatTriangles.set(d.flatTriangles,t/3);let top=0;for(let i=0;i<d.smoothingGroups.length;i++){const x=d.smoothingGroups[i];out.smoothingGroups[t/3+i]=x+group;if(x>top)top=x;}group+=top;}
     v+=d.vertices.length;t+=d.triangles.length;}
    let volume=0,min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
    for(const s of final){volume+=s.volume();if(s.isEmpty())continue;const b=box(s);for(let k=0;k<3;k++){min[k]=Math.min(min[k],b.min[k]);max[k]=Math.max(max[k],b.max[k]);}}
+   // WS10: the merged display is the per-part displays concatenated (parts never weld: their boxes are apart and their
+   // smoothing groups distinct), the same arrays prepare_indexed gives for the merged mesh.
+   if(INDEXED_DISPLAY&&prepare){const ds=final.map((s,i)=>partDisplay(s,styles,datas[i]));let np=0,ni=0;for(const d of ds){np+=d.positions.length;ni+=d.index.length;}
+    const P=new Float32Array(np),N=new Float32Array(np),I=new Uint32Array(ni);let a=0,b=0;
+    for(const d of ds){P.set(d.positions,a);N.set(d.normals,a);offsetInto(I,d.index,b,a/3);a+=d.positions.length;b+=d.index.length;}
+    out.display={positions:P,normals:N,index:I};}
    return {...out,parts,volume,bounds:min[0]===Infinity?null:{min,max}};},
   // A part's content key: equal keys mean byte-identical part meshes (same cached solid), so the UI can keep its pick mesh.
   partKey:(s,styles)=>serial(s)+(styles?'S':''),

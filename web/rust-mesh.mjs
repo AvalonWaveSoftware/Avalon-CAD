@@ -28,6 +28,15 @@ export async function initRustMesh({binary,url,streaming}={}){
     return {positions:new Float32Array(core.memory.buffer,pp,triangles.length*3).slice(),normals:new Float32Array(core.memory.buffer,np,triangles.length*3).slice()};
    });
   },
+  // WS10: indexed display mesh. Expanding index over positions/normals gives prepare() exactly.
+  prepareIndexed(vertices,triangles,flat=new Uint8Array(),groups=new Uint32Array()){
+   validate(vertices,triangles);if(!triangles.length)return {positions:new Float32Array(),normals:new Float32Array(),index:new Uint32Array()};
+   return withBuffers((allocate,input)=>{const n=triangles.length,vp=input(vertices),tp=input(triangles),fp=input(flat),gp=input(groups),pp=allocate(n*12),np=allocate(n*12),ip=allocate(n*4),cp=allocate(4);
+    if(core.prepare_indexed(vp,vertices.length,tp,n,fp,flat.length,gp,groups.length,pp,np,ip,cp))throw Error('The model contains invalid mesh geometry.');
+    const count=new Uint32Array(core.memory.buffer,cp,1)[0];
+    return {positions:new Float32Array(core.memory.buffer,pp,count*3).slice(),normals:new Float32Array(core.memory.buffer,np,count*3).slice(),index:new Uint32Array(core.memory.buffer,ip,n).slice()};
+   });
+  },
   writeSTL(vertices,triangles,ground=true){
    validate(vertices,triangles);if(!triangles.length)throw Error('The model has no solid material to export.');
    const size=84+triangles.length/3*50;if(size>50*1024*1024)throw Error('This STL exceeds the 50 MB file transfer limit.');
