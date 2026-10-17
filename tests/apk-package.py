@@ -1,5 +1,6 @@
 """Check Android's install-time resource-table requirements in the signed APK."""
 import argparse
+import re
 import struct
 from pathlib import Path
 from zipfile import ZipFile, ZIP_STORED
@@ -46,7 +47,22 @@ def check_apk(path):
             assert b'def process_job(' in apk.read('assets/python/model_jobs.py')
         else:
             assert not any(n.startswith('assets/python/') for n in names), 'JS_ENGINE build ships Python'
+        # ADR-0001 W0 (ruling 4): lazy chunks in the WebView. main.js is a module script (index.html type="module"), every
+        # import("./chunk-*.js") target is in assets/ next to it (same origin), is an ES module, and MainActivity serves
+        # .js assets as text/javascript, which module loading requires. The phone checklist opens Help on a device.
+        main = apk.read('assets/main.js').decode()
+        assert b'type="module"' in apk.read('assets/index.html') and b'src="main.js' in apk.read('assets/index.html'), 'main.js is not a module script'
+        chunks = sorted(set(re.findall(r'import\(["\']\./(chunk-[\w-]+\.js)["\']\)', main)))
+        assert chunks, 'main.js has no lazy import() chunk'
+        for name in chunks:
+            assert 'assets/' + name in names, f'Missing lazy chunk assets/{name}'
+            assert re.search(rb'\bexport\s*\{', apk.read('assets/' + name)), f'{name} is not an ES module'
+        stray = [n for n in names if re.fullmatch(r'assets/chunk-.*\.js', n) and n[7:] not in chunks]
+        assert not stray, f'Unreferenced chunks in the APK: {stray}'
+        java = (Path(__file__).resolve().parent.parent / 'app/src/com/tristan/cad/MainActivity.java').read_text()
+        assert 'asset.endsWith(".js")' in java and 'mime="text/javascript"' in java, 'MainActivity must serve .js as text/javascript'
     print(f'APK packaging passed: resources.arsc uncompressed and aligned at {offset}')
+    print(f'Lazy chunks in the APK: {", ".join(chunks)}')
 
 
 if __name__ == '__main__':

@@ -4,14 +4,22 @@ import path from 'node:path';
 const {BUNDLE_SPLIT}=await import('./web/perf-flags.mjs');
 // WS9: with BUNDLE_SPLIT=false the UI's kernel-ui.mjs imports resolve to kernel.mjs again (the legacy single bundle).
 const legacyKernel={name:'legacy-kernel',setup(b){b.onResolve({filter:/\/kernel-ui\.mjs$/},a=>BUNDLE_SPLIT||a.importer.endsWith(path.sep+'kernel.mjs')?undefined:{path:path.resolve('web/kernel.mjs')});}};
-const ui=await build({entryPoints:['web/main.mjs'],outfile:'app/assets/main.js',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,metafile:true,plugins:[legacyKernel],external:['node:*','module','fs','path','crypto']});
+// ADR-0001 W0 (§2.3, ruling 3/4): code splitting. main.js stays the entry; every dynamic import() becomes a lazy chunk
+// app/assets/chunk-<name>-<hash>.js (flat, next to main.js, so every package's asset copy carries it). Old chunks are
+// removed first so a package never ships a stale one. Chunks are content-hashed, so they need no ?v= token.
+fs.mkdirSync('app/assets',{recursive:true});for(const f of fs.readdirSync('app/assets'))if(/^chunk-.*\.js$/.test(f))fs.rmSync('app/assets/'+f);
+const ui=await build({entryPoints:{main:'web/main.mjs'},outdir:'app/assets',splitting:true,entryNames:'[name]',chunkNames:'chunk-[name]-[hash]',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,metafile:true,plugins:[legacyKernel],external:['node:*','module','fs','path','crypto']});
 // WS9 size guard (ADR: fail if main.js grows by more than 1 %). The reference is tools/main-js-size.json; after an
 // intended change, update it in the same commit. Only the split bundle is guarded.
 if(BUNDLE_SPLIT){const bytes=Object.values(ui.metafile.outputs).find(o=>o.entryPoint==='web/main.mjs').bytes,ref=JSON.parse(fs.readFileSync('tools/main-js-size.json','utf8'))['main.js'];
  const ui_inputs=Object.keys(Object.values(ui.metafile.outputs).find(o=>o.entryPoint==='web/main.mjs').inputs);
  const engine=ui_inputs.filter(f=>/replicad|cad-solid|web\/kernel\.mjs$|manifold-3d|pyodide/.test(f));
  if(engine.length)throw Error('main.js must not bundle engine modules: '+engine.join(', '));
- if(bytes>ref*1.01)throw Error(`main.js is ${bytes} B, more than 1 % over the ${ref} B reference (tools/main-js-size.json)`);}
+ if(bytes>ref*1.01)throw Error(`main.js is ${bytes} B, more than 1 % over the ${ref} B reference (tools/main-js-size.json)`);
+ // ADR-0001 Q15 / ruling 3: hard cap 740 KiB for main.js; each lazy chunk <= 8 KB gzip (§8).
+ if(bytes>757760)throw Error(`main.js is ${bytes} B, over the 757,760 B (740 KiB) cap`);
+ const {gzipSync}=await import('node:zlib');
+ for(const [f,o] of Object.entries(ui.metafile.outputs))if(/chunk-[^/]*\.js$/.test(f)){const gz=gzipSync(fs.readFileSync(f),{level:9}).length;if(gz>8192)throw Error(`${f} is ${gz} B gzip, over the 8 KB lazy-chunk budget`);if(Object.keys(o.inputs).some(i=>/replicad|cad-solid|web\/kernel\.mjs$|manifold-3d|pyodide/.test(i)))throw Error(f+' must not bundle engine modules');}}
 await build({entryPoints:['web/worker.mjs'],outfile:'app/assets/worker.js',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,external:['node:*','module','fs','path','crypto']});
 for(const [src,dst] of [['THIRD_PARTY_NOTICES.txt','app/assets/THIRD_PARTY_NOTICES.txt'],['web/index.html','app/assets/index.html'],['web/style.css','app/assets/style.css']])fs.copyFileSync(src,dst);
 // WS13: with WASM_OPT the OCCT and Manifold binaries ship after wasm-opt -Oz (binaryen pinned in devDependencies). The

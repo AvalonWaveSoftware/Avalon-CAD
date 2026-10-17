@@ -7,19 +7,24 @@ import fs from 'node:fs';import os from 'node:os';import path from 'node:path';i
 const require=createRequire(import.meta.url),pw=require(process.env.AVALON_PLAYWRIGHT||'playwright');
 const RUNS=+(process.env.AVALON_WS8_RUNS||3),check=process.argv.includes('--check');
 const med=a=>{const s=[...a].sort((x,y)=>x-y);return s[s.length>>1];};
-async function launch(profile){const t0=performance.now();
+// ADR-0001 W0 (ruling 4): code splitting. No lazy chunk may load before ready (cold start measures main.js alone), and on
+// the first launch of each profile Help is opened to prove the help chunk loads through import() over app://.
+const chunkCount=page=>page.evaluate(()=>performance.getEntriesByType('resource').filter(r=>/\/chunk-[^/]*\.js/.test(r.name)).length);
+async function launch(profile,lazy=false){const t0=performance.now();
  const app=await pw._electron.launch({executablePath:process.env.AVALON_ELECTRON_LINUX,args:['--no-sandbox','--ozone-platform=x11','--no-zygote','--disable-dev-shm-usage',path.resolve('tests/desktop-harness.cjs')],env:{...process.env,AVALON_TEST_FILES:profile,XDG_CONFIG_HOME:profile},timeout:60000});
  try{const page=await app.firstWindow();await page.waitForFunction(()=>window.__cad?.model?.engine?.local===true,{},{timeout:90000,polling:20});
-  const ms=performance.now()-t0,worker=await page.evaluate(()=>performance.getEntriesByType('resource').filter(r=>/\.(wasm|js)/.test(r.name)).map(r=>r.name.split('/').pop()+':'+Math.round(r.responseEnd-r.startTime)).join(' '));return {ms,worker};}
+  const ms=performance.now()-t0,atReady=await chunkCount(page);if(atReady)throw Error(atReady+' lazy chunk(s) loaded before ready');
+  if(lazy){await page.click('#helpBtn');await page.waitForFunction(()=>/Make your first part/.test(document.querySelector('#sheet')?.textContent||document.body.textContent),{},{timeout:10000});const n=await chunkCount(page);if(n<1)throw Error('Help opened without loading its lazy chunk');lazyOK++;}
+  const worker=await page.evaluate(()=>performance.getEntriesByType('resource').filter(r=>/\.(wasm|js)/.test(r.name)).map(r=>r.name.split('/').pop()+':'+Math.round(r.responseEnd-r.startTime)).join(' '));return {ms,worker};}
  finally{await app.close();}}
-const first=[],second=[];
+let lazyOK=0;const first=[],second=[];
 for(let i=0;i<RUNS;i++){const profile=fs.mkdtempSync(path.join(os.tmpdir(),'ws8-profile-'));
- try{const a=await launch(profile),b=await launch(profile);first.push(a.ms);second.push(b.ms);if(process.env.DEBUG)console.log(a.worker,'|',b.worker);}
+ try{const a=await launch(profile,true),b=await launch(profile);first.push(a.ms);second.push(b.ms);if(process.env.DEBUG)console.log(a.worker,'|',b.worker);}
  finally{fs.rmSync(profile,{recursive:true,force:true});}}
 let browser=[];{const H=await import(process.cwd()+'/tools/readme-shots/harness.mjs'),env=await H.start();
  try{for(let i=0;i<RUNS;i++){const t0=performance.now(),page=await H.open(env,{desktop:true});browser.push(performance.now()-t0);await page.context().close();}}finally{await env.close();}}
-const out={load:os.loadavg()[0].toFixed(2),desktopColdMs:Math.round(med(first)),desktopSecondMs:Math.round(med(second)),secondFaster:+(1-med(second)/med(first)).toFixed(3),browserReadyMs:Math.round(med(browser)),runs:{first:first.map(Math.round),second:second.map(Math.round),browser:browser.map(Math.round)}};
+const out={load:os.loadavg()[0].toFixed(2),desktopColdMs:Math.round(med(first)),desktopSecondMs:Math.round(med(second)),secondFaster:+(1-med(second)/med(first)).toFixed(3),browserReadyMs:Math.round(med(browser)),lazyChunkViaImport:lazyOK+'/'+RUNS,chunksAtReady:0,runs:{first:first.map(Math.round),second:second.map(Math.round),browser:browser.map(Math.round)}};
 console.log(JSON.stringify(out));
-if(check){const bad=[];if(out.desktopColdMs>2000)bad.push('desktop cold '+out.desktopColdMs+' ms > 2000');// Architect ruling (WS8, options 1+2): the ≥30 % second-launch target moves to after WS9; reported, not gated.
+if(check){const bad=[];if(out.desktopColdMs>2000)bad.push('desktop cold '+out.desktopColdMs+' ms > 2000');if(lazyOK!==RUNS)bad.push('help chunk loaded in '+lazyOK+'/'+RUNS+' launches');// Architect ruling (WS8, options 1+2): the ≥30 % second-launch target moves to after WS9; reported, not gated.
  if(out.secondFaster<.3)console.log('note: second launch '+(out.secondFaster*100).toFixed(1)+' % faster (target ≥30 % deferred to after WS9)');
  if(bad.length){console.log('WS8 FAIL: '+bad.join('; '));process.exit(1);}console.log('WS8 PASS');}

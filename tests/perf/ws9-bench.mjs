@@ -28,4 +28,4 @@ for(const [l,k] of [['main.js (B)','mainJs'],['desktop cold TTI (ms)','coldTTI']
 console.log('warm vs cold (on):',(100*(1-res.on.warmTTI/res.on.coldTTI)).toFixed(1)+' % faster; warm on vs off:',(100*(1-res.on.warmTTI/res.off.warmTTI)).toFixed(1)+' % faster');
 console.log(JSON.stringify(res));
 // Read as 690 KiB since WS12, as in tests/startup-split.mjs (WS12 decision 4: 690,497 B accepted).
-if(check){const ok=res.on.mainJs<=690*1024;console.log(ok?'WS9 PASS':'WS9 FAIL: main.js '+res.on.mainJs+' B > 690 KiB');if(!ok)process.exitCode=1;}
+if(check){const ok=res.on.mainJs<=757760;console.log(ok?'WS9 PASS':'WS9 FAIL: main.js '+res.on.mainJs+' B > 757,760 B (740 KiB, ADR-0001 Q15)');if(!ok)process.exitCode=1;}

@@ -81,4 +81,9 @@ for name in ['cad-kernel.wasm', 'manifold.wasm', 'mesh-core.wasm'] + (['python/p
     assert (assets / name).read_bytes()[:4] == b'\x00asm'
 for name in ['main.js', 'worker.js', 'desktop.css'] + (['python/model_jobs.py', 'python/python_stdlib.zip'] if PYTHON else []):
     assert (assets / name).is_file()
+# ADR-0001 W0 (ruling 4): every lazy chunk main.js loads with import() ships in the app.
+import re as _re
+chunks = sorted(set(_re.findall(r'import\(["\']\./(chunk-[\w-]+\.js)["\']\)', (assets / 'main.js').read_text())))
+for name in chunks:
+    assert (assets / name).is_file(), f'Missing lazy chunk {name}'
 print(f'PASS: Apple silicon app identity, {machos} arm64 Mach-O binaries with valid ad-hoc page hashes, {sealed} resource seals and complete offline Python/Rust/CAD assets.')
