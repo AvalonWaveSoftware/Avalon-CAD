@@ -1,4 +1,4 @@
-import {validateProject} from './kernel.mjs';
+import {validateProject} from './kernel-ui.mjs';
 import {DEFAULT_LAYER,booleanProject,layerOf} from './layers.mjs';
 import {uid} from './templates.mjs';
 

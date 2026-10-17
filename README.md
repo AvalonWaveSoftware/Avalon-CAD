@@ -224,6 +224,8 @@ The APK is written to a sibling `deliverables/` directory. The Rust crate has no
 
 ### Tests
 
+- `app/assets` is generated and not tracked (except `mesh-core.wasm`): run `npm run build:web` before `npm test` or the browser tests. The packaging scripts always build it.
+- The first `npm run build:web` on a machine runs binaryen `wasm-opt -Oz` on the OCCT and Manifold binaries (about 4 minutes, up to ~8 GB of memory); the result is cached in `build/wasm-opt`. `tools/npm-stubs` holds empty stand-ins for install-only dependencies (see its README).
 - `npm test` runs the geometry, interaction, layer, prefab, thread, build-plane, Objects panel and migration suites in Node using jsdom. Node 24 is recommended.
 - `npm run test:browser` is an optional integration test with real WebGL. Install Playwright separately (`npm install --no-save playwright`) and set `AVALON_CHROMIUM` to a local Chromium executable. It serves the bundled assets from localhost only and blocks all outside requests. This test server is a development tool and is not part of the installed app.
 - `tools/readme-shots/` contains the Playwright script that produces the screenshots in this README.

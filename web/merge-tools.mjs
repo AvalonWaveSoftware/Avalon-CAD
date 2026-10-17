@@ -1,6 +1,6 @@
 import {mergeResult,connectingBridges} from './operations.mjs';
 import {object,uid} from './templates.mjs';
-import {validateProject} from './kernel.mjs';
+import {validateProject} from './kernel-ui.mjs';
 import {layerOf,layerName,assertSameLayer} from './layers.mjs';
 
 // Why a selection cannot be merged, or '' when it can.

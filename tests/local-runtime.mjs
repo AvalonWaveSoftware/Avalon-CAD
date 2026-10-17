@@ -7,7 +7,8 @@ import {initLocalEngine} from '../web/local-engine.mjs';
 import {displayGeometry} from '../web/display-geometry.mjs';
 import {blank,object,defaults,plate,tray} from '../web/templates.mjs';
 import {withRoundover,mergeResult} from '../web/operations.mjs';
-import {evaluateBoolean} from '../web/boolean-model.mjs';
+import {evaluateBoolean} from './boolean-model.mjs';
+import {corners} from './display-corners.mjs';
 
 const K=await initKernel(),start=performance.now();
 const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
@@ -18,9 +19,9 @@ function previewParity(project,tolerance){
  const snapshot=JSON.stringify(project),legacy=buildModel(K,project,tolerance,true),local=run({type:'preview',project,tolerance});
  assert.equal(JSON.stringify(project),snapshot);assert.ok(Math.abs(local.volume-legacy.volume)<1e-7);assert.deepEqual(local.bounds,legacy.bounds);assert.equal(local.parts.length,legacy.parts.length);
  for(const key of ['vertices','triangles','flatTriangles','smoothingGroups'])assert.ok(Buffer.from(local[key].buffer).equals(Buffer.from(legacy[key].buffer)),key+' parity');
- assert.equal(local.displayPositions.length,local.triangles.length*3);
+ const D=corners(local);assert.equal(D.positions.length,local.triangles.length*3);
  const old=displayGeometry(local.vertices,local.triangles,local.flatTriangles,undefined,local.smoothingGroups),oldP=old.getAttribute('position').array,oldN=old.getAttribute('normal').array;
- assert.ok(Buffer.from(local.displayPositions.buffer).equals(Buffer.from(oldP.buffer)),'Display position parity');for(let i=0;i<oldN.length;i++)assert.ok(Math.abs(local.displayNormals[i]-oldN[i])<2e-6,'Rust preview must match source-isolated crease and facet normals');old.dispose();
+ assert.ok(Buffer.from(D.positions.buffer).equals(Buffer.from(oldP.buffer)),'Display position parity');for(let i=0;i<oldN.length;i++)assert.ok(Math.abs(D.normals[i]-oldN[i])<2e-6,'Rust preview must match source-isolated crease and facet normals');old.dispose();
  const exportMesh=buildModel(K,project,tolerance);if(exportMesh.triangles.length)for(const ground of [false,true]){const stl=run({type:'export',project,tolerance,ground});assert.ok(Buffer.from(stl.buffer).equals(Buffer.from(writeSTL(exportMesh.vertices,exportMesh.triangles,ground))),'Exact STL parity');assert.ok(Math.abs(stl.volume-legacy.volume)<1e-7);}
  checks++;console.log('Checked model',checks,project.name,tolerance,local.triangles.length/3,'triangles;',Math.round(process.memoryUsage().rss/1024/1024),'MiB RSS');
 }

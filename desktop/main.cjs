@@ -6,6 +6,7 @@ const {app, BrowserWindow, Menu, dialog, ipcMain, protocol, session, shell} = re
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const path = require('node:path');
+const {Readable} = require('stream');
 const {exportPayload, readModel, writeModel} = require('./files.cjs');
 // Scheme, host and app name must stay stable: localStorage projects are keyed by origin
 // and stored under userData ("Avalon CAD"), so changing either orphans saved projects.
@@ -21,6 +22,7 @@ function webRoot() {
   return candidates.find(dir => { try { return fsSync.statSync(path.join(dir, 'index.html')).isFile(); } catch { return false; } }) || candidates[0];
 }
 const assets = webRoot();
+const startup = (() => { try { return JSON.parse(fsSync.readFileSync(path.join(assets, 'perf-flags.json'), 'utf8')); } catch { return {}; } })();
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.py': 'text/plain; charset=utf-8',
@@ -101,6 +103,8 @@ async function createWindow() {
     show: !smokeArg ? false : !!process.env.DISPLAY, autoHideMenuBar: !isMac,
     icon: app.isPackaged || isMac ? undefined : path.join(__dirname, 'build', 'icons', '512x512.png'),
     webPreferences: {preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, spellcheck: false, webviewTag: false,
+      // WS8: write the V8 code cache on the first run (default: only from the second), so the second launch uses it.
+      ...(startup.PARALLEL_INIT === true ? {v8CacheOptions: 'bypassHeatCheck'} : {}),
       devTools: !app.isPackaged || !!process.env.AVALON_DEVTOOLS}});
   window.webContents.setWindowOpenHandler(({url} = {}) => {
     if (typeof url === 'string' && /^https:\/\//.test(url)) shell.openExternal(url);
@@ -166,9 +170,16 @@ else {
         const root = await fs.realpath(assets);
         const target = await fs.realpath(path.resolve(root, filename));
         if (!target.startsWith(root + path.sep)) return new Response('Forbidden', {status: 403});
-        const body = request.method === 'HEAD' ? null : await fs.readFile(target);
+        // WS8 (PARALLEL_INIT): stream the file and let ?v=<version> assets be cached for good, so codeCache takes effect.
+        const streamed = startup.PARALLEL_INIT === true, versioned = streamed && url.searchParams.get('v') === startup.version;
+        let body = null, extra = {};
+        if (request.method !== 'HEAD') {
+          if (streamed) { const stat = await fs.stat(target); body = Readable.toWeb(fsSync.createReadStream(target)); extra = {'content-length': String(stat.size), 'last-modified': stat.mtime.toUTCString(), 'date': new Date().toUTCString()}; }
+          else body = await fs.readFile(target);
+        }
         return new Response(body, {status: 200, headers: {
-          'Content-Type': MIME[path.extname(target).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store',
+          'Content-Type': MIME[path.extname(target).toLowerCase()] || 'application/octet-stream',
+          'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : 'no-store', ...extra,
           // Cross-origin isolation (crossOriginIsolated / SharedArrayBuffer); every resource is same-origin.
           'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp',
           'Cross-Origin-Resource-Policy': 'same-origin', 'X-Content-Type-Options': 'nosniff'}});

@@ -64,6 +64,13 @@ def build_model(project, tolerance, individual=False):
             if key not in groups:
                 groups[key] = ([], [s for _, s in active])
             groups[key][0].append(solid)
+        if individual:
+            # WS5: the preview's merged mesh may be geometrically equal (Architect ruling); the bridge assembles it
+            # incrementally from cached pieces, or returns None to use the full union below. Exports never take this path.
+            merged_model = native.preview_merge(to_js([[list(g), list(c)] for g, c in groups.values()]), to_js(parts), styles)
+            if merged_model is not None:
+                merged_model.floorAdjustments = to_js(adjustments)
+                return merged_model
         material = []
         for group_solids, group_cuts in groups.values():
             merged = own(native.union(to_js(group_solids)))

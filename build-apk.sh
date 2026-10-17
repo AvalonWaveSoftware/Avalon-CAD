@@ -9,6 +9,10 @@ PLATFORM="$SDK/platforms/android-35/android.jar"
 mkdir -p build/classes build/dex ../deliverables
 ./build-rust.sh
 npm run build:web
+# WS13 (D6): app/assets is not tracked; make sure the web build produced every shipped asset.
+for f in index.html style.css main.js worker.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt; do
+  [ -f "app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
+done
 "$BT/aapt2" compile --dir app/res -o build/resources.zip
 "$BT/aapt2" link -o build/base-resources.apk --manifest app/AndroidManifest.xml -I "$PLATFORM" build/resources.zip
 java com.sun.tools.javac.Main -source 8 -target 8 -classpath "$PLATFORM" -d build/classes app/src/com/tristan/cad/MainActivity.java
@@ -21,12 +25,14 @@ PY
 python3 - <<'PY'
 import zipfile
 from pathlib import Path
+stored='PARALLEL_INIT=true' in Path('web/perf-flags.mjs').read_text()
 with zipfile.ZipFile('build/base-resources.apk') as resources:
  assert 'AndroidManifest.xml' in resources.namelist()
  with zipfile.ZipFile('build/unsigned.apk','w',compression=zipfile.ZIP_DEFLATED) as z:
   for entry in resources.infolist():z.writestr(entry,resources.read(entry.filename))
   for p in Path('app/assets').rglob('*'):
-   if p.is_file():z.write(p,'assets/'+str(p.relative_to('app/assets')))
+   # WS8 (PARALLEL_INIT, ADR D3): store wasm/zip uncompressed so AssetManager streams them without inflating.
+   if p.is_file():z.write(p,'assets/'+str(p.relative_to('app/assets')),compress_type=zipfile.ZIP_STORED if stored and p.suffix in ('.wasm','.zip') else None)
   z.write('build/dex/classes.dex','classes.dex')
 with zipfile.ZipFile('build/unsigned.apk') as z:
  assert 'AndroidManifest.xml' in z.namelist() and z.testzip() is None
