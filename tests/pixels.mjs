@@ -151,7 +151,7 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
    caps.push(id);if(!update){const bp=path.join(PX,id+'.png'),bd=path.join(DOM,id+'.json');const r={id,errors:[]};
     if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
     if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');results.push(r);}
-   console.log((update?'baseline ':'checked ')+id);});
+   console.log(update?'baseline '+id:`checked ${id}: ${results.at(-1).differing??'n/a'} differing px${results.at(-1).errors.length?' FAIL: '+results.at(-1).errors.join('; '):''}`);});
   if(!caps.length)throw Error('scene captured nothing');}
  catch(e){results.push({id:`${name}@${vp}`,errors:['scene failed: '+e.message.split('\n')[0]]});console.error('FAIL',name,vp,e.message.split('\n')[0]);}
  finally{if(process.env.PIXEL_TRACE)console.log(`  done ${name}@${vp} ${Date.now()-ts}ms`);await page?.context().close().catch(()=>{});}}
@@ -165,4 +165,5 @@ if(update){const failed=results.filter(r=>r.errors.length);if(failed.length)cons
 if(!only.length){const m=JSON.parse(fs.readFileSync(path.join(BASE,'manifest.json'),'utf8'));const seen=new Set(results.map(r=>r.id));for(const id of m.captures)if(!seen.has(id))results.push({id,errors:['baseline capture not produced']});}
 const bad=results.filter(r=>r.errors.length);fs.writeFileSync(path.join(OUT,'report.json'),JSON.stringify({secs,results},null,1));
 for(const r of bad)console.error('FAIL',r.id,'—',r.errors.join(' | '));
-const acc=results.filter(r=>r.accepted&&!r.errors.length).length;console.log(`test:pixels: ${results.length-bad.length-acc}/${results.length} captures identical, ${acc} accepted exception(s) (0 differing pixels, DOM/styles equal) in ${secs}s`);process.exit(bad.length?1:0);
+const accs=results.filter(r=>r.accepted&&!r.errors.length),acc=accs.length,total=results.reduce((n,r)=>n+(r.differing||0),0);
+console.log(`test:pixels: ${results.length-bad.length-acc}/${results.length} captures at 0 px, ${acc} accepted exception(s)${acc?' ('+accs.map(r=>r.id+' '+r.accepted+' px').join(', ')+')':''}, ${bad.length} failed; ${total} differing px in total; DOM/styles ${results.some(r=>r.errors.some(e=>!/pixels|baseline/.test(e)))?'DIFFER':'equal'} in ${secs}s`);process.exit(bad.length?1:0);
