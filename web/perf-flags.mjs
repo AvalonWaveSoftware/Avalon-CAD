@@ -55,3 +55,6 @@ export const INDEXED_DISPLAY=true;
 // re-validating; autosave runs in an idle callback and skips writing an unchanged project. Storage key and JSON are
 // unchanged. false restores the JSON-string history and the plain timer autosave.
 export const SHARED_HISTORY=true;
+// WS12 (ADR v2): Android export hand-off in a few natively encoded chunks (see saveFile in main.mjs). The ADR's
+// WebMessagePort ArrayBuffer transfer needs androidx.webkit, which this build does not have; the Java bridge is unchanged.
+export const BINARY_EXPORT=true;

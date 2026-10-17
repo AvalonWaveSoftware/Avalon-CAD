@@ -38,7 +38,8 @@
     "test:ws10": "node tests/perf/ws10-bench.mjs --check",
     "test:display-move": "node tests/display-move-frames.mjs",
     "test:ws11": "node tests/history.mjs",
-    "test:autosave": "node tests/autosave-sessions.mjs"
+    "test:autosave": "node tests/autosave-sessions.mjs",
+    "test:android-export": "node tests/android-export.mjs"
   },
   "keywords": [],
   "author": "",
