@@ -251,6 +251,8 @@ const commands=createCommands({
  backup:{run:()=>saveFile(JSON.stringify(forWrite(project),null,2),safeName()+'.tcad','application/json')},
  export:press('exportBtn'),undo:press('undo'),redo:press('redo'),add:press('addBtn'),edit:press('editBtn'),clear:press('deselectBtn'),fit:press('fit'),wire:press('wire'),help:press('helpBtn'),
  ...Object.fromEntries(['3d','top','front','right'].map(v=>[`view:${v}`,{run:()=>document.querySelector(`[data-view="${v==='3d'?'iso':v}"]`).click()}])),
+ // Modes run through their mode-bar button, so F follows whatever the Round button does (F6 turns it into the Edge ▾
+ // dropdown opener; F then opens it with no change here, or F6 passes its own mode:round handler).
  ...Object.fromEntries(['select','move','stretch','round'].map(m=>[`mode:${m}`,{run:()=>document.querySelector(`[data-mode="${m}"]`).click()}])),
  delete:{run:deleteSelected,enabled:()=>!!selection().length},duplicate:{run:()=>duplicateDraft(current()),enabled:()=>!!current()},
  escape:{run:()=>{if(!$('sheet').hidden)closeSheet();else touch.deselect();}}});
