@@ -3,7 +3,8 @@
 # TARGET=rpm (default) builds the .rpm; TARGET=pacman builds the Arch .pkg.tar.zst (see build-arch.sh).
 # Requires Node.js 22.12+ (Electron 44 tooling), npm, rsvg-convert, plus rpmbuild for the RPM
 # (rpm-build / Debian "rpm" package) or bsdtar (libarchive) for the Arch package.
-# Usage: desktop/build-rpm.sh [--skip-web]   (--skip-web reuses the existing app/assets)
+# Usage: desktop/build-rpm.sh [--skip-web]   (--skip-web reuses the existing app/assets; it must match the current
+# sources per build/web-stamp.json, else the build stops; AVALON_ALLOW_STALE_WEB=1 overrides with a warning)
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$(cd .. && pwd)"
@@ -17,6 +18,15 @@ grep -q "JS_ENGINE=false" "$ROOT/web/perf-flags.mjs" && ASSETS="$ASSETS python/p
 for f in $ASSETS; do
   [ -f "$ROOT/app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
 done
+# --skip-web must not ship assets built from older sources (tools/web-stamp.mjs compares content hashes).
+# AVALON_ALLOW_STALE_WEB=1 packages anyway, with a warning.
+if ! (cd "$ROOT" && node tools/web-stamp.mjs check); then
+  if [ "${AVALON_ALLOW_STALE_WEB:-}" = "1" ]; then
+    echo "WARNING: packaging STALE app/assets because AVALON_ALLOW_STALE_WEB=1" >&2
+  else
+    echo "Refusing to package stale app/assets. Run without --skip-web, or set AVALON_ALLOW_STALE_WEB=1 to override." >&2; exit 1
+  fi
+fi
 rm -rf build/web build/icons dist
 mkdir -p build/icons
 cp -r "$ROOT/app/assets" build/web

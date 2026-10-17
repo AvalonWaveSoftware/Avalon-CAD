@@ -6,7 +6,9 @@ export async function buildVariant(name,edit){const dir=path.join(ROOT,'tests/pe
  for(const d of ['web','desktop'])fs.cpSync(path.join(ROOT,d),path.join(dir,d),{recursive:true});
  for(const f of ['build-web.mjs','package.json','THIRD_PARTY_NOTICES.txt'])fs.copyFileSync(path.join(ROOT,f),path.join(dir,f));
  for(const d of ['node_modules','licenses','engine'])fs.symlinkSync(path.join(ROOT,d),path.join(dir,d));
- fs.mkdirSync(path.join(dir,'tools'));fs.copyFileSync(path.join(ROOT,'tools/main-js-size.json'),path.join(dir,'tools/main-js-size.json'));
+ fs.mkdirSync(path.join(dir,'tools'));for(const f of ['main-js-size.json','web-stamp.mjs'])fs.copyFileSync(path.join(ROOT,'tools',f),path.join(dir,'tools',f));
+ // Share the wasm-opt cache (WS13), so a variant does not re-run wasm-opt on OCCT (~4 min).
+ fs.mkdirSync(path.join(ROOT,'build/wasm-opt'),{recursive:true});fs.mkdirSync(path.join(dir,'build'));fs.symlinkSync(path.join(ROOT,'build/wasm-opt'),path.join(dir,'build/wasm-opt'));
  fs.mkdirSync(path.join(dir,'tests'));fs.copyFileSync(path.join(ROOT,'tests/desktop-harness.cjs'),path.join(dir,'tests/desktop-harness.cjs'));
  fs.copyFileSync(path.join(ROOT,'app/assets/mesh-core.wasm'),path.join(dir,'app/assets/mesh-core.wasm'));
  const flags=path.join(dir,'web/perf-flags.mjs');fs.writeFileSync(flags,edit(fs.readFileSync(flags,'utf8')));
