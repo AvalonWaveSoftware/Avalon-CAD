@@ -9,12 +9,12 @@ const RUNS=+(process.env.AVALON_WS8_RUNS||3),check=process.argv.includes('--chec
 const med=a=>{const s=[...a].sort((x,y)=>x-y);return s[s.length>>1];};
 // ADR-0001 W0 (ruling 4): code splitting. No lazy chunk may load before ready (cold start measures main.js alone), and on
 // the first launch of each profile Help is opened to prove the help chunk loads through import() over app://.
-const chunkCount=page=>page.evaluate(()=>performance.getEntriesByType('resource').filter(r=>/\/chunk-[^/]*\.js/.test(r.name)).length);
+// app:// loads leave no resource-timing entries, so chunk loads are counted from the page's network requests.
 async function launch(profile,lazy=false){const t0=performance.now();
  const app=await pw._electron.launch({executablePath:process.env.AVALON_ELECTRON_LINUX,args:['--no-sandbox','--ozone-platform=x11','--no-zygote','--disable-dev-shm-usage',path.resolve('tests/desktop-harness.cjs')],env:{...process.env,AVALON_TEST_FILES:profile,XDG_CONFIG_HOME:profile},timeout:60000});
- try{const page=await app.firstWindow();await page.waitForFunction(()=>window.__cad?.model?.engine?.local===true,{},{timeout:90000,polling:20});
-  const ms=performance.now()-t0,atReady=await chunkCount(page);if(atReady)throw Error(atReady+' lazy chunk(s) loaded before ready');
-  if(lazy){await page.click('#helpBtn');await page.waitForFunction(()=>/Make your first part/.test(document.querySelector('#sheet')?.textContent||document.body.textContent),{},{timeout:10000});const n=await chunkCount(page);if(n<1)throw Error('Help opened without loading its lazy chunk');lazyOK++;}
+ try{const page=await app.firstWindow(),seen=[];page.on('request',r=>{if(/\/chunk-[^/?]*\.js/.test(r.url()))seen.push(r.url());});const chunkCount=async()=>seen.length;await page.waitForFunction(()=>window.__cad?.model?.engine?.local===true,{},{timeout:90000,polling:20});
+  const ms=performance.now()-t0,atReady=await chunkCount();if(atReady)throw Error(atReady+' lazy chunk(s) loaded before ready');
+  if(lazy){await page.click('#helpBtn');await page.waitForFunction(()=>/Make your first part/.test(document.querySelector('#sheet')?.textContent||document.body.textContent),{},{timeout:10000});const n=await chunkCount();if(n<1)throw Error('Help opened without loading its lazy chunk');lazyOK++;}
   const worker=await page.evaluate(()=>performance.getEntriesByType('resource').filter(r=>/\.(wasm|js)/.test(r.name)).map(r=>r.name.split('/').pop()+':'+Math.round(r.responseEnd-r.startTime)).join(' '));return {ms,worker};}
  finally{await app.close();}}
 let lazyOK=0;const first=[],second=[];
