@@ -68,9 +68,10 @@ export const WASM_OPT=true;
 // that part without the fillet (display only), then the final result exactly as before. false keeps OCCT in the
 // geometry worker.
 // ADR occt-sidecar-desktop-web: platform-aware. Off in the Android WebView (2.7.1 behaviour): in the APK the nested
-// 'occt' worker never starts there. On for Electron desktop and desktop web browsers.
-// The Android build marks itself with the 'Android' JavaScript bridge that MainActivity installs before the page loads
-// (addJavascriptInterface(..., "Android")); no user-agent test. Workers have no bridge, so build-web.mjs fixes the flag
+// 'occt' worker never starts (its worker.js load fails in Android System WebView), so every OCCT job would fail with
+// 'The modeling engine could not start'. On for Electron desktop and desktop web browsers.
+// The Android build marks itself with the Android JavaScript bridge (window.Android) that MainActivity installs before the page loads
+// (MainActivity addJavascriptInterface); no user-agent test. Workers have no bridge, so build-web.mjs fixes the flag
 // at build time per worker bundle: worker.js is built with OCCT_SIDECAR=false (byte-identical to 2.7.1; the Android
 // app starts it) and worker-sidecar.js with true (desktop and web start it, and it starts itself again as the sidecar).
 export const OCCT_SIDECAR=!globalThis.Android;
