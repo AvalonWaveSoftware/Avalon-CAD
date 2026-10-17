@@ -35,6 +35,8 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  await page.mouse.click(vp.width/2,vp.height-120);await menu.waitFor({state:'detached'});assert.equal((await state()).mode,'select');assert.equal(await expanded(),'false');
  const sel0=await page.evaluate(()=>window.__cad.selected);await round.click();await menu.waitFor();await page.keyboard.press('Escape');await menu.waitFor({state:'detached'});assert.equal((await state()).mode,'select');
  assert.equal(await page.evaluate(()=>document.activeElement?.dataset.mode),'round','Esc returns focus to Edge ▾');assert.equal(await page.evaluate(()=>window.__cad.selected),sel0,'Esc in the dropdown does not deselect');
+ // Android Back (window.handleBack) closes it with no mode change and reports it handled.
+ await round.click();await menu.waitFor();assert.equal(await page.evaluate(()=>window.handleBack()),true);await menu.waitFor({state:'detached'});assert.equal((await state()).mode,'select');
  await round.click();await menu.waitFor();await round.click();await menu.waitFor({state:'detached',timeout:2000});assert.equal((await state()).mode,'select');assert.equal(await active(),false);
  // Pick Round: closes, starts the Round tool, Edge ▾ active, label unchanged.
  await round.click();await menu.locator('[data-edge-tool=round]').click();await menu.waitFor({state:'detached'});
