@@ -6,7 +6,7 @@
 //    and the busy text / model are only set by final results.
 import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import {createRequire} from 'node:module';import {createHash} from 'node:crypto';
 import {buildVariant,removeVariant,ROOT} from './perf/variant-build.mjs';
-const off=await buildVariant('sidecar-off',s=>s.replace('OCCT_SIDECAR=true','OCCT_SIDECAR=false'));
+const off=await buildVariant('sidecar-off',s=>s.replace('OCCT_SIDECAR=!globalThis.Android;','OCCT_SIDECAR=false;'));
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const browser=await chromium.launch({executablePath:process.env.AVALON_CHROMIUM,headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--ignore-gpu-blocklist','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.wasm':'application/wasm'};
