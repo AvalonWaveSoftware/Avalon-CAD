@@ -5,13 +5,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {initKernel} from '../web/kernel.mjs';
 import {initLocalEngine} from '../web/local-engine.mjs';
-import {object,defaults,blank} from '../web/templates.mjs';
+import {object,defaults,blank,advancedDefaults,glyphDefaults} from '../web/templates.mjs';import {loadGlyphs} from '../web/glyph-geometry.mjs';await loadGlyphs();
 import {ENGINE_CACHE} from '../web/perf-flags.mjs';
 if(!ENGINE_CACHE){console.log('Engine cache accounting skipped: ENGINE_CACHE is off');process.exit(0);}
 const K=await initKernel(),opts={rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}};
 let seed=0xacc7;const rnd=()=>((seed=Math.imul(seed^seed>>>15,0x2c1b3c6d)+0x6d2b79f5>>>0)/4294967296),pick=a=>a[Math.floor(rnd()*a.length)],num=(a,b)=>Math.round((a+rnd()*(b-a))*4)/4;
-const TYPES=['box','cylinder','sphere','wedge','cone','rounded','tube','pyramid'];
-const make=()=>{const o=object(pick(TYPES),undefined,[num(-20,20),num(-20,20),num(-6,10)]);o.params=structuredClone(defaults[o.type]);return o;};
+// ADR new-primitives-polyhedra-text: the eight new object types join the random scenes.
+const TYPES=['box','cylinder','sphere','wedge','cone','rounded','tube','pyramid','torus','triprism','tetrahedron','octahedron','decahedron','dodecahedron','icosahedron','glyph'],ALL={...defaults,...advancedDefaults,...glyphDefaults};
+const make=()=>{const o=object(pick(TYPES),undefined,[num(-20,20),num(-20,20),num(-6,10)]);o.params=structuredClone(ALL[o.type]);return o;};
 let checks=0,id=0;
 for(const budget of [undefined,64*1024]){
  const runtime=await initLocalEngine(K,{...opts,engineCacheBudget:budget}),cache=runtime.engineCache;

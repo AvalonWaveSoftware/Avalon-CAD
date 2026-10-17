@@ -98,13 +98,16 @@ export function generate(){
   '// Each solid rests on face 0 at Z = min, with that face\'s first edge parallel to X, and is',
   '// centred on its bounding box. Faces are counter-clockwise seen from outside. `size` is the',
   '// bounding box at edge 1; multiply vertices and size by the edge length in mm.',
-  'export const UNIT_POLYHEDRA=Object.freeze({'];
+  '// The tables are marked pure so a bundle that only needs UNIT_SIZES (main.js, for dimensions) drops them.',
+  'export const UNIT_POLYHEDRA=/* @__PURE__ */Object.freeze({'];
  for(const [type,t] of Object.entries(tables)){
-  out.push(` ${type}:Object.freeze({`,`  size:${list(t.size)},`,`  vertices:[`,...t.vertices.map((p,i)=>`   ${list(p)}${i<t.vertices.length-1?',':''}`),'  ],',`  faces:[${t.faces.map(f=>list(f)).join(',')}]`,' }),');
+  out.push(` ${type}:/* @__PURE__ */Object.freeze({`,`  size:${list(t.size)},`,`  vertices:[`,...t.vertices.map((p,i)=>`   ${list(p)}${i<t.vertices.length-1?',':''}`),'  ],',`  faces:[${t.faces.map(f=>list(f)).join(',')}]`,' }),');
  }
  out[out.length-1]=' })';out.push('});');
  out.push('// d10 (pentagonal trapezohedron) topology over decahedronVertices() in polyhedra-geometry.mjs:',
   '// 0 top apex, 1 bottom apex, 2+2k upper ring, 3+2k lower ring. Ten planar kites.',
+  '// Unit-edge bounding-box sizes (the same values as UNIT_POLYHEDRA[type].size), UI-safe and small.',
+  `export const UNIT_SIZES=Object.freeze({${Object.entries(tables).map(([type,t])=>`${type}:${list(t.size)}`).join(',')}});`,
   `export const DECAHEDRON_FACES=Object.freeze([${decahedronFaces().map(f=>list(f)).join(',')}]);`,
   '// Canonical d10 (dual of the uniform pentagonal antiprism): apex half-height / ring radius,',
   '// which equals apex-to-apex height h / ring diameter. Defaults use 36 / 20 = 1.8.',

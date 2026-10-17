@@ -4,7 +4,7 @@
 ADR new-primitives-polyhedra-text §2.2, Phase A.3. Writes:
 
   web/glyphs.mjs         full outlines (worker / OCCT side only)
-  web/glyph-metrics.mjs  advance + bbox per glyph (UI-safe, small)
+  web/glyph-metrics.mjs  bbox per glyph (UI-safe, small; main.js needs no advances)
 
 Pipeline: pinned Roboto[wdth,wght].ttf (sha256-checked) -> static instance
 wght 700 / wdth 100 with overlaps REMOVED (fontTools.varLib.instancer,
@@ -188,7 +188,7 @@ def build(font_path):
         adv = inst["hmtx"][name][0] * SCALE
         bb = bounds(cmds)
         glyphs[ch] = {"adv": adv, "bbox": bb, "path": cmds}
-        metrics[ch] = [adv, *bb]
+        metrics[ch] = list(bb)
     h_top = glyphs["H"]["bbox"][3]
     if h_top != cap * SCALE:
         sys.exit(f"capHeight {cap} does not match H top {h_top / SCALE}")
@@ -257,7 +257,7 @@ def render(info, glyphs, metrics):
         full.append(f"{js_string(ch)}:{body}{',' if i < len(items) - 1 else ''}")
     full += ["})});", DECODER.rstrip("\n"), "export default GLYPH_FONT;", ""]
     small = [head.rstrip("\n"),
-             "// UI-safe metrics only (no outlines): m[c] = [advance, xMin, yMin, xMax, yMax] in the same",
+             "// UI-safe metrics only (no outlines): m[c] = [xMin, yMin, xMax, yMax] in the same",
              "// half font units as glyphs.mjs (upm 4096). Cap height = size mm at scale size / capHeight.",
              f"export const GLYPH_CHARS={js_string(CHARS)};",
              f"export const GLYPH_METRICS=Object.freeze({{{meta},m:Object.freeze({{"

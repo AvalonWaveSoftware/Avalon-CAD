@@ -6,6 +6,7 @@ import {solidRemote,runJob,packError} from './occt-remote.mjs';
 import {needsSolid} from './solid-gate.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
 import {shipTopologies} from './topology-pack.mjs';
+import {prepareGlyphs,glyphOutlines} from './glyph-geometry.mjs';
 // WS8: with PARALLEL_INIT the Rust core, Manifold and OCCT start together, and every wasm carries the worker's ?v=
 // token (worker.js?v=<version>) so the immutable responses are cached per release.
 function geometryWorker(){
@@ -29,6 +30,8 @@ function askSidecar(requests){startSidecar();return Promise.all(requests.map(r=>
 function postInterim(id,r){const d={id,interim:true};for(const k of ['vertices','triangles','flatTriangles','smoothingGroups','displayPositions','displayNormals','displayIndex'])if(r[k])d[k]=r[k];self.postMessage(d);}
 let queue=[],running=false,current=null;
 self.onmessage=({data})=>{
+ // The Letters, numbers & symbols picker asks for the outlines once; this loads them (no engine or OCCT needed).
+ if(data?.type==='glyphOutlines'){glyphOutlines().then(outlines=>self.postMessage({id:data.id,outlines}),e=>self.postMessage({id:data.id,error:e.message||String(e)}));return;}
  if(OCCT_SIDECAR){if(data?.type==='warm'){startSidecar();return;}if(needsSolid(data))startSidecar();}
  else{if(BUNDLE_SPLIT&&data?.type==='warm'){startSolid().catch(()=>{});return;}
  // A job that may need OCCT starts its compile at once, alongside the Manifold/Rust init it also waits for.
@@ -39,6 +42,8 @@ self.onmessage=({data})=>{
 async function drain(){if(running)return;running=true;
  try{while(queue.length){const data=queue.shift();try{
   const engine=await runtime;let result;
+  // Letters: the outlines load (dynamic import) with the first job that contains a glyph, never at startup.
+  await prepareGlyphs(data);
   // WS14: a preview waiting for the sidecar is dropped as soon as a newer preview arrives.
   if(OCCT_SIDECAR){const abort=data.type==='preview'?new Promise(r=>current={type:'preview',abort:r}):null;try{result=await runJob(engine,data,remote,{fetch:askSidecar,onInterim:r=>postInterim(data.id,r),abort});}finally{current=null;}if(result.canceled){self.postMessage({id:data.id,canceled:true});continue;}}
   else{if(BUNDLE_SPLIT&&needsSolid(data))await startSolid();result=engine.process(data);}
@@ -59,6 +64,7 @@ function occtSidecar(){
  const ready=initSolid({locateFile:()=>asset('cad-kernel.wasm')});
  self.onmessage=async({data:{id,request:r}})=>{let answer;try{await ready;}catch(e){self.postMessage({id,answer:{error:packError(e),init:true}});return;}
   try{
+   await prepareGlyphs(r.o);
    if(r.kind==='mesh'){const m=solidMeshFresh(r.o,r.tolerance,r.display);answer={m};self.postMessage({id,answer},[m.vertices.buffer,m.triangles.buffer]);return;}
    answer={t:objectTopology(r.o)};}catch(e){answer={error:packError(e)};}
   self.postMessage({id,answer});};

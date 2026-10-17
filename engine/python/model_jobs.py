@@ -8,7 +8,7 @@ import sys
 from pyodide.ffi import to_js
 import avalon_native as native
 
-TYPES = {"box", "rounded", "cylinder", "cone", "sphere", "tube", "threadrod", "threadtube", "polygon", "mesh", "joined", "wedge", "pyramid", "prefab"}
+TYPES = {"box", "rounded", "cylinder", "cone", "sphere", "tube", "threadrod", "threadtube", "polygon", "mesh", "joined", "wedge", "pyramid", "prefab", "torus", "triprism", "tetrahedron", "octahedron", "decahedron", "dodecahedron", "icosahedron", "glyph"}
 
 def field(obj, name, default=None):
     value = getattr(obj, name, default)

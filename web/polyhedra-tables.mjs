@@ -3,8 +3,9 @@
 // Each solid rests on face 0 at Z = min, with that face's first edge parallel to X, and is
 // centred on its bounding box. Faces are counter-clockwise seen from outside. `size` is the
 // bounding box at edge 1; multiply vertices and size by the edge length in mm.
-export const UNIT_POLYHEDRA=Object.freeze({
- tetrahedron:Object.freeze({
+// The tables are marked pure so a bundle that only needs UNIT_SIZES (main.js, for dimensions) drops them.
+export const UNIT_POLYHEDRA=/* @__PURE__ */Object.freeze({
+ tetrahedron:/* @__PURE__ */Object.freeze({
   size:[1.0000000000000002,0.8660254037844392,0.8164965809277261],
   vertices:[
    [0.5000000000000001,-0.4330127018922196,-0.40824829046386313],
@@ -14,7 +15,7 @@ export const UNIT_POLYHEDRA=Object.freeze({
   ],
   faces:[[0,1,2],[0,2,3],[0,3,1],[1,3,2]]
  }),
- octahedron:Object.freeze({
+ octahedron:/* @__PURE__ */Object.freeze({
   size:[1.0000000000000009,1.1547005383792515,0.816496580927726],
   vertices:[
    [0.5000000000000003,-0.2886751345948129,-0.408248290463863],
@@ -26,7 +27,7 @@ export const UNIT_POLYHEDRA=Object.freeze({
   ],
   faces:[[0,2,4],[0,3,5],[0,4,3],[0,5,2],[1,2,5],[1,3,4],[1,4,2],[1,5,3]]
  }),
- dodecahedron:Object.freeze({
+ dodecahedron:/* @__PURE__ */Object.freeze({
   size:[2.6180339887498945,2.7527638409423467,2.2270327288232137],
   vertices:[
    [0.4999999999999997,-0.6881909602355869,-1.1135163644116068],
@@ -52,7 +53,7 @@ export const UNIT_POLYHEDRA=Object.freeze({
   ],
   faces:[[0,8,4,15,9],[0,9,1,16,10],[0,10,2,14,8],[1,9,15,5,11],[1,11,17,3,16],[2,10,16,3,12],[2,12,18,6,14],[3,17,7,18,12],[4,8,14,6,13],[4,13,19,5,15],[5,19,7,17,11],[6,18,7,19,13]]
  }),
- icosahedron:Object.freeze({
+ icosahedron:/* @__PURE__ */Object.freeze({
   size:[1.6180339887498951,1.8683447179254318,1.5115226281523417],
   vertices:[
    [0.5000000000000001,-0.2886751345948131,-0.7557613140761709],
@@ -73,6 +74,8 @@ export const UNIT_POLYHEDRA=Object.freeze({
 });
 // d10 (pentagonal trapezohedron) topology over decahedronVertices() in polyhedra-geometry.mjs:
 // 0 top apex, 1 bottom apex, 2+2k upper ring, 3+2k lower ring. Ten planar kites.
+// Unit-edge bounding-box sizes (the same values as UNIT_POLYHEDRA[type].size), UI-safe and small.
+export const UNIT_SIZES=Object.freeze({tetrahedron:[1.0000000000000002,0.8660254037844392,0.8164965809277261],octahedron:[1.0000000000000009,1.1547005383792515,0.816496580927726],dodecahedron:[2.6180339887498945,2.7527638409423467,2.2270327288232137],icosahedron:[1.6180339887498951,1.8683447179254318,1.5115226281523417]});
 export const DECAHEDRON_FACES=Object.freeze([[0,2,3,4],[0,4,5,6],[0,6,7,8],[0,8,9,10],[0,10,11,2],[1,5,4,3],[1,7,6,5],[1,9,8,7],[1,11,10,9],[1,3,2,11]]);
 // Canonical d10 (dual of the uniform pentagonal antiprism): apex half-height / ring radius,
 // which equals apex-to-apex height h / ring diameter. Defaults use 36 / 20 = 1.8.

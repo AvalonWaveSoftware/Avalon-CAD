@@ -1,4 +1,5 @@
 import {primitiveFaces} from './polyhedra.mjs';
+import {glyphSolid} from './glyph-geometry.mjs';
 import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
@@ -39,13 +40,16 @@ function baseShape(o) {
   if(o.type==='rounded'){const pts=[],r=Math.min(p.r,p.w/2,p.d/2);for(let k=0;k<4;k++){const cx=(k===0||k===3?1:-1)*(p.w/2-r),cy=(k<2?1:-1)*(p.d/2-r);for(let i=0;i<=n;i++){const a=k*Math.PI/2+i*Math.PI/2/n;pts.push([cx+r*Math.cos(a),cy+r*Math.sin(a),-p.h/2]);}}const clean=pts.filter((a,i)=>!i||Math.hypot(...a.map((v,j)=>v-pts[i-1][j]))>1e-7);if(Math.hypot(...clean[0].map((v,j)=>v-clean.at(-1)[j]))<1e-7)clean.pop();const f=R.makePolygon(clean),v=new R.Vector([0,0,p.h]);try{return R.basicFaceExtrusion(f,v);}finally{dispose(f);dispose(v);}}
  }
  switch(o.type) {
-  case 'wedge':case 'pyramid':{const {vertices,faces}=primitiveFaces(o.type,p);s=polySolid(faces.map(f=>f.map(i=>vertices[i])));break;}
+  case 'wedge':case 'pyramid':case 'triprism':case 'tetrahedron':case 'octahedron':case 'decahedron':case 'dodecahedron':case 'icosahedron':{const {vertices,faces}=primitiveFaces(o.type,p);s=polySolid(faces.map(f=>f.map(i=>vertices[i])));break;}
   case 'box':s=R.makeBox([-p.w/2,-p.d/2,-p.h/2],[p.w/2,p.d/2,p.h/2]);break;
   case 'rounded':s=R.drawRoundedRectangle(p.w,p.d,Math.min(p.r,p.w/2-1e-5,p.d/2-1e-5)).sketchOnPlane('XY',-p.h/2).extrude(p.h);break;
   case 'cylinder':s=R.makeCylinder(p.diameter/2,p.h,[0,0,-p.h/2]);break;
   case 'tube':{const a=R.makeCylinder(p.diameter/2,p.h,[0,0,-p.h/2]),b=R.makeCylinder(p.inner/2,p.h+.2,[0,0,-p.h/2-.1]);try{s=cut(a,b);}finally{dispose(a);dispose(b);}break;}
   case 'cone':{const pts=[[0,0,-p.h/2],[p.diameter/2,0,-p.h/2],[p.top/2,0,p.h/2]];if(p.top>0)pts.push([0,0,p.h/2]);const f=R.makePolygon(pts);try{s=R.revolution(f,[0,0,0],[0,0,1],360);}finally{dispose(f);}break;}
   case 'sphere':s=R.makeSphere(p.diameter/2);break;
+  // replicad 1.1.0 has no makeTorus; the OCCT builder is used directly (as makeSphere does) and deleted at once (WS1).
+  case 'torus':{const maker=new (R.getOC()).BRepPrimAPI_MakeTorus((p.diameter-p.tube)/2,p.tube/2);try{s=new R.Solid(maker.Shape());}finally{maker.delete();}break;}
+  case 'glyph':s=glyphSolid(R,p);break;
   case 'polygon':{const area=p.points.reduce((s,a,i)=>{const b=p.points[(i+1)%p.points.length];return s+a[0]*b[1]-a[1]*b[0];},0);const pts=area<0?[...p.points].reverse():p.points;const f=R.makePolygon(pts.map(a=>[a[0],a[1],-p.h/2])),v=new R.Vector([0,0,p.h]);try{s=R.basicFaceExtrusion(f,v);}finally{dispose(f);dispose(v);}break;}
   case 'prefab':{for(const group of materialGroups(p.children)){let merged;for(const child of [...group.solids,...group.cuts]){const a=fullShape(child);if(!merged)merged=a;else{const old=merged;try{merged=child.mode==='cut'?cut(old,a):fuse(old,a);}finally{dispose(old);dispose(a);}}}const fs=merged.faces,empty=!fs.length;fs.forEach(dispose);if(empty){dispose(merged);continue;}if(!s)s=merged;else{const old=s;try{s=fuse(old,merged);}finally{dispose(old);dispose(merged);}}}if(!s)throw Error('The prefab contains no solid material.');break;}
   case 'joined':{
@@ -184,3 +188,5 @@ function containsMesh(o){return o.type==='mesh'||isThread(o)||o.params?.children
 export function disposeSolidCache(){meshes.clear();meshBytes=0;for(const entry of cache.values())release(entry);cache.clear();brepBytes=0;topologies.clear();topologyTotal=0;}
 // Test hook (WS1 parity): topology of o through the legacy or the scoped extractor, without touching the cache.
 export function topologyVariant(o,scoped){const base=baseShape(o),edges=base.edges;try{return (scoped?scopedTopology:legacyTopology)(base,edges);}finally{edges.forEach(dispose);if(scoped){try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}}dispose(base);}}
+// Test hook (new-primitives ADR §5.4, exact STEP): the exact base B-rep of o, outside the cache; the caller deletes it.
+export function baseShapeForTest(o){return baseShape(o);}

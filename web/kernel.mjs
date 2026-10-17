@@ -1,4 +1,5 @@
-import {primitiveMesh} from './polyhedra.mjs';
+import {primitiveMesh,PLANAR_TYPES} from './polyhedra.mjs';
+import {glyphManifold} from './glyph-geometry.mjs';
 import {initSolid,solidMesh,objectTopology,objectTopologyEntry} from './cad-solid.mjs';
 import {TOPOLOGY_SERVICE,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {facetedSphere,facetMesh,curvedTypes,resolutionTolerance,customFaces} from './facets.mjs';
@@ -40,7 +41,10 @@ export function makeLocalSolid(K,o,tolerance=0.15,styles) {
         validateThread(o);if(!K.threadMesh)throw Error('The local thread engine is not ready.');
         const m=K.threadMesh(o,tolerance),mesh=new K.Mesh({numProp:3,vertProperties:m.vertices,triVerts:m.triangles});s=own(new M(mesh));break;
       }
-      case 'wedge':case 'pyramid':{const m=primitiveMesh(o.type,p),mesh=new K.Mesh({numProp:3,vertProperties:m.vertices,triVerts:m.triangles});s=own(new M(mesh));break;}
+      case 'wedge':case 'pyramid':case 'triprism':case 'tetrahedron':case 'octahedron':case 'decahedron':case 'dodecahedron':case 'icosahedron':{const m=primitiveMesh(o.type,p),mesh=new K.Mesh({numProp:3,vertProperties:m.vertices,triVerts:m.triangles});s=own(new M(mesh));break;}
+      // Torus: a tube circle (segments for the tube radius) revolved with segments for the outer radius.
+      case 'torus':{const r=p.tube/2,ring=(p.diameter-p.tube)/2,nt=segments(r,tolerance),nr=segments(ring+r,tolerance),circle=Array.from({length:nt},(_,i)=>{const a=2*Math.PI*i/nt;return [ring+r*Math.cos(a),r*Math.sin(a)];});s=own(M.revolve([circle],nr));break;}
+      case 'glyph':s=own(glyphManifold(K,p,tolerance));break;
       case 'box':s=own(M.cube([p.w,p.d,p.h],true));break;
       case 'rounded': {
         const pts=[], count=custom||Math.max(6,segments(p.r,tolerance)/4),r=Math.min(p.r,p.w/2,p.d/2);
@@ -63,7 +67,7 @@ export function makeLocalSolid(K,o,tolerance=0.15,styles) {
       case 'joined':{const solids=p.children.filter(c=>c.mode!=='cut').map(c=>own(makeObject(K,c,tolerance,styles))),cuts=p.children.filter(c=>c.mode==='cut').map(c=>own(makeObject(K,c,tolerance,styles)));if(cuts.length&&p.fillOverlaps){const base=own(solids[0].subtract(own(M.union(cuts))));s=own(M.union([base,...solids.slice(1)]));}else{s=own(M.union(solids));if(cuts.length)s=own(s.subtract(own(M.union(cuts))));}break;}
       default:throw Error('Unsupported shape.');
     }
-    if(styles&&!tagged&&!['joined','prefab'].includes(o.type)){if(s.originalID()<0)s=own(s.asOriginal());styles.set(s.originalID(),custom>0||['box','polygon','wedge','pyramid'].includes(o.type));}
+    if(styles&&!tagged&&!['joined','prefab'].includes(o.type)){if(s.originalID()<0)s=own(s.asOriginal());styles.set(s.originalID(),custom>0||['box','polygon',...PLANAR_TYPES].includes(o.type));}
     keep.pop();return s;
   } finally {for(const x of keep)x.delete();}
 }

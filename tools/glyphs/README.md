@@ -7,7 +7,7 @@ ADR: `ADR-new-primitives-polyhedra-text.md` §2.2, Phase A.3.
 | Output | Contents | Who may import it |
 |---|---|---|
 | `web/glyphs.mjs` | Full outlines + `glyphPath(c)` / `glyphInfo(c)` | Worker / OCCT side only (`kernel.mjs`, `cad-solid.mjs`), never `main.js` |
-| `web/glyph-metrics.mjs` | `[advance, xMin, yMin, xMax, yMax]` per glyph | UI-safe |
+| `web/glyph-metrics.mjs` | `[xMin, yMin, xMax, yMax]` per glyph | UI-safe |
 
 Character set (94, picker order): `0-9`, `A-Z`, `a-z`, then the 32 printable ASCII symbols
 ``!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~`` (no space). Font id: `roboto-bold@1`.

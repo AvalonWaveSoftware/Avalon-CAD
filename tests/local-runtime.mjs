@@ -5,12 +5,13 @@ import {loadPyodide} from 'pyodide';
 import {initKernel,buildModel,writeSTL} from '../web/kernel.mjs';
 import {initLocalEngine} from '../web/local-engine.mjs';
 import {displayGeometry} from '../web/display-geometry.mjs';
-import {blank,object,defaults,plate,tray} from '../web/templates.mjs';
+import {blank,object,defaults,advancedDefaults,glyphDefaults,plate,tray} from '../web/templates.mjs';
+import {loadGlyphs} from '../web/glyph-geometry.mjs';
 import {withRoundover,mergeResult} from '../web/operations.mjs';
 import {evaluateBoolean} from './boolean-model.mjs';
 import {corners} from './display-corners.mjs';
 
-const K=await initKernel(),start=performance.now();
+const K=await initKernel(),start=performance.now();await loadGlyphs();
 const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
 assert.equal(runtime.info.local,true);assert.equal(runtime.info.rust,3);assert.match(runtime.info.python,/^3\.13\./);
 let checks=0,id=0;
@@ -27,10 +28,12 @@ function previewParity(project,tolerance){
 }
 previewParity(blank(),.15);
 for(const p of [plate(),tray()])for(const tolerance of [.15,.03,.01,.005])previewParity(p,tolerance);
-for(const type of Object.keys(defaults)){
- const shape=object(type,structuredClone(defaults[type]),[3,-5,20]);shape.rotation=[15,30,70];if(type!=='box')shape.resolution={mode:'tolerance',tolerance:.005};
+// ADR new-primitives-polyhedra-text §5.5: the 12 grid types, the Advanced shapes and the Text tool.
+const allDefaults={...defaults,...advancedDefaults,...glyphDefaults};
+for(const type of Object.keys(allDefaults)){
+ const shape=object(type,structuredClone(allDefaults[type]),[3,-5,20]);shape.rotation=[15,30,70];if(type!=='box')shape.resolution={mode:'tolerance',tolerance:.005};
  previewParity({...blank(),objects:[shape]},.15);
- if(!['box','threadrod','threadtube','wedge','pyramid'].includes(type)){const fixed={...shape,resolution:{mode:'faces',count:type==='rounded'?3:32}};previewParity({...blank(),objects:[fixed]},.03);}
+ if(!['box','threadrod','threadtube','wedge','pyramid','torus','glyph',...Object.keys(advancedDefaults),'triprism'].includes(type)){const fixed={...shape,resolution:{mode:'faces',count:type==='rounded'?3:32}};previewParity({...blank(),objects:[fixed]},.03);}
 }
 const smooth=object('sphere',{diameter:20});smooth.resolution={mode:'tolerance',tolerance:.005};const faceted=object('sphere',{diameter:20},[8,0,0]);faceted.resolution={mode:'faces',count:32};
 const info=evaluateBoolean(K,[smooth,faceted],'add'),mixed=mergeResult([smooth,faceted],'mixed-local',info.bounds);previewParity({...blank(),objects:[mixed]},.15);

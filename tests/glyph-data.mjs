@@ -21,7 +21,7 @@ for(const k of ['upm','capHeight','ascender','descender'])assert.equal(GLYPH_MET
 assert.equal(GLYPH_FONT.upm,4096);assert.equal(GLYPH_FONT.capHeight,2912);ok();
 assert.ok(Object.isFrozen(GLYPH_FONT)&&Object.isFrozen(GLYPH_FONT.glyphs)&&Object.isFrozen(GLYPH_METRICS.m));ok();
 assert.equal(glyphPath(' '),null);assert.equal(glyphPath('é'),null);assert.equal(glyphInfo('AB'),null);ok();
-for(const c of EXPECTED_CHARS){const i=glyphInfo(c);assert.deepEqual([i.adv,...i.bbox],GLYPH_METRICS.m[c],c);}ok();
+for(const c of EXPECTED_CHARS){const i=glyphInfo(c);assert.deepEqual(i.bbox,GLYPH_METRICS.m[c],c);}ok();
 // Cap height = size: H and every flat-topped capital reach exactly capHeight from the baseline.
 for(const c of 'EFHIKLNTZ'){const b=glyphInfo(c).bbox;assert.equal(b[1],0,c);assert.equal(b[3],GLYPH_FONT.capHeight,c);}ok();
 // glyphPath returns a fresh copy each time.
