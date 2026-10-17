@@ -10,6 +10,7 @@
 // local solids are evicted least-recently-used above the byte budget.
 import {ENGINE_CACHE_MERGE as MERGE,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {makeLocalSolid,placeObjectSolid,meshData} from './kernel.mjs';
+import {solidRemoteMisses} from './cad-solid.mjs';
 // dst[at+i]=src[i]+base (a plain copy when base is 0): one small monomorphic loop for every merged index buffer.
 const offsetInto=(dst,src,at,base)=>{if(!base){dst.set(src,at);return;}for(let i=0;i<src.length;i++)dst[at+i]=src[i]+base;};
 export function engineCache(K,{budget=150*1048576,prepare=null}={}){
@@ -38,7 +39,11 @@ export function engineCache(K,{budget=150*1048576,prepare=null}={}){
    const key=content+'#'+n;let e=local.get(key);
    if(e&&!(e.lo>maxId)){releaseLocal(e);local.delete(key);e=null;}
    if(e){local.delete(key);local.set(key,e);e.used=job;if(styles)for(const [id,flat] of e.styles)styles.set(id,flat);stats.localHits++;}
-   else{const lo=M.reserveIDs(1),before=styles?styles.size:0,s=makeLocalSolid(K,o,tolerance,styles),hi=M.reserveIDs(1);owned.add(s);
+   else{const lo=M.reserveIDs(1),before=styles?styles.size:0,misses=solidRemoteMisses(),s=makeLocalSolid(K,o,tolerance,styles),hi=M.reserveIDs(1);
+    // WS14 (OCCT_SIDECAR): a stand-in built while a fillet mesh was missing is never cached; it is placed, used for
+    // this run only and disposed by the bridge like any uncached solid. IDs stay ordered (maxId moves past it).
+    if(solidRemoteMisses()>misses){maxId=hi;return placeObjectSolid(o,s);}
+    owned.add(s);
     e={s,lo,hi,styles:styles?[...styles].slice(before):[],bytes:0,used:job,placed:new Map()};local.set(key,e);stats.localBuilds++;}
    maxId=e.hi;
    const at=JSON.stringify([o.scale??null,o.rotation,o.position]);let p=e.placed.get(at);

@@ -8,6 +8,11 @@ import {geometryHash} from './topology-pack.mjs';
 import {withScope,setHeapSource} from './occt-scope.mjs';
 export {heapBytes} from './occt-scope.mjs';
 const cache=new Map();
+// WS14 (OCCT_SIDECAR): in the geometry worker OCCT is not loaded; solidMesh and objectTopology answer from the remote
+// cache of web/occt-remote.mjs, which records a miss (mesh → null, topology → null) for the sidecar to fill.
+let remote=null;
+export function setSolidRemote(r){remote=r;}
+export const solidRemoteMisses=()=>remote?remote.events():0;
 const dispose=o=>{try{o?.delete();}catch{}};
 export async function initSolid(options={}) {
  const {default:init}=await import('replicad-opencascadejs');const oc=await init(options);R.setOC(oc);setHeapSource(oc);gpropFace=projector=null;return {oc,R};
@@ -135,7 +140,7 @@ function cached(o) {
  const entry=OCCT_SCOPE?{s,base,topology:t}:{s,topology:t};cache.set(key,entry);while(cache.size>OCCT_CACHE_ENTRIES){const first=cache.keys().next().value;release(cache.get(first));cache.delete(first);}return entry;
 }
 // Byte estimates: the B-rep plus its attached triangulations scale with the tessellation that topology() produced.
-function topologyBytes(t){let n=(t.vertices?.byteLength||0)+(t.triangles?.byteLength||0)+48*(t.groups?.length||0);for(const f of t.faces||[])n+=160+8*(f.edges.length+f.loops.reduce((a,l)=>a+l.length,0));for(const e of t.edges||[])n+=32+8*e.points.length;return n;}
+export function topologyBytes(t){let n=(t.vertices?.byteLength||0)+(t.triangles?.byteLength||0)+48*(t.groups?.length||0);for(const f of t.faces||[])n+=160+8*(f.edges.length+f.loops.reduce((a,l)=>a+l.length,0));for(const e of t.edges||[])n+=32+8*e.points.length;return n;}
 function brepEstimate(t){return 65536+4*((t.vertices?.byteLength||0)+(t.triangles?.byteLength||0));}
 const topologies=new Map();let topologyTotal=0;
 function storeTopology(key,t){const old=topologies.get(key);if(old){topologyTotal-=old.bytes;topologies.delete(key);}const bytes=topologyBytes(t);topologies.set(key,{t,bytes,hash:geometryHash(key)});topologyTotal+=bytes;
@@ -148,7 +153,7 @@ function shapeTopology(o){if(!TOPOLOGY_SERVICE)return cached(o).topology;const k
 // Content-addressed topology for any cacheable value (thread rods use it so threadMesh runs once per geometry).
 export function memoTopology(key,build){let v=topologyEntry(key);if(!v){storeTopology(key,build());v=topologyEntry(key);}return v;}
 // {hash, topology} for a part, or null topology (mesh content) with a null hash.
-export function objectTopologyEntry(o){const t=objectTopology(o);if(!t)return {hash:null,topology:t};return {hash:topologyEntry(geometryKey(o)).hash,topology:t};}
+export function objectTopologyEntry(o){const t=objectTopology(o);if(!t)return {hash:null,topology:t};return {hash:remote?geometryHash(geometryKey(o)):topologyEntry(geometryKey(o)).hash,topology:t};}
 export const topologyCacheStats=()=>({brepEntries:cache.size,brepBytes,topologyEntries:topologies.size,topologyBytes:topologyTotal});
 // WS6: tessellated B-rep meshes (fillets, faces resolution) by (geometry key, effective tolerance, display), LRU
 // with a 64 MB cap. A move or a re-export of an unchanged shape reuses the mesh; callers get fresh copies.
@@ -156,6 +161,7 @@ const MESH_BYTES=64*1048576,meshes=new Map();let meshBytes=0;
 const copyMesh=m=>({...m,vertices:m.vertices.slice(),triangles:m.triangles.slice(),...(m.displayGroups?{displayGroups:m.displayGroups.map(g=>({...g}))}:{})});
 export const filletMeshStats=()=>({entries:meshes.size,bytes:meshBytes});
 export function solidMesh(o,tolerance,display=false) {
+ if(remote)return remote.solidMesh(o,tolerance,display,geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|'+(display?1:0));
  if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display);
  const key=geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|'+(display?1:0);let e=meshes.get(key);
  if(e){meshes.delete(key);meshes.set(key,e);return copyMesh(e.m);}
@@ -163,6 +169,8 @@ export function solidMesh(o,tolerance,display=false) {
  if(bytes<=MESH_BYTES){meshes.set(key,{m:copyMesh(m),bytes});meshBytes+=bytes;for(const [k,v] of meshes){if(meshBytes<=MESH_BYTES)break;meshes.delete(k);meshBytes-=v.bytes;}}
  return m;
 }
+// WS14: the sidecar tessellates without its own mesh cache (the geometry worker caches the result).
+export function solidMeshFresh(o,tolerance,display=false){return tessellate(o,tolerance,display);}
 function tessellate(o,tolerance,display) {
  tolerance=resolutionTolerance(o,tolerance);
  const {s}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
@@ -170,7 +178,7 @@ function tessellate(o,tolerance,display) {
  if(display){const faces=s.faces,planes=new Set(faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode));faces.forEach(dispose);result.displayGroups=m.faceGroups.map(g=>({start:g.start,count:g.count,flat:planes.has(g.faceId)})).sort((a,b)=>a.start-b.start);}
  return result;
 }
-export function objectTopology(o) {if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;try{return shapeTopology(o);}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
+export function objectTopology(o) {if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;if(remote)return remote.topology(o,geometryKey(o));try{return shapeTopology(o);}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
 function containsScale(o){return o.scale?.some(v=>Math.abs(v-1)>1e-8)||o.params?.children?.some(containsScale);}
 function containsMesh(o){return o.type==='mesh'||isThread(o)||o.params?.children?.some(containsMesh);}
 export function disposeSolidCache(){meshes.clear();meshBytes=0;for(const entry of cache.values())release(entry);cache.clear();brepBytes=0;topologies.clear();topologyTotal=0;}

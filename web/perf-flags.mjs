@@ -62,3 +62,9 @@ export const BINARY_EXPORT=true;
 // binaryen wasm-opt -Oz (pinned devDependency; output cached in build/wasm-opt by input hash). Parity and pixel suites
 // are identical with either binary. false ships the unmodified npm binaries.
 export const WASM_OPT=true;
+// WS14 (ADR v2, Sean's ruling 2026-10-17): OCCT runs in a sidecar worker (worker.js started again as a nested worker
+// named 'occt'), so a first-time fillet or topology no longer blocks the geometry worker. The geometry worker answers
+// OCCT queries from its caches and asks the sidecar on a miss; a preview waiting for a new fillet mesh may first show
+// that part without the fillet (display only), then the final result exactly as before. false keeps OCCT in the
+// geometry worker.
+export const OCCT_SIDECAR=true;
