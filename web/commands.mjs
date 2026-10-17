@@ -3,7 +3,7 @@
 // (Architect ruling 6), and tooltip falls back to the label until F1b. Nothing in the app reads this yet: F1a wires the
 // shortcut dispatcher, the Electron action() bridge and the help sheet to it. UI-safe (no engine imports).
 const DEFS=[
- ['new','New project'],['open','Open project / prefab / STL…'],['save','Save project on this computer'],['backup','Export editable project…'],['export','Export STL'],
+ ['new','New project'],['open','Open project / prefab / STL…'],['save','Save project on this computer'],['backup','Export editable project…'],['export','Export'],
  ['undo','Undo'],['redo','Redo'],['add','Add'],['edit','Edit'],['clear','Clear'],['fit','Fit model'],['wire','Wireframe'],['help','Help'],
  ...[['3d','3D'],['top','TOP'],['front','FRONT'],['right','RIGHT']].map(([v,l])=>[`view:${v}`,l]),
  ...['Select','Move','Stretch','Round'].map(l=>[`mode:${l.toLowerCase()}`,l])];
