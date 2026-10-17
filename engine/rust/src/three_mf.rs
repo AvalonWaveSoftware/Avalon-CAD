@@ -111,41 +111,72 @@ fn candidate(value: f64, p: i32, n: i32, m: u64, e: i32, even: bool, lower_gap: 
 }
 /// 2^k as f64 for the f32 exponent range (k in -150..=104), exact.
 fn pow2(k: i32) -> f64 { f64::from_bits(((k + 1023) as u64) << 52) }
-fn push_f32(out: &mut Vec<u8>, value: f32) -> bool {
-    let bits = value.to_bits();
-    if bits & 0x7fff_ffff == 0 { out.push(b'0'); return true; }
-    if bits >> 31 != 0 { out.push(b'-'); }
-    let (exp, frac) = ((bits >> 23) & 0xff, (bits & 0x7f_ffff) as u64);
-    let (m, e) = if exp == 0 { (frac, -149) } else { (frac | 0x80_0000, exp as i32 - 150) };
-    let lower_gap = if frac == 0 && exp > 1 { 1 } else { 2 };
-    let even = m % 2 == 0;
-    let x = (value as f64).abs();
-    let mut p = 0i32;
-    if x >= 1.0 { while p + 1 < 39 && POW10[(p + 1) as usize] <= x { p += 1; } }
-    else { while p < 46 && x * POW10[p as usize] < 1.0 { p += 1; } p = -p; }
-    // Bisection on n: hi always passes (9 digits suffice for f32; a little slack covers a misestimated p).
-    let mut hi = 10; let mut best = None;
-    while best.is_none() && hi <= 17 { best = candidate(x, p, hi, m, e, even, lower_gap); if best.is_none() { hi += 1; } }
-    let (mut c, mut q) = match best { Some(v) => v, None => return false };
-    let mut lo = 1;
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        match candidate(x, p, mid, m, e, even, lower_gap) { Some(v) => { hi = mid; c = v.0; q = v.1; } None => lo = mid + 1 }
+const PAIRS: &[u8; 200] = b"00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899";
+
+/// Raw writer into a Vec's spare capacity. The caller guarantees `room` bytes are reserved before each record
+/// (MAX_RECORD per vertex or triangle line), so the hot loop has no capacity checks or bounds checks.
+struct W { p: *mut u8 }
+impl W {
+    #[inline(always)] unsafe fn byte(&mut self, b: u8) { *self.p = b; self.p = self.p.add(1); }
+    #[inline(always)] unsafe fn bytes(&mut self, b: &[u8]) { core::ptr::copy_nonoverlapping(b.as_ptr(), self.p, b.len()); self.p = self.p.add(b.len()); }
+    /// Decimal digits of `v` (no sign, no leading zeros; "0" for 0) using two-digit pairs.
+    #[inline(never)] unsafe fn uint(&mut self, mut v: u64) {
+        let mut buf = [0u8; 20]; let mut i = 20;
+        while v >= 100 { let r = (v % 100) as usize * 2; v /= 100; i -= 2; buf[i] = PAIRS[r]; buf[i + 1] = PAIRS[r + 1]; }
+        if v >= 10 { let r = v as usize * 2; i -= 2; buf[i] = PAIRS[r]; buf[i + 1] = PAIRS[r + 1]; } else { i -= 1; buf[i] = b'0' + v as u8; }
+        self.bytes(&buf[i..]);
     }
-    while c > 0 && c % 10 == 0 { c /= 10; q += 1; }
-    let mut digits = [0u8; 20]; let mut n = 0;
-    while c > 0 { digits[n] = b'0' + (c % 10) as u8; c /= 10; n += 1; }
-    let n = n as i32;
-    if q >= 0 { for i in (0..n).rev() { out.push(digits[i as usize]); } for _ in 0..q { out.push(b'0'); } }
-    else if -q >= n { out.extend_from_slice(b"0."); for _ in 0..(-q - n) { out.push(b'0'); } for i in (0..n).rev() { out.push(digits[i as usize]); } }
-    else { for i in (0..n).rev() { if i == -q - 1 { out.push(b'.'); } out.push(digits[i as usize]); } }
-    true
+    /// Shortest round-trip decimal of `value` (see the formatter notes above). False only if no candidate up to 17
+    /// digits was found, which cannot happen for finite f32.
+    #[inline(never)] unsafe fn f32(&mut self, value: f32) -> bool {
+        let bits = value.to_bits();
+        if bits & 0x7fff_ffff == 0 { self.byte(b'0'); return true; }
+        if bits >> 31 != 0 { self.byte(b'-'); }
+        let (exp, frac) = ((bits >> 23) & 0xff, (bits & 0x7f_ffff) as u64);
+        let (m, e) = if exp == 0 { (frac, -149) } else { (frac | 0x80_0000, exp as i32 - 150) };
+        let lower_gap = if frac == 0 && exp > 1 { 1 } else { 2 };
+        let even = m % 2 == 0;
+        let x = (value as f64).abs();
+        // Decimal exponent p with 10^p <= x < 10^(p+1): estimate from the binary exponent, then correct.
+        let mut p = ((e + 23) as f64 * core::f64::consts::LOG10_2).floor() as i32;
+        let pw = |k: i32| if k >= 0 { POW10[k as usize] } else { 1.0 / POW10[(-k) as usize] };
+        while p > -46 && pw(p) > x { p -= 1; }
+        while p < 38 && pw(p + 1) <= x { p += 1; }
+        // Passing is monotone in the digit count: start at 9 (always enough for f32), jump down past trailing zeros,
+        // and step down until a count fails.
+        let mut n = 9; let mut best = candidate(x, p, n, m, e, even, lower_gap);
+        while best.is_none() && n < 17 { n += 1; best = candidate(x, p, n, m, e, even, lower_gap); }
+        let (mut c, mut q) = match best { Some(v) => v, None => return false };
+        loop {
+            while c >= 10 && c % 10 == 0 { c /= 10; q += 1; n -= 1; }
+            if n <= 1 { break; }
+            match candidate(x, p, n - 1, m, e, even, lower_gap) { Some(v) => { c = v.0; q = v.1; n -= 1; } None => break }
+        }
+        let digits = { let mut k = 1; let mut t = c; while t >= 10 { t /= 10; k += 1; } k };
+        if q >= 0 { self.uint(c); for _ in 0..q { self.byte(b'0'); } }
+        else if -q >= digits {
+            self.bytes(b"0."); for _ in 0..(-q - digits) { self.byte(b'0'); } self.uint(c);
+        } else {
+            let scale = POW10[(-q) as usize] as u64; let (int, fr) = (c / scale, c % scale);
+            self.uint(int); self.byte(b'.');
+            let mut lead = { let mut k = 1; let mut t = fr; while t >= 10 { t /= 10; k += 1; } -q - k };
+            while lead > 0 { self.byte(b'0'); lead -= 1; }
+            self.uint(fr);
+        }
+        true
+    }
 }
-fn push_u32(out: &mut Vec<u8>, mut value: u32) {
-    let mut digits = [0u8; 10];
-    let mut n = 0;
-    loop { digits[n] = b'0' + (value % 10) as u8; n += 1; value /= 10; if value == 0 { break; } }
-    while n > 0 { n -= 1; out.push(digits[n]); }
+/// Longest vertex or triangle line: 3 numbers of at most 48 characters ("-0." + 44 zeros/digits) plus the markup.
+const MAX_RECORD: usize = 3 * 48 + 32;
+#[inline] unsafe fn room(out: &mut Vec<u8>, w: &W, need: usize) -> W {
+    let used = w.p.offset_from(out.as_ptr()) as usize; out.set_len(used);
+    if out.capacity() - used < need { out.reserve(need.max(out.capacity() / 2)); }
+    W { p: out.as_mut_ptr().add(out.len()) }
+}
+#[cfg(test)]
+fn push_f32(out: &mut Vec<u8>, value: f32) -> bool {
+    out.reserve(64);
+    unsafe { let mut w = W { p: out.as_mut_ptr().add(out.len()) }; let ok = w.f32(value); let n = w.p.offset_from(out.as_ptr()) as usize; out.set_len(n); ok }
 }
 
 /// One DEFLATE-compressed zip entry being written straight into the package buffer.
@@ -200,38 +231,49 @@ fn entry(out: &mut Vec<u8>, name: &'static [u8], level: u8, limit: usize, write:
 #[inline]
 fn coordinate(value: f32, k: usize, min_z: f64) -> f32 { (value as f64 - if k == 2 { min_z } else { 0.0 }) as f32 }
 
-/// Builds the whole 3MF package. `v`/`t` must already be validated. Triangles whose three indices are not distinct
-/// (zero-area by construction; the core spec forbids them) are skipped; Manifold never produces them.
+/// The whole 3D/3dmodel.model text in one buffer, in a single pass (no intermediate strings). Triangles whose
+/// three indices are not distinct (zero-area by construction; the core spec forbids them) are skipped; Manifold
+/// never produces them. Err(TOO_LARGE) if the text would exceed `limit` (it is compressed afterwards, but text over
+/// 4 GiB cannot be stored without ZIP64).
+pub fn model_xml(v: &[f32], t: &[u32], min_z: f64) -> Result<Vec<u8>, i32> {
+    // ~13 B per coordinate and ~11 B per index cover typical CAD meshes; room() grows the buffer if not.
+    let mut out: Vec<u8> = Vec::with_capacity(MODEL_HEAD.len() + MODEL_MID.len() + MODEL_TAIL.len() + v.len() / 3 * 64 + t.len() / 3 * 52);
+    out.extend_from_slice(MODEL_HEAD);
+    unsafe {
+        let mut w = W { p: out.as_mut_ptr().add(out.len()) };
+        for point in v.chunks_exact(3) {
+            w = room(&mut out, &w, MAX_RECORD);
+            w.bytes(b"<vertex x=\""); if !w.f32(coordinate(point[0], 0, min_z)) { return Err(BROKEN); }
+            w.bytes(b"\" y=\""); if !w.f32(coordinate(point[1], 1, min_z)) { return Err(BROKEN); }
+            w.bytes(b"\" z=\""); if !w.f32(coordinate(point[2], 2, min_z)) { return Err(BROKEN); }
+            w.bytes(b"\"/>\n");
+        }
+        w = room(&mut out, &w, MODEL_MID.len()); w.bytes(MODEL_MID);
+        for f in t.chunks_exact(3) {
+            if f[0] == f[1] || f[1] == f[2] || f[0] == f[2] { continue; }
+            w = room(&mut out, &w, MAX_RECORD);
+            w.bytes(b"<triangle v1=\""); w.uint(f[0] as u64);
+            w.bytes(b"\" v2=\""); w.uint(f[1] as u64);
+            w.bytes(b"\" v3=\""); w.uint(f[2] as u64);
+            w.bytes(b"\"/>\n");
+        }
+        w = room(&mut out, &w, MODEL_TAIL.len()); w.bytes(MODEL_TAIL);
+        let _ = room(&mut out, &w, 0);
+    }
+    if out.len() as u64 >= u32::MAX as u64 { return Err(TOO_LARGE); }
+    Ok(out)
+}
+
+/// Builds the whole 3MF package. `v`/`t` must already be validated.
 pub fn encode(v: &[f32], t: &[u32], ground: bool, level: u8, limit: usize) -> Result<Vec<u8>, i32> {
     let min_z = if ground { v.chunks_exact(3).map(|p| p[2] as f64).fold(f64::INFINITY, f64::min) } else { 0.0 };
-    let mut out = Vec::with_capacity(t.len() * 4 + 1024);
+    let model = model_xml(v, t, min_z)?;
+    let mut out = Vec::with_capacity(model.len() / 4 + 1024);
     let mut entries = Vec::with_capacity(3);
     entries.push(entry(&mut out, b"[Content_Types].xml", level, limit, |p| p.feed(CONTENT_TYPES, TDEFLFlush::None))?);
     entries.push(entry(&mut out, b"_rels/.rels", level, limit, |p| p.feed(RELS, TDEFLFlush::None))?);
-    entries.push(entry(&mut out, b"3D/3dmodel.model", level, limit, |p| {
-        let mut chunk: Vec<u8> = Vec::with_capacity(1 << 16);
-        p.feed(MODEL_HEAD, TDEFLFlush::None);
-        for point in v.chunks_exact(3) {
-            let mut ok = true;
-            chunk.extend_from_slice(b"<vertex x=\""); ok &= push_f32(&mut chunk, coordinate(point[0], 0, min_z));
-            chunk.extend_from_slice(b"\" y=\""); ok &= push_f32(&mut chunk, coordinate(point[1], 1, min_z));
-            chunk.extend_from_slice(b"\" z=\""); ok &= push_f32(&mut chunk, coordinate(point[2], 2, min_z));
-            chunk.extend_from_slice(b"\"/>\n");
-            if !ok { p.failed = BROKEN; return; }
-            if chunk.len() > (1 << 16) - 128 { p.feed(&chunk, TDEFLFlush::None); chunk.clear(); if p.failed != 0 { return; } }
-        }
-        chunk.extend_from_slice(MODEL_MID);
-        for f in t.chunks_exact(3) {
-            if f[0] == f[1] || f[1] == f[2] || f[0] == f[2] { continue; }
-            chunk.extend_from_slice(b"<triangle v1=\""); push_u32(&mut chunk, f[0]);
-            chunk.extend_from_slice(b"\" v2=\""); push_u32(&mut chunk, f[1]);
-            chunk.extend_from_slice(b"\" v3=\""); push_u32(&mut chunk, f[2]);
-            chunk.extend_from_slice(b"\"/>\n");
-            if chunk.len() > (1 << 16) - 128 { p.feed(&chunk, TDEFLFlush::None); chunk.clear(); if p.failed != 0 { return; } }
-        }
-        chunk.extend_from_slice(MODEL_TAIL);
-        p.feed(&chunk, TDEFLFlush::None);
-    })?);
+    entries.push(entry(&mut out, b"3D/3dmodel.model", level, limit, |p| p.feed(&model, TDEFLFlush::None))?);
+    drop(model);
     let directory = out.len();
     for e in &entries {
         le32(&mut out, 0x0201_4b50); le16(&mut out, 20); le16(&mut out, 20); le16(&mut out, 0); le16(&mut out, 8);
@@ -260,18 +302,9 @@ pub mod profile {
         let v = core::slice::from_raw_parts(vp, nv); let t = core::slice::from_raw_parts(tp, nt);
         let min_z = v.chunks_exact(3).map(|p| p[2] as f64).fold(f64::INFINITY, f64::min);
         if stage == 0 { return min_z as usize; }
-        let out = xml(); out.clear(); out.reserve(nv * 12 + nt * 12 + 1024);
-        if stage == 1 || stage == 3 { out.extend_from_slice(MODEL_HEAD); for point in v.chunks_exact(3) {
-            out.extend_from_slice(b"<vertex x=\""); push_f32(out, coordinate(point[0], 0, min_z));
-            out.extend_from_slice(b"\" y=\""); push_f32(out, coordinate(point[1], 1, min_z));
-            out.extend_from_slice(b"\" z=\""); push_f32(out, coordinate(point[2], 2, min_z));
-            out.extend_from_slice(b"\"/>\n"); } out.extend_from_slice(MODEL_MID); }
-        if stage == 2 || stage == 3 { for f in t.chunks_exact(3) {
-            out.extend_from_slice(b"<triangle v1=\""); push_u32(out, f[0]);
-            out.extend_from_slice(b"\" v2=\""); push_u32(out, f[1]);
-            out.extend_from_slice(b"\" v3=\""); push_u32(out, f[2]);
-            out.extend_from_slice(b"\"/>\n"); } out.extend_from_slice(MODEL_TAIL); }
-        out.len()
+        let (v, t) = match stage { 1 => (v, &t[..0]), 2 => (&v[..0], t), _ => (v, t) };
+        *xml() = model_xml(v, t, min_z).unwrap_or_default();
+        xml().len()
     }
     #[no_mangle] pub extern "C" fn prof_crc() -> u32 { crc32(0, xml()) }
     /// DEFLATE the kept XML at `level` in one call; returns the compressed size.
