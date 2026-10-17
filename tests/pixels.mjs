@@ -8,6 +8,8 @@
 //        differing pixels are allowed only inside SELECTOR's box (e.g. '[data-mode=round]'), measured in the page at
 //        capture time; any differing pixel outside it fails. DOM/style differences are listed but not failed in this
 //        mode (the label change is a DOM change by design; the DOM baseline is re-taken with the pixels after approval).
+//   --allow-overlay SELECTOR (with --allow-box): also allows SELECTOR's box, only in captures where that element is
+//        present (e.g. '#edgeToolMenu', the Edge ▾ dropdown, only while it is open).
 // Env: AVALON_PLAYWRIGHT (playwright module path), AVALON_CHROMIUM (browser executable), AVALON_ASSETS (served build),
 //      PIXEL_JOBS (parallel browser contexts in the one shared browser, default 4), AVALON_PIXEL_BASELINE (baseline dir).
 // Same setup as tools/readme-shots/harness.mjs (served app, open(), tap()); one shared browser, PIXEL_JOBS contexts; toasts and #busy are hidden as capture.mjs does.
@@ -37,9 +39,9 @@ const H={
   return page;},
  tap:(page,mode,points,times=1)=>page.evaluate(([mode,points,times])=>{const t=window.__cad.touch;if(mode)t.setMode(mode);const c=document.querySelector('#scene');for(const p of points){const at=t.pointScreen(p);for(let i=0;i<times;i++)for(const type of ['pointerdown','pointerup'])c.dispatchEvent(new PointerEvent(type,{clientX:at[0],clientY:at[1],pointerId:1,pointerType:'touch',bubbles:true}));}},[mode,points,times]),
 };
-const args=process.argv.slice(2),update=args.includes('--update'),outI=args.indexOf('--out'),boxI=args.indexOf('--allow-box'),ALLOW_BOX=boxI>=0?args[boxI+1]:null;
+const args=process.argv.slice(2),update=args.includes('--update'),outI=args.indexOf('--out'),boxI=args.indexOf('--allow-box'),ALLOW_BOX=boxI>=0?args[boxI+1]:null,ovI=args.indexOf('--allow-overlay'),ALLOW_OVERLAY=ovI>=0?args[ovI+1]:null;
 if(ALLOW_BOX&&update)throw Error('--allow-box is a compare-only check; it never writes baselines');
-const OUT=outI>=0?path.resolve(args[outI+1]):path.join(process.env.TMPDIR||'/tmp','avalon-pixel-run');const only=args.filter((a,i)=>!a.startsWith('--')&&i!==outI+1&&i!==boxI+1);
+const OUT=outI>=0?path.resolve(args[outI+1]):path.join(process.env.TMPDIR||'/tmp','avalon-pixel-run');const only=args.filter((a,i)=>!a.startsWith('--')&&i!==outI+1&&i!==boxI+1&&i!==ovI+1);
 const JOBS=Number(process.env.PIXEL_JOBS||4);
 // Same server as the harness (harness.start() launches its own bundled browser; we need AVALON_CHROMIUM, so we start our own).
 async function start(){const server=http.createServer((req,res)=>{const name=new URL(req.url,'http://localhost').pathname.slice(1)||'index.html';const file=path.resolve(ASSETS,name);
@@ -163,9 +165,14 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
   await scenes[name](page,async(step)=>{let t=Date.now();const id=`${name}${step?'.'+step:''}@${vp}`,{png,dom,tries}=await stillShot(page);tr('still shot ('+tries+' captures)',t);
    const dir=update?null:OUT;if(update){fs.writeFileSync(path.join(PX,id+'.png'),png);fs.writeFileSync(path.join(DOM,id+'.json'),JSON.stringify(dom));}else{fs.writeFileSync(path.join(dir,id+'.png'),png);fs.writeFileSync(path.join(dir,id+'.json'),JSON.stringify(dom));}
    caps.push(id);if(!update){const bp=path.join(PX,id+'.png'),bd=path.join(DOM,id+'.json');const r={id,errors:[]};
-    if(ALLOW_BOX&&fs.existsSync(bp)){const box=await page.evaluate(sel=>{const e=document.querySelector(sel);if(!e)return null;const q=e.getBoundingClientRect(),k=devicePixelRatio;return [Math.floor(q.left*k),Math.floor(q.top*k),Math.ceil(q.right*k),Math.ceil(q.bottom*k)];},ALLOW_BOX);
-     const d=box?diffOutside(fs.readFileSync(bp),png,box):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
-     if(!box)r.errors.push(`no element ${ALLOW_BOX}`);else if(d.outside)r.errors.push(`${d.outside} differing pixels outside ${ALLOW_BOX} box ${box} (outside diffs span ${d.outsideBox})${d.sizeMismatch?' (size mismatch)':''}`);
+    if(ALLOW_BOX&&fs.existsSync(bp)){// An overlay's box includes its box-shadow, which is part of the overlay as drawn: offset ± (1.5·blur + spread)
+     // (Skia draws a CSS blur radius b as a Gaussian with σ = b/2, out to 3σ).
+     const boxOf=(sel,shadow=false)=>page.evaluate(([sel,shadow])=>{const e=sel&&document.querySelector(sel);if(!e)return null;const q=e.getBoundingClientRect(),k=devicePixelRatio;let [l,t,r,b]=[q.left,q.top,q.right,q.bottom];
+      if(shadow)for(const m of getComputedStyle(e).boxShadow.matchAll(/(-?[\d.]+)px (-?[\d.]+)px ([\d.]+)px(?: (-?[\d.]+)px)?/g)){const [x,y,blur,spread=0]=m.slice(1).map(Number),ext=1.5*blur+spread;l=Math.min(l,q.left+x-ext);t=Math.min(t,q.top+y-ext);r=Math.max(r,q.right+x+ext);b=Math.max(b,q.bottom+y+ext);}
+      return [Math.floor(l*k),Math.floor(t*k),Math.ceil(r*k),Math.ceil(b*k)];},[sel,shadow]);
+     const box=await boxOf(ALLOW_BOX),overlay=await boxOf(ALLOW_OVERLAY,true);
+     const d=box?diffOutside(fs.readFileSync(bp),png,overlay?[box,overlay]:[box]):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
+     if(!box)r.errors.push(`no element ${ALLOW_BOX}`);else if(d.outside)r.errors.push(`${d.outside} differing pixels outside ${ALLOW_BOX} box ${box}${overlay?' or overlay '+overlay:''} (outside diffs span ${d.outsideBox})${d.sizeMismatch?' (size mismatch)':''}`);
      if(fs.existsSync(bd)){const dd=compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom);if(dd.length)console.log(`  ${id} DOM differs (listed, not failed with --allow-box): ${dd.join(' | ').slice(0,300)}`);}results.push(r);}
     else if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
     if(!(ALLOW_BOX&&fs.existsSync(bp))){if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');results.push(r);}}

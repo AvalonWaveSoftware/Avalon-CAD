@@ -22,6 +22,11 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  const r=EXPECTED[name].rotateMode;await page.mouse.click(r[0]+r[2]/2,r[1]+r[3]/2);
  assert.equal(await page.evaluate(()=>window.__cad.touch.getState().mode),'select');
  assert.equal(await page.evaluate(()=>document.querySelector('#exportBtn').textContent),'⇩Export');
+ // F6 (Master Chief 18:35 CT): the Edge ▾ dropdown is an overlay: opening it moves no mode-bar box and keeps the label.
+ const boxes=()=>page.evaluate(()=>[...document.querySelectorAll('#touchModes button'),document.querySelector('#measureBtn'),document.querySelector('#wire')].map(b=>{const r=b.getBoundingClientRect();return [r.x,r.y,r.width,r.height].join();}));
+ const closed=await boxes();await page.locator('[data-mode=round]').click();await page.locator('#edgeToolMenu').waitFor();
+ assert.deepEqual(await boxes(),closed,name+': mode-bar boxes unchanged with the dropdown open');assert.equal(await page.evaluate(()=>document.querySelector('[data-mode=round]').textContent),'Edge ▾');
+ assert.equal(await page.evaluate(()=>window.__cad.touch.getState().mode),'select',name+': opening the dropdown changes no mode');await page.keyboard.press('Escape');await page.locator('#edgeToolMenu').waitFor({state:'detached'});
  await ctx.close();}}
 finally{await env.close();}
-console.log('PASS: mode bar reserved layout at 4 sizes: 6 cells, Rotate/Mirror/ruler hidden and inert with boxes as reserved, Edge ▾ fits Round\'s box (one line at 360 px), dock reads Export');
+console.log('PASS: mode bar reserved layout at 4 sizes: 6 cells, Rotate/Mirror/ruler hidden and inert with boxes as reserved, Edge ▾ fits Round\'s box (one line at 360 px), dropdown open moves no box, dock reads Export');
