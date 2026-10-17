@@ -53,7 +53,7 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
   async function longPress(sel,{hold=LONG_PRESS_MS+250,move=0}={}){await page.waitForFunction(()=>!document.querySelector('#tipBubble'),null,{timeout:BUBBLE_MS+1000});const p=await center(sel);await touch('touchStart',p);if(move){await page.waitForTimeout(100);await touch('touchMove',{x:p.x+move,y:p.y});}await page.waitForTimeout(hold);const shown=await bubble();await touch('touchEnd',p);await page.waitForTimeout(150);return shown;}
   // Mode bar: bubble with the tooltip text, mode unchanged, bubble gone after 1.5 s.
   assert.equal(await mode(),'select');const t0=Date.now();
-  assert.equal(await longPress('[data-mode="move"]'),'Move','long-press bubble on Move');assert.equal(await mode(),'select','long-press did not switch the mode');
+  assert.equal(await longPress('[data-mode="move"]'),say('mode:move','Move'),'long-press bubble on Move');assert.equal(await mode(),'select','long-press did not switch the mode');
   assert.ok((await chunks(page)).includes('chunk-tooltip-bubble'),'bubble chunk loaded on the long-press');
   const box=await page.evaluate(()=>{const r=document.querySelector('#tipBubble')?.getBoundingClientRect();return r&&{l:r.left,r:r.right,t:r.top,b:r.bottom,pe:getComputedStyle(document.querySelector('#tipBubble')).pointerEvents};});
   assert.ok(box&&box.l>=0&&box.r<=412&&box.t>=0&&box.b<=915&&box.pe==='none','bubble inside the window and click-through '+JSON.stringify(box));
