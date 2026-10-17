@@ -90,6 +90,10 @@ h=hist();click('editBtn');$('p_depth').value='3';await apply();await wait(()=>ob
 // the Stretch tool (drag the top face), each one Undo step; no keyboard input anywhere.
 const onTop=id=>{const q=w.__cad.model.parts.find(p=>p.id===id),V=q.vertices,T=q.triangles;let zm=-1e9;for(let i=2;i<V.length;i+=3)zm=Math.max(zm,V[i]);for(let t=0;t<T.length;t+=3){const a=T[t]*3,b=T[t+1]*3,c=T[t+2]*3;if([a,b,c].every(k=>Math.abs(V[k+2]-zm)<1e-6))return [(V[a]+V[b]+V[c])/3,(V[a+1]+V[b+1]+V[c+1])/3,zm];}};
 const drag=(from,to)=>{const c=$('scene'),a=tool.pointScreen(from),b=tool.pointScreen(to),ev=(type,at)=>{const e=new w.MouseEvent(type,{clientX:at[0],clientY:at[1],bubbles:true,cancelable:true});Object.defineProperty(e,'pointerId',{value:1});Object.defineProperty(e,'pointerType',{value:'touch'});c.dispatchEvent(e);};ev('pointerdown',a);for(let i=1;i<=10;i++)ev('pointermove',[a[0]+(b[0]-a[0])*i/10,a[1]+(b[1]-a[1])*i/10]);ev('pointerup',b);};
+// QA note 4: the 94 tiles sit in the scrolling #sheetContent while the title and Close live outside it (always reachable);
+// .shapegrid sections with the shared responsive rules on every platform (layout checked in a browser by letters-sheet-layout.mjs).
+click('addBtn');click('lettersBtn');await wait(()=>qa('#sheetContent [data-glyph]').length===94);assert.ok(qa('#sheetContent .shapegrid').length>=1);
+assert.ok(qa('#sheetContent [data-glyph]').every(b=>b.closest('#sheetContent')&&b.closest('.shapegrid')));assert.equal($('sheetContent').contains($('closeSheet')),false);assert.equal($('sheetContent').contains($('sheetTitle')),false);click('closeSheet');
 for(const [k,[ch,name]] of [['A','Letter A'],['@','Symbol @'],['7','Number 7']].entries()){const n=objs().length;
  click('addBtn');click('lettersBtn');await wait(()=>qa('#sheetContent [data-glyph]').length===94);qa('#sheetContent [data-glyph]')[GLYPH_CHARS.indexOf(ch)].click();assert.equal($('objectName').value,name);$("pos1").value=String(-90-30*k);
  h=hist();await apply();await built(n+1);const o=objs()[n];assert.equal(o.name,name);assert.equal(o.params.char,ch);assert.equal(hist(),h+1);

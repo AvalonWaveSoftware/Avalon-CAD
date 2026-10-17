@@ -45,7 +45,13 @@ worker.onmessage=({data})=>{if(data.interim){requests.get(data.id)?.onInterim?.(
 // WS9: OCCT compiles off the startup path; ask the worker to start it once the first frame has been drawn.
 if(BUNDLE_SPLIT)requestAnimationFrame(()=>setTimeout(()=>worker.postMessage({type:'warm'}),0));
 // Amendment A2.5: after the first user interaction (never at startup), let the worker warm the torus/glyph paths when idle.
-{const warmShapes=()=>{removeEventListener('pointerdown',warmShapes,true);removeEventListener('keydown',warmShapes,true);worker.postMessage({type:'warmShapes'});};addEventListener('pointerdown',warmShapes,true);addEventListener('keydown',warmShapes,true);}
+// Amendment A follow-up ruling: warm the torus/glyph topology paths (and fetch the letter outlines, which loads glyphs.mjs
+// in the worker) in the first idle period after startup finishes on desktop and web, never inside engine start (WS9).
+// On Android it waits for the first interaction, so a phone cold start pays nothing. Timing only; no visible change.
+let warmStarted=false,glyphTilesP=null;const loadGlyphTiles=()=>glyphTilesP||=request('glyphOutlines',{}).then(r=>r.outlines,()=>null);
+const startWarm=()=>{if(warmStarted)return;warmStarted=true;removeEventListener('pointerdown',startWarm,true);removeEventListener('keydown',startWarm,true);globalThis.__avalonWarmAt=performance.now();worker.postMessage({type:'warmShapes'});loadGlyphTiles();};
+const warmAfterStartup=()=>{if(warmStarted||window.Android)return;(globalThis.requestIdleCallback||(f=>setTimeout(f,200)))(startWarm,{timeout:2000});};
+addEventListener('pointerdown',startWarm,true);addEventListener('keydown',startWarm,true);
 worker.onerror=e=>{topologies?.reset();for(const r of requests.values())r.reject(Error('The modeling engine could not start. Close and reopen the app.'));requests.clear();toast('The modeling engine could not start: '+e.message,true);};
 function toast(message,error=false){clearTimeout(toastTimer);$('toast').textContent=message;$('toast').classList.toggle('error',error);$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,error?7000:3500);}
 function status(s){$('busy').textContent=s;}
@@ -98,7 +104,7 @@ function disposeGroup(g){while(g.children.length){const x=g.children[0];g.remove
 function showDisplay(data){const display=data.displayPositions?{position:data.displayPositions,normal:data.displayNormals}:null,reuse=!!(resultMesh&&display&&(data.displayIndex?updateChanged(resultMesh.geometry,display,data.displayIndex):!resultMesh.geometry.index&&display.position.length===data.triangles.length*3&&updateInPlace(resultMesh.geometry,display)&&(uploads.bytes+=display.position.byteLength+display.normal.byteLength,true)));if(resultMesh&&!reuse){scene.remove(resultMesh);resultMesh.geometry.dispose();resultMesh.material.dispose();}if(edges){scene.remove(edges);edges.geometry.dispose();edges.material.dispose();edges=null;}
   if(!reuse){resultMesh=new THREE.Mesh(displayGeometry(data.vertices,data.triangles,data.flatTriangles,data.displayPositions?{positions:data.displayPositions,normals:data.displayNormals,index:data.displayIndex}:undefined,data.smoothingGroups),material('lambert',THREE.MeshLambertMaterial,{color:0x77c9c0,flatShading:false}));scene.add(resultMesh);for(const a of [...Object.values(resultMesh.geometry.attributes),resultMesh.geometry.index])if(a)uploads.bytes+=a.array.byteLength;}}
 function showInterim(data){showDisplay(data);if(wireframe)drawWire();invalidate();}
-function applyModel(data){applyFloorAdjustments(project,data);for(const p of data.parts){const o=project.objects.find(x=>x.id===p.id);if(o?.positionReference==='base')o.placement=[(p.bounds.min[0]+p.bounds.max[0])/2,(p.bounds.min[1]+p.bounds.max[1])/2,p.bounds.min[2]];}autosave();model=data;showDisplay(data);
+function applyModel(data){applyFloorAdjustments(project,data);for(const p of data.parts){const o=project.objects.find(x=>x.id===p.id);if(o?.positionReference==='base')o.placement=[(p.bounds.min[0]+p.bounds.max[0])/2,(p.bounds.min[1]+p.bounds.max[1])/2,p.bounds.min[2]];}autosave();if(!model)warmAfterStartup();model=data;showDisplay(data);
   const previousPicks=pickMeshes,pickReuse=new Map(ENGINE_CACHE?pickMeshes.filter(m=>m.userData.contentHash).map(m=>[m.userData.id+'\0'+m.userData.contentHash,m]):[]),kept=new Set();
   pickMeshes=data.parts.map(p=>{const old=p.contentHash&&pickReuse.get(p.id+'\0'+p.contentHash);if(old&&!kept.has(old)){kept.add(old);old.userData={id:p.id,mode:p.mode,topology:p.topology,bounds:p.bounds,contentHash:p.contentHash};return old;}const m=new THREE.Mesh(geometry(p.vertices,p.triangles),material('basic',THREE.MeshBasicMaterial,{side:THREE.DoubleSide}));m.userData={id:p.id,mode:p.mode,topology:p.topology,bounds:p.bounds,contentHash:p.contentHash};return m;});
   for(const m of pickReuse.values())if(!kept.has(m)){m.geometry.dispose();m.material.dispose();}for(const m of previousPicks)if(!m.userData.contentHash){m.geometry.dispose();m.material.dispose();}
@@ -134,7 +140,7 @@ let glyphTiles=null;const glyphName=c=>(/[A-Za-z]/.test(c)?'Letter ':/[0-9]/.tes
 const GLYPH_ROWS=[['Numbers','0123456789'],['Capital letters','ABCDEFGHIJKLMNOPQRSTUVWXYZ'],['Small letters','abcdefghijklmnopqrstuvwxyz'],['Symbols',GLYPH_CHARS.slice(62)]];
 function glyphTile(c,outline){const i=GLYPH_CHARS.indexOf(c),a=GLYPH_METRICS.ascender,h=a-GLYPH_METRICS.descender;
  return `<button data-glyph="${i}" aria-label="${escape(c)}" style="height:52px;padding:0">${outline?`<svg viewBox="${outline[0]/2-h/2} ${-a} ${h} ${h}" style="width:30px;height:30px"><path d="${outline[1]}" style="fill:var(--cyan);stroke:none"/></svg>`:escape(c)}</button>`;}
-async function lettersMenu(){if(!glyphTiles){try{glyphTiles=(await request('glyphOutlines',{})).outlines;}catch(e){glyphTiles={};}}
+async function lettersMenu(){if(!glyphTiles)glyphTiles=(await loadGlyphTiles())||{};
  openSheet('Letters, numbers & symbols','<p class="subtle">Tap a character to add it as a solid lying flat. Letter height is the capital-letter height.</p>'+GLYPH_ROWS.map(([label,chars])=>`<div class="sectionlabel">${label}</div><div class="shapegrid" style="grid-template-columns:repeat(6,1fr)">${[...chars].map(c=>glyphTile(c,glyphTiles[c])).join('')}</div>`).join(''));
  document.querySelectorAll('[data-glyph]').forEach(b=>b.onclick=()=>{const c=GLYPH_CHARS[Number(b.dataset.glyph)];newShape('glyph',{...structuredClone(glyphDefaults.glyph),char:c},glyphName(c));});}
 $('addBtn').onclick=addMenu;$('firstShape').onclick=addMenu;

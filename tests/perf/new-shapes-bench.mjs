@@ -24,8 +24,10 @@ const checks={polyManifoldMs:[polyMax('manifoldMs'),2],polyTris:[Math.max(...pol
 // worker's idle warm-up; the no-warm-up cold numbers are reported alongside (not gated). The in-process occtMs above stay reported.
 import {execFileSync} from 'node:child_process';
 const probe=(mode,...a)=>med(Array.from({length:5},()=>JSON.parse(execFileSync(process.execPath,[R+'tests/perf/first-shape-probe.mjs',mode,...a],{encoding:'utf8'}).trim().split('\n').pop()).ms));
-out.firstTime={torusWarmMs:probe('warm','torus'),glyphAtWarmMs:probe('warm','glyph','@'),torusColdMs:probe('cold','torus'),glyphAtColdMs:probe('cold','glyph','@')};
+out.firstTime={torusWarmMs:probe('warm','torus'),glyphAtWarmMs:probe('warm','glyph','@'),torusColdMs:probe('cold','torus'),glyphAtColdMs:probe('cold','glyph','@'),warmUpMs:probe('warmcost'),load:+os.loadavg()[0].toFixed(2)};
 checks.torusFirstMs=[out.firstTime.torusWarmMs,20];checks.glyphAtFirstMs=[out.firstTime.glyphAtWarmMs,80];
+// Architect follow-up ruling: regression cap (not a release target) on the true-cold '@' with no warm-up.
+checks.glyphAtColdCapMs=[out.firstTime.glyphAtColdMs,130];
 const KNOWN_MISSES=new Set(['torusOcctMs','glyphOcctMs']);// in-process cache-disposed numbers: reported only, gated by the fresh-process checks
 const over=Object.entries(checks).filter(([,[v,b]])=>v>b).map(([k])=>k);const fail=over.filter(k=>!KNOWN_MISSES.has(k));const known=over.filter(k=>KNOWN_MISSES.has(k));if(known.length)out.knownMisses=known;out.loadEnd=+os.loadavg()[0].toFixed(2);out.checks=checks;out.pass=!fail.length;if(fail.length)out.failed=fail;
 console.log(JSON.stringify(out));if(process.argv.includes('--check')&&fail.length)process.exit(1);
