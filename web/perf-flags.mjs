@@ -51,3 +51,7 @@ export const BUNDLE_SPLIT=true;
 // per-part displays (unchanged parts reuse theirs exactly); the UI uploads only the changed ranges of the display
 // buffers. false restores the per-corner arrays.
 export const INDEXED_DISPLAY=true;
+// WS11 (ADR v2): Undo/Redo keep structurally shared, frozen project snapshots (web/history.mjs) and restore them without
+// re-validating; autosave runs in an idle callback and skips writing an unchanged project. Storage key and JSON are
+// unchanged. false restores the JSON-string history and the plain timer autosave.
+export const SHARED_HISTORY=true;

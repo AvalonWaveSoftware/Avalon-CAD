@@ -8,9 +8,14 @@ export function segments(radius, tolerance) {
   if (!(radius>0)) return 32;
   return Math.min(1024, Math.max(24, Math.ceil(Math.PI/Math.acos(Math.max(-1,1-Math.min(tolerance,radius)/radius))/4)*4));
 }
-export function validateProject(p) {
+const meshPassed=new WeakMap();
+// WS11: validateProject(snapshot, true) validates an Undo snapshot (web/history.mjs: a frozen JSON tree). The copy is
+// what structuredClone gives for a JSON tree, except that frozen number arrays of 256+ entries (imported meshes) stay
+// shared: they cannot change, and every other array/object is a fresh mutable copy.
+function cloneSharing(v){if(v===null||typeof v!=='object')return v;if(Array.isArray(v))return v.length>=256&&Object.isFrozen(v)&&typeof v[0]==='number'?v:v.map(cloneSharing);const o={};for(const k of Object.keys(v))o[k]=cloneSharing(v[k]);return o;}
+export function validateProject(p, shareFrozen=false) {
   if (!p || p.format!=='tristancad' || p.version!==2 || !Array.isArray(p.objects) || p.objects.length>100) throw Error('This is not a supported AvalonCad project (maximum 100 objects).');
-  const out=structuredClone(p);
+  const out=shareFrozen?cloneSharing(p):structuredClone(p);
   normalizeLayers(out);
   if(out.buildPlaneEnabled!==undefined&&typeof out.buildPlaneEnabled!=='boolean')throw Error('Invalid build-plane setting.');
   out.name=String(out.name||'Untitled').slice(0,80);
@@ -51,7 +56,9 @@ export function validateProject(p) {
     }
     if(o.type==='mesh') {
       const m=o.params.mesh;
-      if(!m||!Array.isArray(m.vertices)||!Array.isArray(m.triangles)||m.vertices.length>3000000||m.triangles.length>3000000||m.vertices.length%3||m.triangles.length%3||m.vertices.some(v=>!Number.isFinite(v)||Math.abs(v)>10000)||m.triangles.some(v=>!Number.isInteger(v)||v<0||v>=m.vertices.length/3)) throw Error('Invalid imported mesh.');
+      if(!m||!Array.isArray(m.vertices)||!Array.isArray(m.triangles)||m.vertices.length>3000000||m.triangles.length>3000000||m.vertices.length%3||m.triangles.length%3||(meshPassed.get(m.vertices)!==m.triangles&&(m.vertices.some(v=>!Number.isFinite(v)||Math.abs(v)>10000)||m.triangles.some(v=>!Number.isInteger(v)||v<0||v>=m.vertices.length/3)))) throw Error('Invalid imported mesh.');
+      // WS11: frozen (Undo snapshot) arrays cannot change, so a pair that passed the scans once is not rescanned.
+      if(Object.isFrozen(m.vertices)&&Object.isFrozen(m.triangles))meshPassed.set(m.vertices,m.triangles);
     }
   }
   return out;

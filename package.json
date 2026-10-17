@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build:web": "node build-web.mjs",
-    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs && node tests/migration.mjs && node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs && node tests/occt-scope.mjs && node tests/topology-service.mjs && node tests/render-resources.mjs && node tests/render-scheduler.mjs && node tests/engine-parity.mjs && node tests/js-engine-parity.mjs && node tests/engine-cache-accounting.mjs && node tests/notices.mjs && node tests/parallel-init.mjs && node tests/startup-split.mjs",
+    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/history.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs && node tests/migration.mjs && node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs && node tests/occt-scope.mjs && node tests/topology-service.mjs && node tests/render-resources.mjs && node tests/render-scheduler.mjs && node tests/engine-parity.mjs && node tests/js-engine-parity.mjs && node tests/engine-cache-accounting.mjs && node tests/notices.mjs && node tests/parallel-init.mjs && node tests/startup-split.mjs",
     "build:rust": "./build-rust.sh",
     "test:local": "node tests/local-runtime.mjs",
     "test:browser": "node tests/browser-runtime.mjs",
@@ -36,7 +36,9 @@
     "test:ws9": "node tests/perf/ws9-bench.mjs --check",
     "test:picks": "node tests/pick-reuse.mjs",
     "test:ws10": "node tests/perf/ws10-bench.mjs --check",
-    "test:display-move": "node tests/display-move-frames.mjs"
+    "test:display-move": "node tests/display-move-frames.mjs",
+    "test:ws11": "node tests/history.mjs",
+    "test:autosave": "node tests/autosave-sessions.mjs"
   },
   "keywords": [],
   "author": "",

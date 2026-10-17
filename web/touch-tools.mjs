@@ -99,7 +99,7 @@ export function installTouch(S){
   face=pickedFace;selection='face';if(mode==='round'){mode='select';modeButtons();}update();draw();
  }
  function getDrag(e){if(committing)return null;const obj=o();if(!obj)return null;const hit=objectHit(e);let handle=null;if(mode==='move')handle=handles.find(h=>project2(h.point).distanceTo(new T.Vector2(e.clientX,e.clientY))<18);if(!handle&&hit?.object.userData.id!==obj.id&&!(mode==='round'&&pickEdge(e,obj,null)!==null))return null;
-  const g={id:obj.id,startX:e.clientX,startY:e.clientY,base:structuredClone(obj),before:JSON.stringify(project()),moved:false,mode,axis:handle?.axis||axis,preview:0,bottom:part(obj.id)?.userData.bounds.min[2]??0};
+  const g={id:obj.id,startX:e.clientX,startY:e.clientY,base:structuredClone(obj),before:JSON.stringify(project()),snap:S.snapshot?.(),moved:false,mode,axis:handle?.axis||axis,preview:0,bottom:part(obj.id)?.userData.bounds.min[2]??0};
   if(mode==='stretch'){if(['joined','prefab'].includes(obj.type)&&containsThreads(obj)){S.toast('Separate components to change thread length without changing pitch.');return null;}face=faceFromHit({...hit,sx:e.clientX,sy:e.clientY},obj);if(isThread(obj)&&face.axis!==2){S.toast('Pull an end face to change thread length. Change diameter in Edit.');return null;}selection='face';g.axis=axes[face.axis];g.sign=face.sign;g.direction=direction(obj,face.axis,face.sign);}
   if(mode==='round'){const edge=pickEdge(e,obj,hit);if(edge===null)return null;if(hit)face=faceFromHit({...hit,sx:e.clientX,sy:e.clientY},obj);selection='edges';if(!edgeSelection.includes(edge))edgeSelection=[edge];g.radius=radius(obj,edgeSelection);g.edgeIndices=[...edgeSelection];}
   g.origin=point(worldCenter(obj));g.units=pixelSize(1);g.plane=new T.Plane(new T.Vector3(0,0,1),-g.origin.z);setRay(e);g.planeStart=ray.ray.intersectPlane(g.plane,new T.Vector3());return g;
@@ -124,7 +124,7 @@ export function installTouch(S){
  async function finishGesture(cancel=false){const g=gesture;if(!g)return;gesture=null;controls.enabled=true;if(!g.moved){update();draw();return;}
   if(cancel){Object.assign(project(),JSON.parse(g.before));S.refresh();$('liveMeasure').hidden=true;return;}
   committing=true;commitSnapshot=g.before;document.getElementById('app').classList.add('checking');$('liveMeasure').textContent+=' · checking solid…';$('touchModes').style.pointerEvents='none';
-  try{validateProject(project());applyFloorAdjustments(project(),await S.request('check',{project:structuredClone(project()),tolerance:.15}));S.record(g.before);S.refresh();S.toast(g.mode==='round'?'Roundover applied.':g.snapped?'Centers snapped.':'Dimensions updated.');}
+  try{validateProject(project());applyFloorAdjustments(project(),await S.request('check',{project:structuredClone(project()),tolerance:.15}));S.record(g.snap??g.before);S.refresh();S.toast(g.mode==='round'?'Roundover applied.':g.snapped?'Centers snapped.':'Dimensions updated.');}
   catch(e){Object.assign(project(),JSON.parse(g.before));S.refresh();S.toast(e.message,true);}
   finally{committing=false;commitSnapshot=null;S.autosave();document.getElementById('app').classList.remove('checking');$('touchModes').style.pointerEvents='';setTimeout(()=>$('liveMeasure').hidden=true,1600);update();draw();}
  }
