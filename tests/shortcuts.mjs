@@ -4,7 +4,7 @@
 // Browser, phone (412x915 touch + hardware keyboard, Android stub) and desktop web (1440x900): every shortcut runs its
 // command; nothing fires while typing in a field; with a sheet open only Esc and Cmd/Ctrl commands run.
 import assert from 'node:assert/strict';import fs from 'node:fs';
-import {createCommands,combo,installShortcuts,ELECTRON_MENU,COMMAND_IDS} from '../web/commands.mjs';import {shortcutRows} from '../web/help-sheet.mjs';
+import {createCommands,combo,installShortcuts,ELECTRON_MENU,COMMAND_IDS} from '../web/commands.mjs';import {shortcutRows} from '../web/help-sheet.mjs';import {tooltipText} from '../web/tooltips.mjs';
 // --- combo()
 const k=(key,o={})=>combo({key,code:'',...o});
 assert.equal(k('v'),'V');assert.equal(k('V',{shiftKey:true}),'Shift+V');assert.equal(k('?',{shiftKey:true}),'?');assert.equal(k('0'),'0');assert.equal(k('Home'),'Home');
@@ -13,6 +13,10 @@ assert.equal(k('Delete',{shiftKey:true}),'Shift+Delete');assert.equal(k('Escape'
 for(const [key,o] of [['a',{altKey:true}],['Shift',{shiftKey:true}],['Control',{ctrlKey:true}],['Meta',{metaKey:true}],['a',{isComposing:true}],['Unidentified',{}],['Dead',{}],['',{}]])assert.equal(k(key,o),null,JSON.stringify([key,o]));
 // --- registry table: exactly the Q1 rows whose commands exist at F1a (no R/I/T, copy/paste, group yet).
 const c=createCommands(),table=Object.fromEntries(c.list.filter(x=>x.shortcut).map(x=>[x.id,x.shortcut]));
+// Ruling 1: tooltip/aria text = existing label (shortcut), in the help table's key spelling.
+assert.deepEqual(Object.fromEntries(c.list.filter(x=>x.shortcut).map(x=>[x.id,tooltipText(x)])),{new:'New project (Cmd/Ctrl+N)',open:'Open project / prefab / STL… (Cmd/Ctrl+O)',save:'Save project on this computer (Cmd/Ctrl+S)',backup:'Export editable project… (Cmd/Ctrl+Shift+S)',export:'Export (Cmd/Ctrl+E)',
+ undo:'Undo (Cmd/Ctrl+Z)',redo:'Redo (Cmd/Ctrl+Shift+Z)',add:'Add (A)',clear:'Deselect everything (Shift+Delete)',fit:'Fit model (0)',wire:'Wireframe (W)',help:'Help (?)','mode:select':'Select (V)','mode:move':'Move (M)',
+ 'mode:stretch':'Stretch (S)','mode:round':'Round (F)',delete:'Delete (Delete)',duplicate:'Duplicate (Cmd/Ctrl+D)',escape:'Close panel (Esc)'});
 assert.deepEqual(table,{new:['Mod+N'],open:['Mod+O'],save:['Mod+S'],backup:['Mod+Shift+S'],export:['Mod+E'],undo:['Mod+Z'],redo:['Mod+Shift+Z','Mod+Y'],add:['A','Mod+Shift+A'],
  clear:['Shift+Delete','Shift+Backspace'],fit:['0','Home','Mod+0'],wire:['W'],help:['?'],'mode:select':['V'],'mode:move':['M'],'mode:stretch':['S'],'mode:round':['F'],delete:['Delete','Backspace'],duplicate:['Mod+D'],escape:['Escape']});
 const all=c.list.flatMap(x=>x.shortcut||[]);assert.equal(new Set(all).size,all.length,'no combo bound twice');for(const s of all)assert.equal(c.byKey(s)&&c.get(c.byKey(s)).shortcut.includes(s),true);
@@ -73,6 +77,12 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
  await key('Shift+Delete');assert.equal(await page.evaluate(()=>window.__cad.selected),null,'Shift+Delete clears the selection');assert.equal(await count(),before);
  await pick();await key('Shift+Backspace');assert.equal(await page.evaluate(()=>window.__cad.selected),null);
  await key('Delete');assert.equal(await count(),before,'Delete with nothing selected does nothing');
+ // Ruling 3: Delete with a multi-selection deletes every selected object in one undo step.
+ {await pick();await page.evaluate(()=>{const [,b,c]=window.__cad.project.objects;window.__cad.touch.toggleMulti(b.id);window.__cad.touch.toggleMulti(c.id);});
+  assert.equal((await page.evaluate(()=>window.__cad.touch.getState().multi)).length,3);const h0=await page.evaluate(()=>window.__cad.historyLength);
+  await key('Delete');await page.waitForFunction(c=>window.__cad.project.objects.length===c-3,before);assert.equal(await page.evaluate(()=>window.__cad.historyLength),h0+1,'one undo step');
+  assert.deepEqual(await page.evaluate(()=>[window.__cad.selected,window.__cad.touch.getState().multi.length]),[null,0],'selection cleared');
+  await key('Control+z');await page.waitForFunction(c=>window.__cad.project.objects.length===c,before);}
  // Cmd/Ctrl+S save, Cmd/Ctrl+Shift+S export the project (.tcad), Cmd/Ctrl+O open.
  await key('Control+s');assert.ok(await page.evaluate(()=>Object.keys(JSON.parse(localStorage.getItem('tristancad.projects')||'{}')).length===1),'saved');
  await key('Control+Shift+S');await page.waitForFunction(()=>window.savedFile?.done&&window.savedFile.name.endsWith('.tcad'));
@@ -84,6 +94,11 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
  assert.equal(await page.evaluate(()=>window.__cad.historyLength),hist,'typing changed no model state');cl=await clicks();assert.equal(cl.wire,2);assert.equal(cl.fit,3);
  await key('Escape');assert.equal(await sheet(),null,'Esc in a field closes the sheet');
  // Shortcuts never move focus or open anything when the page is busy dragging (gate covered by unit test).
- out.push(`${name}: ${n} key presses`);await page.context().close();}}
+ out.push(`${name}: ${n} key presses`);await page.context().close();}
+ // Ruling 7: plain web (no AvalonDesktop, no Android bridge) hides the Ctrl+N row; the phone stub and Electron keep it.
+ {const page=await H.open(env,{desktop:true});await page.waitForTimeout(500);await page.evaluate(()=>{delete window.Android;});await page.keyboard.press('Shift+Slash');
+  await page.waitForFunction(()=>!!document.querySelector('#loadExample'));const p=await page.evaluate(()=>[...document.querySelectorAll('#sheet .helpitem')][3].querySelector('p').textContent);
+  assert.ok(PARAGRAPH.includes(' · Cmd/Ctrl+N new project'));assert.equal(p,PARAGRAPH.replace(' · Cmd/Ctrl+N new project',''),'web help table without Ctrl+N');
+  out.push('web: help table hides the Ctrl+N row');await page.context().close();}}
 finally{await env.close();}
 console.log('PASS: shortcuts: combo/registry/menu/gate/help-row unit checks; '+out.join('; '));
