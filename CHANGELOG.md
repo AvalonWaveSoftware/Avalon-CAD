@@ -4,6 +4,12 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 
 ## [Unreleased]
 
+### Added
+- **New shapes:** Torus and Triangular prism in Primitive Objects; Advanced shapes (Tetrahedron, Octahedron, Decahedron (d10), Dodecahedron, Icosahedron); Letters, numbers & symbols (one Text tool, 94 characters, Roboto Bold, SIL OFL 1.1, licence shipped in THIRD_PARTY_NOTICES).
+
+### Compatibility
+- Project, backup and prefab files that contain any of the new shapes cannot be opened by AvalonCad 2.7.1 or older; those versions report "Project contains an invalid object." Files without the new shapes are unchanged and still open in older versions.
+
 ## [2.7.1] - 2026-10-17
 
 ### Fixed

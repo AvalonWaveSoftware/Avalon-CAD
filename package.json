@@ -42,7 +42,8 @@
     "test:android-export": "node tests/android-export.mjs",
     "test:ws13": "node tests/perf/wasm-opt-parity.mjs",
     "test:ws14": "node tests/occt-sidecar.mjs && node tests/occt-sidecar-browser.mjs && node tests/perf/ws14-bench.mjs --check",
-    "test:new-shapes": "node tests/polyhedra-tables.mjs && node tests/glyph-data.mjs && node tests/new-shapes.mjs && node tests/new-shapes-interaction.mjs"
+    "test:new-shapes": "node tests/polyhedra-tables.mjs && node tests/glyph-data.mjs && node tests/new-shapes.mjs && node tests/new-shapes-interaction.mjs",
+    "test:new-shapes-perf": "node tests/perf/new-shapes-bench.mjs --check"
   },
   "keywords": [],
   "author": "",

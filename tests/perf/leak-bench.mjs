@@ -16,6 +16,10 @@ for(let i=0;i<20;i++)cold(1000+i);let a=MB();for(let i=0;i<300;i++)cold(i);out.c
 // 2. 200 one-object moves at 30 distinct objects (the 20-entry cache thrashes, so every preview rebuilds topology).
 CS.disposeSolidCache();const p=proj(30);run({type:'preview',project:p,tolerance:.15});for(let i=0;i<10;i++){p.objects[i%30].position[0]+=1;run({type:'preview',project:p,tolerance:.15});}
 const MOVES=+(process.env.LEAK_MOVES||200),trace=[];a=MB();for(let i=0;i<MOVES;i++){p.objects[i%30].position[0]+=1;run({type:'preview',project:p,tolerance:.15});if(i%50===49)trace.push(+MB().toFixed(0));}out.movesHeapTraceMB=trace;out.moves200At30GrowthMB=+(MB()-a).toFixed(1);if(MOVES!==200)out.moves=MOVES;out.heapEndMB=+MB().toFixed(1);
-const budgets={coldTopology300GrowthMB:5,moves200At30GrowthMB:10};out.budgets=budgets;
+// 3. ADR new-primitives §8.7: 300 cold torus topology builds (BRepPrimAPI_MakeTorus is deleted at once; WS1 found the
+// primitive builders can leak inside OCCT). Runs after the existing patterns so their numbers are unchanged.
+const coldTorus=i=>{CS.objectTopology(object('torus',{diameter:30+i*.01,tube:8}));CS.disposeSolidCache();};
+for(let i=0;i<20;i++)coldTorus(1000+i);a=MB();for(let i=0;i<300;i++)coldTorus(i);out.coldTorus300GrowthMB=+(MB()-a).toFixed(1);
+const budgets={coldTopology300GrowthMB:5,moves200At30GrowthMB:10,coldTorus300GrowthMB:5};out.budgets=budgets;
 const fail=Object.entries(budgets).filter(([k,v])=>out[k]>v);out.pass=!fail.length;console.log(JSON.stringify(out));
 if(process.argv.includes('--check')&&fail.length)process.exit(1);
