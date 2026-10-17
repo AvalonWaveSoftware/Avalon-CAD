@@ -1,4 +1,4 @@
-// ADR-0001 F6 in the real browser (built app/assets, real worker, lazy chunk through import()): Round ▾ reads "Round ▾"
+// ADR-0001 F6 in the real browser (built app/assets, real worker, lazy chunk through import()): the Round button reads "Edge ▾" (Master Chief ruling 1)
 // inside its reserved box; the first tap enters Round mode, a second tap opens the 2-item chooser (44 px items, inside
 // the viewport, chunk loaded only then); Chamfer switches the hint, the action button and the exact-value sheet; an
 // exact chamfer and a drag chamfer are stored as kind 'chamfer' with the analytic volume and export a matching STL; a
@@ -13,9 +13,9 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  await page.addInitScript(()=>{window.Android={beginFile(name,mime){window.savedFile={name,mime,chunks:[]}},appendFile(x){window.savedFile.chunks.push(x)},finishFile(){window.savedFile.done=true}};});
  await page.goto(env.origin+'/index.html');await page.waitForFunction(()=>window.__cad?.model?.engine?.local===true,{},{timeout:90000});
  const round=page.locator('#touchModes [data-mode=round]');
- assert.equal(await round.textContent(),'Round ▾');assert.equal(await round.getAttribute('aria-haspopup'),'menu');
+ assert.equal(await round.textContent(),'Edge ▾');assert.equal(await round.getAttribute('aria-haspopup'),'menu');
  const fit=await round.evaluate(b=>{const r=document.createRange();r.selectNodeContents(b);const cs=getComputedStyle(b);return {text:r.getBoundingClientRect().width,inner:b.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight),lines:r.getClientRects().length,h:b.getBoundingClientRect().height};});
- assert.ok(fit.text<=fit.inner&&fit.lines===1&&fit.h===37,name+': "Round ▾" fits on one line in its reserved box '+JSON.stringify(fit));
+ assert.ok(fit.text<=fit.inner&&fit.lines===1&&fit.h===37,name+': "Edge ▾" fits on one line in its reserved box '+JSON.stringify(fit));
  await page.evaluate(()=>window.__cad.load({format:'tristancad',version:2,name:'F6',objects:[{id:'box1',name:'Box',type:'box',params:{w:30,d:20,h:10},position:[0,0,5],rotation:[0,0,0],mode:'solid',enabled:true,layerId:'layer-1'}],layers:[{id:'layer-1',name:'Layer 1'}],activeLayer:'layer-1'}));
  await page.waitForFunction(()=>window.__cad.model?.volume===6000&&window.__cad.touch&&!window.__cad.touch.isCommitting());
  const state=()=>page.evaluate(()=>window.__cad.touch.getState());
@@ -26,13 +26,13 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  const items=await menu.locator('button').evaluateAll(bs=>bs.map(b=>{const r=b.getBoundingClientRect();return {t:b.textContent,k:b.dataset.edgeTool,checked:b.getAttribute('aria-checked'),h:r.height,x0:r.left,x1:r.right,y1:r.bottom};}));
  assert.deepEqual(items.map(i=>[i.t,i.k,i.checked]),[['Round','round','true'],['Chamfer','chamfer','false']]);const vp=o.viewport;
  for(const i of items){assert.ok(i.h>=44,name+' item >= 44 px');assert.ok(i.x0>=0&&i.x1<=vp.width&&i.y1<=vp.height,name+' item inside the viewport');}
- // Escape closes; an outside tap closes; a second tap on Round ▾ closes.
+ // Escape closes; an outside tap closes; a second tap on Edge ▾ closes.
  await page.keyboard.press('Escape');assert.equal(await menu.count(),0);
  await round.click();await menu.waitFor();await page.mouse.click(vp.width/2,vp.height-120);assert.equal(await menu.count(),0);
  await round.click();await menu.waitFor();await round.click();await menu.waitFor({state:'detached',timeout:2000});assert.equal((await state()).mode,'round');
  // Choose Chamfer: hint, action button and label.
  await round.click();await menu.locator('[data-edge-tool=chamfer]').click();assert.equal(await menu.count(),0);assert.equal((await state()).edgeTool,'chamfer');assert.equal((await state()).mode,'round');
- assert.equal(await page.locator('#touchHint').textContent(),'Edge taps: 1 edge · 2 face perimeter · 3 all edges · drag to chamfer');assert.equal(await page.locator('#roundSet').textContent(),'Distance');assert.equal(await round.textContent(),'Round ▾');
+ assert.equal(await page.locator('#touchHint').textContent(),'Edge taps: 1 edge · 2 face perimeter · 3 all edges · drag to chamfer');assert.equal(await page.locator('#roundSet').textContent(),'Distance');assert.equal(await round.textContent(),'Edge ▾');
  assert.equal(await page.evaluate(()=>localStorage.getItem('tristancad.autosave.v3')),null);
  // Exact chamfer d=1 on edges 0 and 1 (they meet at a corner): 5,985.333 mm³.
  const history0=await page.evaluate(()=>window.__cad.historyLength);
@@ -58,7 +58,8 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  await page.evaluate(()=>window.__cad.touch.selectEdges('box1',[6]));await page.locator('#roundSet').click();assert.equal(await page.locator('#sheetTitle').textContent(),'Round selected edges');
  await page.locator('#exactRadius').fill('2');await page.locator('#applyRadius').click();await page.waitForFunction(()=>document.querySelector('#sheet').hidden&&window.__cad.project.objects[0].fillets.length===2,{},{timeout:30000});
  assert.deepEqual(await page.evaluate(()=>window.__cad.project.objects[0].fillets),[{edges:[0,1],radius:1,kind:'chamfer'},{edges:[6],radius:2}]);
- const mixed=await page.evaluate(()=>window.__cad.model.volume);assert.ok(Math.abs(mixed-(6000-15+1/3-(4-Math.PI)*10))<0.05,'mixed volume '+mixed);
+ // Under load the model can still be the chamfer-only one right after the sheet closes: wait for the rebuilt model.
+ await page.waitForFunction(v=>window.__cad.model?.volume<v-.5,6000-15+1/3,{timeout:60000});const mixed=await page.evaluate(()=>window.__cad.model.volume);assert.ok(Math.abs(mixed-(6000-15+1/3-(4-Math.PI)*10))<0.05,'mixed volume '+mixed);
  // Drag in Chamfer: the Z edge at (15,−10) (edge 4) chamfered by dragging up; readout says Chamfer.
  await round.click();await menu.locator('[data-edge-tool=chamfer]').click();
  const p=await page.evaluate(()=>window.__cad.touch.pointScreen([15,-10,5]));
@@ -73,4 +74,4 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  await page.locator('#undo').click();await page.waitForFunction(n=>window.__cad.historyLength===n,before);
  assert.deepEqual(errors,[],name+' page errors');await ctx.close();}}
 finally{await env.close();}
-console.log('PASS: Round ▾ chooser, Chamfer texts, exact and drag chamfers (kind chamfer, 5,985.333 mm³, matching STL), mixed round + chamfer, error, Undo and v3 autosave at 360×800 and 1024×688');
+console.log('PASS: Edge ▾ chooser, Chamfer texts, exact and drag chamfers (kind chamfer, 5,985.333 mm³, matching STL), mixed round + chamfer, error, Undo and v3 autosave at 360×800 and 1024×688');

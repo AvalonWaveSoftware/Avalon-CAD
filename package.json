@@ -44,6 +44,7 @@
     "test:ws14": "node tests/perf/ws14-run.mjs",
     "test:new-shapes": "node tests/polyhedra-tables.mjs && node tests/glyph-data.mjs && node tests/new-shapes.mjs && node tests/glyph-topology-parity.mjs && node tests/new-shapes-interaction.mjs",
     "test:new-shapes-perf": "node tests/perf/new-shapes-bench.mjs --check",
+    "test:round-chamfer-perf": "node tests/perf/round-chamfer-bench.mjs --check",
     "test:round-chamfer-stl": "node tests/round-chamfer-stl.mjs"
   },
   "keywords": [],

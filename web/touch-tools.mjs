@@ -59,7 +59,7 @@ export function installTouch(S){
   for(const ed of candidates)for(let i=0;i+5<ed.points.length;i+=6){const a=project2(new T.Vector3(...ed.points.slice(i,i+3)).applyMatrix4(m)),b=project2(new T.Vector3(...ed.points.slice(i+3,i+6)).applyMatrix4(m)),ab=b.clone().sub(a),u=Math.max(0,Math.min(1,xy.clone().sub(a).dot(ab)/(ab.lengthSq()||1))),d=xy.distanceTo(a.addScaledVector(ab,u));if(d<dist){dist=d;best=ed.index;}}
   return best;
  }
- // ADR-0001 F6: the Round ▾ edge tool ('round' or 'chamfer'; Chamfer texts come from the lazy edge-tool chunk, loaded
+ // ADR-0001 F6: the Edge ▾ edge tool ('round' or 'chamfer'; Chamfer texts come from the lazy edge-tool chunk, loaded
  // before Chamfer can be chosen). radius() reads the current tool's entries only.
  function chamfer(){return edgeKind==='chamfer'&&edgeText;}
  function radius(obj,indices){return Math.max(0,...(obj.fillets||[]).filter(f=>(f.kind==='chamfer')===(edgeKind==='chamfer')&&f.edges.some(e=>indices.includes(e))).map(f=>f.radius));}
@@ -154,8 +154,9 @@ export function installTouch(S){
  let syncing=false,booleanDisabled=[];
  function booleanBusy(value){committing=value;document.getElementById('app').classList.toggle('checking',value);$('sheet').classList.toggle('checking',value);if(value){booleanDisabled=[...$('sheet').querySelectorAll('button,input,select')].filter(el=>el.id!=='confirmMerge').map(el=>[el,el.disabled]);booleanDisabled.forEach(([el])=>el.disabled=true);}else{booleanDisabled.forEach(([el,disabled])=>{if(el.isConnected)el.disabled=disabled;});booleanDisabled=[];}}
  const merges=installMergeTools(S,{setIds:setMulti,busy:booleanBusy});
- const roundButton=$('touchModes').querySelector('[data-mode=round]');roundButton.textContent='Round ▾';roundButton.setAttribute('aria-haspopup','menu');
-  // Round ▾: the first tap enters Round mode with the current edge tool; a tap while Round mode is active opens the chooser.
+ const roundButton=$('touchModes').querySelector('[data-mode=round]');roundButton.textContent='Edge ▾';roundButton.setAttribute('aria-haspopup','menu');
+  // Edge ▾ (Master Chief ruling 1: fixed label; the active tool shows in the hint, the Radius/Distance button and the
+  // sheet title): the first tap enters Round mode with the current edge tool; a tap while Round mode is active opens the chooser.
   async function chooseEdgeTool(){if(gesture||committing)return;const m=await import('./edge-tool.mjs');edgeText=m.CHAMFER;m.chooser(roundButton,edgeKind,kind=>{edgeKind=kind;if(mode!=='round')setMode('round');else{update();draw();}});}
   $('touchModes').querySelectorAll('button[data-mode]').forEach(b=>b.onclick=()=>b===roundButton&&mode==='round'?chooseEdgeTool():setMode(b.dataset.mode));$('axisTools').querySelectorAll('[data-axis]').forEach(b=>b.onclick=()=>{axis=b.dataset.axis;document.querySelectorAll('[data-axis]').forEach(c=>c.classList.toggle('active',c.dataset.axis===axis));});$('snapStatus').onclick=()=>{snap=!snap;update();draw();};$('dragStep').onchange=()=>step=Number($('dragStep').value);
  function placeNew(obj){return startAtOrigin(obj);}
