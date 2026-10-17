@@ -9,7 +9,7 @@ assert.equal(LONG_PRESS_MS,450);assert.equal(BUBBLE_MS,1500);
 // Registry tooltips: the label, except Clear, which uses the accessible name index.html already gives it (no new text).
 {const c=createCommands();for(const cmd of c.list)assert.equal(cmd.tooltip,cmd.id==='clear'?'Deselect everything':cmd.label,cmd.id);
  const el=(id,dataset={})=>({id,dataset});
- const map=[[el('undo'),'undo'],[el('redo'),'redo'],[el('wire'),'wire'],[el('fit'),'fit'],[el('helpBtn'),'help'],[el('addBtn'),'add'],[el('editBtn'),'edit'],[el('exportBtn'),'export'],[el('deselectBtn'),'clear'],
+ const map=[[el('closeSheet'),'escape'],[el('duplicateObject'),'duplicate'],[el('deleteObject'),null],[el('undo'),'undo'],[el('redo'),'redo'],[el('wire'),'wire'],[el('fit'),'fit'],[el('helpBtn'),'help'],[el('addBtn'),'add'],[el('editBtn'),'edit'],[el('exportBtn'),'export'],[el('deselectBtn'),'clear'],
   [el('',{mode:'move'}),'mode:move'],[el('',{view:'iso'}),'view:3d'],[el('',{view:'top'}),'view:top'],[el('quickEdit'),null],[el('undoX'),null]];
  for(const [e,id] of map){assert.equal(commandId(e),id,JSON.stringify(e));if(id)assert.ok(COMMAND_IDS.includes(id),id+' is a registry id');}}
 // Ruling 1: label plus its first shortcut, in the help table's spelling; no shortcut, no parentheses.
@@ -37,7 +37,8 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
  // Every sheet and panel.
  for(const [btn,what] of [['#addBtn','add'],['#projectMenu','projects'],['#layersBtn','layers'],['#exportBtn','export'],['#helpBtn','help']]){await page.click(btn);await page.waitForFunction(()=>!document.querySelector('#sheet').hidden&&document.querySelector('#sheetContent button'));await check(what+' sheet');await closeSheet(page);}
  await page.click('#helpBtn');await page.waitForSelector('#loadExample');await page.click('#loadExample');await page.waitForFunction(()=>window.__cad.project.objects.length>0&&window.__cad.selected);await page.waitForTimeout(500);await check('example loaded');
- await page.click('#editBtn');await page.waitForFunction(()=>!document.querySelector('#sheet').hidden&&document.querySelector('#sheetContent button'));await check('edit sheet');await closeSheet(page);
+ await page.click('#editBtn');await page.waitForFunction(()=>!document.querySelector('#sheet').hidden&&document.querySelector('#sheetContent button'));await check('edit sheet');
+ assert.deepEqual(await tip(page,'#closeSheet'),want('escape','Close panel'));assert.deepEqual(await tip(page,'#duplicateObject'),want('duplicate','Duplicate'));assert.deepEqual(await tip(page,'#deleteObject'),['Delete','Delete'],'Delete has no sheet shortcut (sheets take only Esc and Cmd/Ctrl)');await closeSheet(page);
  await page.click('#objectsToggle');await page.waitForFunction(()=>!document.querySelector('#objectsPanel').hidden&&document.querySelector('#objectsList button'));await check('objects panel');await page.click('#objectsToggle');
  // A button whose own text changes keeps a matching tooltip (Snap on → Snap off).
  await page.click('[data-mode="move"]');await check('move action bar');assert.deepEqual(await tip(page,'#snapStatus'),['Snap on','Snap on']);
