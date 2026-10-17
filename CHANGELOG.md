@@ -4,6 +4,11 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 
 ## [Unreleased]
 
+## [2.7.1] - 2026-10-17
+
+### Fixed
+- **Android: modeling engine failed to start.** In the Android app the separate OCCT worker introduced in 2.7.0 never started, so every OCCT job (fillets, rounds and similar) failed with "The modeling engine could not start". The OCCT sidecar worker is turned off for now and OCCT runs in the geometry worker again, as in 2.6.1.
+
 ## [2.7.0] - 2026-10-17
 
 ### Changed
