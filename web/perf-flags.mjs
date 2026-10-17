@@ -67,4 +67,6 @@ export const WASM_OPT=true;
 // OCCT queries from its caches and asks the sidecar on a miss; a preview waiting for a new fillet mesh may first show
 // that part without the fillet (display only), then the final result exactly as before. false keeps OCCT in the
 // geometry worker.
-export const OCCT_SIDECAR=true;
+// Off for Android 2.7.x: in the APK the nested 'occt' worker never starts (its worker.js load fails in Android System
+// WebView), so every OCCT job fails with 'The modeling engine could not start'. Re-enable after on-device verification.
+export const OCCT_SIDECAR=false;
