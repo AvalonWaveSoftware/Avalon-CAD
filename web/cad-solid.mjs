@@ -264,6 +264,8 @@ export function disposeSolidCache(){meshes.clear();meshBytes=0;for(const entry o
 export function topologyVariant(o,scoped){const base=baseShape(o),edges=base.edges;try{return scoped?scopedTopology(base,edges,o):legacyTopology(base,edges);}finally{edges.forEach(dispose);if(scoped){try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}}dispose(base);}}
 // Test hook (new-primitives ADR §5.4, exact STEP): the exact base B-rep of o, outside the cache; the caller deletes it.
 export function baseShapeForTest(o){return baseShape(o);}
+// Test hook (ADR-0001 F6 acceptance): the exact finished B-rep (base + chamfers/rounds) of o, outside the cache; the caller deletes it.
+export function finishedShapeForTest(o){const base=baseShape(o),edges=explore(base,'edge');try{return applyFillets(base,o.fillets,edges);}finally{edges.forEach(dispose);dispose(base);}}
 // Amendment A2.5: warm the torus / glyph topology code paths once (JIT and wasm tier-up) on a tiny shape, outside the
 // caches, so the first real Add does not pay that cost. Returns ms. The worker calls it only when it is idle.
 export function warmShape(o){const t=performance.now(),base=baseShape(o),edges=explore(base,'edge');

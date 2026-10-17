@@ -1,4 +1,4 @@
-// ADR-0001 F6 (§4 F6, §5.2): Round ▾ Chamfer. fillets[].kind:'chamfer' is a symmetric chamfer whose distance is stored
+// ADR-0001 F6 (§4 F6, §5.2): Edge ▾ Chamfer (mode-bar label per Master Chief ruling 1). fillets[].kind:'chamfer' is a symmetric chamfer whose distance is stored
 // in radius (save format v3); entries without kind are rounds exactly as before. Checks the analytic chamfer volume,
 // mixed round + chamfer on one shape (chamfers first, round edges found again through MakeChamfer history), the error
 // text, the cache keys (a chamfer never reuses a round's mesh), the validators, the minimum-version writer, and that
@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';import fs from 'node:fs';
 import {loadPyodide} from 'pyodide';
 import {initKernel,makeObject,validateProject} from '../web/kernel.mjs';
 import {initLocalEngine} from '../web/local-engine.mjs';
-import {solidMesh,objectTopology,heapBytes} from '../web/cad-solid.mjs';
+import {solidMesh,objectTopology,heapBytes,finishedShapeForTest} from '../web/cad-solid.mjs';import * as R from 'replicad';
 import {object,blank} from '../web/templates.mjs';
 import {withRoundover} from '../web/operations.mjs';
 import {requiredVersion,forWrite} from '../web/migrate.mjs';
@@ -26,15 +26,29 @@ near(volume(c2),6000-15+1/3,1e-6,'two-edge chamfer volume');
 near(volume(withRoundover(box(),[...Array(12).keys()],1,'chamfer')),6000-120+8*(1.5-5/6),1e-6,'all-edge chamfer volume');
 // 2. Mixed: round r2 on edge 0 and chamfer d1 on the parallel edge 2 (not touching) → each removes its own analytic volume.
 const mixed=withRoundover(withRoundover(box(),[0],2),[2],1,'chamfer');assert.deepEqual(mixed.fillets.map(f=>f.kind||'round'),['round','chamfer']);
-// (The round is tessellated, so the chamfer's share is checked exactly against the round alone, the round analytically within 0.05.)
-const roundOnly=volume(withRoundover(box(),[0],2));near(roundOnly,6000-(4-Math.PI)*10,.05,'round volume');near(volume(mixed),roundOnly-5,1e-6,'round + chamfer volume');
-// Mixed on edges that meet: chamfers are cut first, so the chamfer stays on the picked edge (½·20 − its corner overlap
-// with the round) instead of running along the round's tangent seam onto the unpicked X edge (rounds first: 24.3 mm³).
-const touching=withRoundover(withRoundover(box(),[0],2),[1],1,'chamfer'),vt=volume(touching);near(roundOnly-vt,9.504,.01,'adjacent chamfer after round removes only its own edge');
-// Per-edge distances are kept next to a round (rounds first silently gave the second edge the first edge's 0.5).
-const two=withRoundover(withRoundover(withRoundover(box(),[0],2),[1],.5,'chamfer'),[8],1.5,'chamfer');near(roundOnly-volume(two),35.186,.01,'two chamfer distances beside a round');
-// A chamfer larger than the adjacent round (rounds first: BRepCheck-invalid solid) is valid.
-near(volume(withRoundover(withRoundover(box(),[0],1),[1],2,'chamfer')),5958.235,.05,'chamfer larger than the round (exact B-rep 5958.235)');
+// ADR-0001 Architect ruling F6-2 (chamfers first): the three mixed cases that failed with rounds first are acceptance
+// tests. Volumes are the exact B-rep volumes (OCCT GProp on the finished solid, not the tessellation), each a valid
+// solid (BRepCheck). Box edges: 0 = Z edge at (−15,−10); 1 = top Y edge at x=−15 (meets 0 at the top); 8 = bottom X
+// edge at y=−10 (meets 0 at the bottom); 9 = top X edge at y=−10 (tangent-connected to 1 through the round on 0).
+const brep=o=>{const s=finishedShapeForTest(o);try{assert.ok(new (R.getOC().BRepCheck_Analyzer)(s.wrapped,true,false).IsValid(),'valid solid');return R.measureVolume(s);}finally{s.delete();}};
+const exact=(o,v,msg)=>near(brep(o),v,1e-6,msg);
+exact(withRoundover(box(),[0],2),6000-(4-Math.PI)*10,'round r2 alone (analytic)');exact(withRoundover(box(),[1],1,'chamfer'),5990,'chamfer d1 on edge 1 alone (analytic ½·1²·20)');
+exact(withRoundover(box(),[8],1.5,'chamfer'),5966.25,'chamfer d1.5 on edge 8 alone (analytic ½·1.5²·30)');
+// A1. No bleed: chamfer d1 on edge 1 beside the r2 round on edge 0 removes 9.504 mm³ (its own 20 mm edge, ≤ ½·1²·20,
+// less the corner the round already took). Rounds first gave 5967.107 (24.309 mm³: it ran along the round onto edge 9).
+const roundR2=6000-(4-Math.PI)*10,bleed=withRoundover(withRoundover(box(),[0],2),[1],1,'chamfer');
+exact(bleed,5981.912241765,'A1 chamfer beside a round stays on its edge');assert.ok(roundR2-brep(bleed)<10,'A1 removes no more than its own edge');
+// A2. Per-edge distances: d0.5 on edge 1 (top end of the round) and d1.5 on edge 8 (bottom end) each remove exactly what
+// they remove alone beside the round, so the sum holds (rounds first gave both 0.5: 5930.905).
+const c05=withRoundover(withRoundover(box(),[0],2),[1],.5,'chamfer'),c15=withRoundover(withRoundover(box(),[0],2),[8],1.5,'chamfer'),both=withRoundover(c05,[8],1.5,'chamfer');
+exact(c05,5989.074216390,'A2 d0.5 beside the round');exact(c15,5958.571352420,'A2 d1.5 beside the round');exact(both,5956.229642718,'A2 both distances');
+near(roundR2-brep(both),(roundR2-brep(c05))+(roundR2-brep(c15)),1e-6,'A2 each edge keeps its own distance');
+// A3. A chamfer larger than the adjacent round (round r1 on 0, chamfer d2 on 1): valid, 5958.235 (rounds first: BRepCheck-invalid).
+exact(withRoundover(withRoundover(box(),[0],1),[1],2,'chamfer'),5958.235240028,'A3 chamfer larger than the round');
+// The same cases through the engine (tessellated Manifold, NoError): a non-touching chamfer's share is exact against the
+// round alone; where the chamfer meets the round, within the 0.15 mm tessellation (0.02 mm³).
+const roundOnly=volume(withRoundover(box(),[0],2));near(roundOnly,roundR2,.05,'round volume');
+near(volume(mixed),roundOnly-5,1e-6,'round + chamfer volume');near(roundOnly-volume(bleed),roundR2-5981.912241765,.02,'engine A1 (round seam tessellated)');near(roundOnly-volume(both),roundR2-5956.229642718,.02,'engine A2 (round seam tessellated)');
 // Every edge touching a round, chamfered, plus the round itself.
 const ring=withRoundover(withRoundover(box(),[0],1.5),[1,3,8,9],0.8,'chamfer');assert.ok(volume(ring)<volume(withRoundover(box(),[0],1.5)));
 // 3. Too large → a clear chamfer message (and the round message when the round pass is the one that fails).
