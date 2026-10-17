@@ -11,6 +11,9 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  assert.deepEqual(Object.keys(got),Object.keys(EXPECTED[name]),name+': order Select · Move · Rotate · Stretch · Round · Mirror, then ruler, wireframe');
  for(const [k,box] of Object.entries(EXPECTED[name]))box.forEach((v,i)=>assert.ok(Math.abs(got[k][i]-v)<=0.5,name+' '+k+' box '+got[k]+' vs reserved '+box));
  const w=EXPECTED[name].select[2];if(name.startsWith('phone'))assert.ok(w>=44,name+': mode buttons >= 44 px wide');
+ // F6: the ▾ fits inside Round's reserved box: "Round ▾" on one line, no wider than the content box, no overflow.
+ const fit=await page.evaluate(()=>{const b=document.querySelector('[data-mode=round]'),r=document.createRange(),cs=getComputedStyle(b);r.selectNodeContents(b);return {label:b.textContent,text:r.getBoundingClientRect().width,inner:b.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight),lines:r.getClientRects().length,overflow:b.scrollWidth>b.clientWidth};});
+ assert.equal(fit.label,'Round ▾',name+': Round ▾ label');assert.ok(fit.lines===1&&fit.text<=fit.inner&&!fit.overflow,name+': Round ▾ fits its reserved box '+JSON.stringify(fit));
  const st=await page.evaluate(()=>['#rotateMode','#mirrorMode','#measureBtn'].map(s=>{const e=document.querySelector(s),c=getComputedStyle(e);return [c.visibility,e.tabIndex,e.getAttribute('aria-hidden'),!!e.dataset.mode,typeof e.onclick==='function'];}));
  for(const s of st)assert.deepEqual(s,['hidden',-1,'true',false,false],name+': reserved button hidden, unfocusable, inert');
  // A tap on a reserved slot changes nothing: the mode stays Select.
@@ -19,4 +22,4 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  assert.equal(await page.evaluate(()=>document.querySelector('#exportBtn').textContent),'⇩Export');
  await ctx.close();}}
 finally{await env.close();}
-console.log('PASS: mode bar reserved layout at 4 sizes: 6 cells, Rotate/Mirror/ruler hidden and inert with boxes as reserved, dock reads Export');
+console.log('PASS: mode bar reserved layout at 4 sizes: 6 cells, Rotate/Mirror/ruler hidden and inert with boxes as reserved, Round ▾ fits Round\'s box, dock reads Export');
