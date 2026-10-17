@@ -33,7 +33,7 @@ async function run(origin){const ctx=await browser.newContext({viewport:{width:4
    await new Promise(r=>{const c=()=>window.__msgs.slice(k).some(x=>!x.canceled)?r():setTimeout(c,1);c();});
    const e=window.__msgs.slice(k).find(x=>!x.canceled);return {ms:e.t-t0,interim:e.interim};},[P(3.5,40),P(3.5,46)]);
   await page.waitForFunction(()=>window.__cad.model?.parts?.find(p=>p.id==='b')?.bounds.min[0]>35.5&&!/Building/.test(document.getElementById('busy').textContent),null,{timeout:180000});
-  if(process.env.DEBUG)console.log(JSON.stringify(move),JSON.stringify(await page.evaluate(()=>window.__msgs.map(x=>({...x,t:Math.round(x.t)}))))));
+  if(process.env.DEBUG)console.log(JSON.stringify(move),JSON.stringify(await page.evaluate(()=>window.__msgs.map(x=>({...x,t:Math.round(x.t)})))));
   const model=await page.evaluate(()=>({v:Array.from(new Uint8Array(window.__cad.model.vertices.buffer,window.__cad.model.vertices.byteOffset,window.__cad.model.vertices.byteLength)),d:Array.from(new Uint8Array(window.__cad.model.displayPositions.buffer)),status:document.getElementById('busy').textContent}));
   await page.waitForTimeout(1500);const autosave=await page.evaluate(()=>localStorage.getItem('tristancad.autosave'));
   await page.evaluate(()=>window.__cad.exportMenu());await page.locator('#quality').selectOption('maximum');await page.locator('#downloadSTL').click();await page.waitForFunction(()=>window.__files[0]?.done,null,{timeout:180000});
