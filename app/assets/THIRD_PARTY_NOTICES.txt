@@ -837,16 +837,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-Local Python/Rust processing runtime (AvalonCad 2.0)
-
-Pyodide 0.29.3 (Mozilla Public License 2.0)
-Source: https://github.com/pyodide/pyodide/tree/0.29.3
-Unmodified runtime assets are bundled for offline use; no packages are fetched at runtime.
-Full license: licenses/Pyodide-MPL-2.0.txt
-
-CPython 3.13.2 (Python Software Foundation license and included historical licenses)
-Source: https://github.com/python/cpython/tree/v3.13.2
-Full license: licenses/Python-3.13.2-License.txt
+Local Rust processing runtime (AvalonCad 2.0)
 
 Rust 1.90.0 standard library (MIT OR Apache-2.0)
 Source: https://github.com/rust-lang/rust/tree/1.90.0

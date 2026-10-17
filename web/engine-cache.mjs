@@ -21,7 +21,7 @@ export function engineCache(K,{budget=150*1048576}={}){
  const partData=(s,styles)=>{const k=serial(s)+(styles?'S':'');let p=parts.get(k);if(!p){p={data:meshData(s,styles)};parts.set(k,p);}p.used=job;return p.data;};
  const serial=s=>{let n=serials.get(s);if(n===undefined){n=++next;serials.set(s,n);}return n;};
  const estimate=s=>64*s.numVert()+128*s.numTri()+1024;
- const free=s=>{owned.delete(s);derivedBytes-=s.__bytes||0;s.delete();};
+ const free=s=>{owned.delete(s);derivedBytes-=s.__bytes||0;s.__bytes=0;s.delete();};
  const adopt=s=>{owned.add(s);s.__bytes=estimate(s);derivedBytes+=s.__bytes;return s;};
  const releaseLocal=e=>{for(const p of e.placed.values())free(p.s);owned.delete(e.s);e.s.delete();localBytes-=e.bytes;};
  return {stats,
@@ -81,7 +81,8 @@ export function engineCache(K,{budget=150*1048576}={}){
    for(const [k,f] of floors)if(f.used<job-1){if(f.s)free(f.s);floors.delete(k);}
    for(const e of local.values())for(const [k,p] of e.placed)if(p.used<job-1){free(p.s);e.placed.delete(k);}
    for(const [k,e] of local){if(localBytes+derivedBytes<=budget)break;if(e.used===job)continue;releaseLocal(e);local.delete(k);}},
-  clear(){derivedBytes=0;for(const u of unions.values())free(u.s);for(const f of floors.values())if(f.s)free(f.s);for(const e of local.values())releaseLocal(e);unions.clear();floors.clear();parts.clear();local.clear();},
-  size:()=>({local:local.size,unions:unions.size,parts:parts.size,floors:floors.size,localMB:+(localBytes/1048576).toFixed(1),derivedMB:+(derivedBytes/1048576).toFixed(1)}),
+  // The frees below subtract their own bytes; zeroing first drove derivedMB negative (QA, -0.1 MB).
+  clear(){for(const u of unions.values())free(u.s);for(const f of floors.values())if(f.s)free(f.s);for(const e of local.values())releaseLocal(e);unions.clear();floors.clear();parts.clear();local.clear();localBytes=0;derivedBytes=0;},
+  size:()=>({local:local.size,unions:unions.size,parts:parts.size,floors:floors.size,localMB:+(localBytes/1048576).toFixed(1),derivedMB:+(derivedBytes/1048576).toFixed(1),localBytes,derivedBytes}),
  };
 }
