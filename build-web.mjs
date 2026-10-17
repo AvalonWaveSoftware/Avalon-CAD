@@ -13,7 +13,22 @@ if(BUNDLE_SPLIT){const bytes=Object.values(ui.metafile.outputs).find(o=>o.entryP
  if(engine.length)throw Error('main.js must not bundle engine modules: '+engine.join(', '));
  if(bytes>ref*1.01)throw Error(`main.js is ${bytes} B, more than 1 % over the ${ref} B reference (tools/main-js-size.json)`);}
 await build({entryPoints:['web/worker.mjs'],outfile:'app/assets/worker.js',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,external:['node:*','module','fs','path','crypto']});
-for(const [src,dst] of [['THIRD_PARTY_NOTICES.txt','app/assets/THIRD_PARTY_NOTICES.txt'],['web/index.html','app/assets/index.html'],['web/style.css','app/assets/style.css'],['node_modules/replicad-opencascadejs/dist/replicad_single.wasm','app/assets/cad-kernel.wasm'],['node_modules/manifold-3d/manifold.wasm','app/assets/manifold.wasm']])fs.copyFileSync(src,dst);
+for(const [src,dst] of [['THIRD_PARTY_NOTICES.txt','app/assets/THIRD_PARTY_NOTICES.txt'],['web/index.html','app/assets/index.html'],['web/style.css','app/assets/style.css']])fs.copyFileSync(src,dst);
+// WS13: with WASM_OPT the OCCT and Manifold binaries ship after wasm-opt -Oz (binaryen pinned in devDependencies). The
+// result is cached under build/wasm-opt by the input's SHA-256, binaryen version and flags, so only the first build
+// pays for it (OCCT takes about 4 minutes). A failed or empty run throws instead of shipping the unoptimized file.
+const {WASM_OPT}=await import('./web/perf-flags.mjs');
+const WASM_OPT_FLAGS=['-Oz','--enable-bulk-memory','--enable-bulk-memory-opt','--enable-simd','--enable-exception-handling','--enable-nontrapping-float-to-int','--enable-sign-ext','--enable-mutable-globals'];
+async function optimizedWasm(src){
+ const {createHash}=await import('node:crypto'),{execFileSync}=await import('node:child_process');
+ const version=JSON.parse(fs.readFileSync('node_modules/binaryen/package.json','utf8')).version;
+ const key=createHash('sha256').update(fs.readFileSync(src)).update('\0binaryen '+version+'\0'+WASM_OPT_FLAGS.join(' ')).digest('hex').slice(0,32);
+ const out=path.join('build','wasm-opt',path.basename(src,'.wasm')+'-'+key+'.wasm');
+ if(!fs.existsSync(out)){fs.mkdirSync(path.dirname(out),{recursive:true});const tmp=out+'.tmp';console.log('wasm-opt '+src+' (binaryen '+version+')…');
+  execFileSync(process.execPath,['--max-old-space-size=8000','node_modules/binaryen/bin/wasm-opt',...WASM_OPT_FLAGS,src,'-o',tmp],{stdio:'inherit'});
+  if(!fs.existsSync(tmp)||fs.statSync(tmp).size<1024)throw Error('wasm-opt produced no output for '+src);fs.renameSync(tmp,out);}
+ return out;}
+for(const [src,dst] of [['node_modules/replicad-opencascadejs/dist/replicad_single.wasm','app/assets/cad-kernel.wasm'],['node_modules/manifold-3d/manifold.wasm','app/assets/manifold.wasm']])fs.copyFileSync(WASM_OPT?await optimizedWasm(src):src,dst);
 if(!fs.existsSync('app/assets/mesh-core.wasm'))throw Error('Run ./build-rust.sh before bundling the app.');
 // WS7: with JS_ENGINE the worker never loads Pyodide, so app/assets/python is not shipped (-12.29 MB).
 const {JS_ENGINE,PARALLEL_INIT}=await import('./web/perf-flags.mjs');

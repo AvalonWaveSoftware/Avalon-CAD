@@ -9,6 +9,10 @@ PLATFORM="$SDK/platforms/android-35/android.jar"
 mkdir -p build/classes build/dex ../deliverables
 ./build-rust.sh
 npm run build:web
+# WS13 (D6): app/assets is not tracked; make sure the web build produced every shipped asset.
+for f in index.html style.css main.js worker.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt; do
+  [ -f "app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
+done
 "$BT/aapt2" compile --dir app/res -o build/resources.zip
 "$BT/aapt2" link -o build/base-resources.apk --manifest app/AndroidManifest.xml -I "$PLATFORM" build/resources.zip
 java com.sun.tools.javac.Main -source 8 -target 8 -classpath "$PLATFORM" -d build/classes app/src/com/tristan/cad/MainActivity.java

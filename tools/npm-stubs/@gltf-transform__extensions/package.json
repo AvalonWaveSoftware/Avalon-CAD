@@ -1,0 +1,7 @@
+{
+  "name": "@gltf-transform/extensions",
+  "version": "4.999.0",
+  "private": true,
+  "description": "AvalonCad WS13 (D5): empty stand-in for an install-only dependency the app never loads. See tools/npm-stubs/README.md.",
+  "license": "BSD-3-Clause"
+}

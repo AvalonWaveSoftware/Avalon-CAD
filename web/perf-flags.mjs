@@ -58,3 +58,7 @@ export const SHARED_HISTORY=true;
 // WS12 (ADR v2): Android export hand-off in a few natively encoded chunks (see saveFile in main.mjs). The ADR's
 // WebMessagePort ArrayBuffer transfer needs androidx.webkit, which this build does not have; the Java bridge is unchanged.
 export const BINARY_EXPORT=true;
+// WS13 (ADR v2): build-time only. build-web.mjs ships OCCT (cad-kernel.wasm) and Manifold (manifold.wasm) after
+// binaryen wasm-opt -Oz (pinned devDependency; output cached in build/wasm-opt by input hash). Parity and pixel suites
+// are identical with either binary. false ships the unmodified npm binaries.
+export const WASM_OPT=true;
