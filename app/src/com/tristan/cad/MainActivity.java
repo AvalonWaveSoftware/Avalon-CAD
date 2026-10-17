@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface public synchronized void beginFile(String name,String mime){
             exportError=false;
             if(awaitingSave){exportError=true;notice("Finish saving the previous file first.",true);return;}
-            try{closeStage();stagingFile=File.createTempFile("cad-export-",".tmp",getCacheDir());stagingStream=new FileOutputStream(stagingFile);outputName=name.replaceAll("[^a-zA-Z0-9._-]","_");outputMime=("model/stl".equals(mime)?"model/stl":"application/json");}catch(IOException e){exportError=true;notice("Could not prepare the export.",true);}
+            try{closeStage();stagingFile=File.createTempFile("cad-export-",".tmp",getCacheDir());stagingStream=new FileOutputStream(stagingFile);outputName=name.replaceAll("[^a-zA-Z0-9._-]","_");outputMime=("model/stl".equals(mime)||"model/3mf".equals(mime)?mime:"application/json");}catch(IOException e){exportError=true;notice("Could not prepare the export.",true);}
         }
         @JavascriptInterface public synchronized void appendFile(String data){
             if(exportError||stagingStream==null)return;

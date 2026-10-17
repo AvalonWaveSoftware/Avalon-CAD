@@ -17,5 +17,7 @@ try {
  const project=path.join(root,'phone.tcad');const data=Buffer.from(JSON.stringify({format:'tristancad',version:1,name:'Phone project',objects:[]}));await writeModel(project,data);assert.deepEqual(Buffer.from((await readModel(project)).bytes),data);
  const large=path.join(root,'oversized.stl');await fs.writeFile(large,'');await fs.truncate(large,MAX_BYTES+1);await assert.rejects(readModel(large),/50 MB/);
  await assert.rejects(readModel(path.join(root,'text.txt')),/STL/);
+ // ADR-0001 F2a: .3mf can be exported (saved) but not opened until 3MF import (F2b) exists.
+ assert.equal(exportPayload({name:'model.3mf',bytes:original}).extension,'.3mf');const mf=path.join(root,'model.3mf');await fs.writeFile(mf,'PK');await assert.rejects(readModel(mf),/STL/);
  console.log('PASS: native file payload validation, typed-array offsets, bounded imports, exact STL/project byte transport, atomic replacement and clean temporary files.');
 }finally{await fs.rm(root,{recursive:true,force:true});}
