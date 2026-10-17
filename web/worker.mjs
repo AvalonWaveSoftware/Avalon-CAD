@@ -21,7 +21,7 @@ rustReady?.catch(()=>{});
 const remote=OCCT_SIDECAR?solidRemote():null;let sidecar=null,nextAsk=0;const waiting=new Map(),inflight=new Map();
 function startSidecar(){if(sidecar)return sidecar;sidecar=new Worker(new URL('worker.js'+(PARALLEL_INIT?self.location.search:''),self.location.href),{type:'module',name:'occt'});
  sidecar.onmessage=({data})=>{const w=waiting.get(data.id);if(w){waiting.delete(data.id);w(data.answer);}};
- sidecar.onerror=e=>{for(const w of waiting.values())w({init:true,error:packError(Error(e.message||'The CAD kernel worker stopped.'))});waiting.clear();inflight.clear();sidecar.terminate();sidecar=null;};return sidecar;}
+ sidecar.onerror=e=>{for(const w of waiting.values())w({init:true,error:packError(Error(e.message||'The modeling engine could not start. Close and reopen the app.'))});waiting.clear();inflight.clear();sidecar.terminate();sidecar=null;};return sidecar;}
 function askSidecar(requests){startSidecar();return Promise.all(requests.map(r=>{const k=r.kind+'|'+r.key;let p=inflight.get(k);
  if(!p){const id=++nextAsk;p=new Promise(res=>waiting.set(id,res)).finally(()=>inflight.delete(k));inflight.set(k,p);sidecar.postMessage({id,request:r});}return p;}));}
 // Interim preview (display only; main.mjs never stores it as the model): copied, not transferred, so no cached

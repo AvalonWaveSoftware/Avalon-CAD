@@ -11,7 +11,7 @@ const MESH_BYTES=64*1048576,TOPOLOGY_BYTES=32*1048576;
 const copyMesh=m=>({...m,vertices:m.vertices.slice(),triangles:m.triangles.slice(),...(m.displayGroups?{displayGroups:m.displayGroups.map(g=>({...g}))}:{})});
 // Errors cross the worker boundary as data and are re-thrown as the value the in-process call would have thrown.
 export const packError=e=>e instanceof Error?{isError:true,name:e.name,message:e.message}:{isError:false,value:typeof e==='number'||typeof e==='string'?e:String(e)};
-export const unpackError=x=>{if(!x.isError)return x.value;const e=new Error(x.message);if(x.name&&x.name!=='Error')e.name=x.name;return e;};
+export const unpackError=x=>{if(!x.isError)return x.value;const e=new Error(x.message);if(x.name&&x.name!==e.name)e.name=x.name;return e;};
 export function solidRemote(){
  const meshes=new Map(),topologies=new Map();let meshBytes=0,topologyTotal=0,misses=[],keys=new Set(),events=0;
  const touch=(map,key)=>{const v=map.get(key);if(v){map.delete(key);map.set(key,v);}return v;};
@@ -37,7 +37,7 @@ export async function runJob(engine,data,remote,{fetch,onInterim,abort}={}){
  for(let round=0;;round++){
   remote.take();const result=engine.process(data),wanted=remote.take();
   if(!wanted.length)return result;
-  if(round>=16)throw Error('The CAD kernel did not settle.');
+  if(round>=16)throw Error('The modeling engine could not start. Close and reopen the app.');
   if(round===0&&onInterim&&data.type==='preview'&&!result.error&&wanted.some(r=>r.kind==='mesh'))onInterim(result);
   const CANCEL={},answers=await (abort?Promise.race([fetch(wanted),abort.then(()=>CANCEL)]):fetch(wanted));
   if(answers===CANCEL)return {id:data.id,canceled:true};
