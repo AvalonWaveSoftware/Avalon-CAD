@@ -1,4 +1,4 @@
-AVALONCAD 2.6.1 — APPLE SILICON MAC
+AVALONCAD 2.7.0 — APPLE SILICON MAC
 
 INSTALL
 1. Double-click this ZIP on your Mac to extract it.

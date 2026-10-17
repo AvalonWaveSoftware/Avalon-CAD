@@ -4,6 +4,22 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-17
+
+### Changed
+- **Performance overhaul.** The modeling engine and renderer were reworked for speed while keeping exported STLs, saves and autosaves byte-identical to 2.6.1 (660 export/save jobs and 311 STLs compared).
+  - **Faster startup.** On desktop, the time from launch to a ready modeling engine drops from about 2.3 s to about 0.6–0.7 s. Engines start in parallel and the main bundle is split and smaller (main.js about 22 % smaller; app assets about 36 % smaller).
+  - **Render on demand.** The 3D view only redraws when something changes, so idle CPU use on desktop drops from about 190 % to under 1 %.
+  - **Faster first fillet.** The first fillet after launch on a phone takes about 0.3 s instead of 1.5–2 s.
+  - **Responsive editing during fillets.** OCCT modeling now runs in its own worker, so moving a shape while a large fillet is being built shows the result in about 11 ms instead of waiting about 10 s for the fillet.
+  - **Lower memory use.** A memory leak in the OCCT engine was fixed (no heap growth over 200 moves, previously more than 1 GB), and desktop memory after load drops from about 830 MB to about 740–780 MB.
+  - **Faster undo.** Undo uses shared history: undo on a 20k-triangle import takes about 1.4 ms instead of 8.4 ms.
+  - Indexed display meshes, a cached engine, a topology service and a new JavaScript engine reduce the per-edit work. WebAssembly is optimized at build time.
+  - **Android export** writes large STL files in chunks.
+
+### Compatibility
+- The project format is unchanged. Projects and autosaves from 2.6.1 open as before, and 2.6.1 can open projects saved by this version.
+
 ## [2.6.1] - 2026-10-13
 
 ### Fixed
