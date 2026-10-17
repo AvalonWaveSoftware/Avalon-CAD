@@ -11,7 +11,7 @@ import {resolutionTolerance} from './facets.mjs';
 // Only interop and buffer ownership live here. js-engine.mjs (WS7) or Python owns model/job assembly;
 // Rust owns preview mesh preparation and binary STL generation.
 export async function initLocalEngine(K,options={}){
- const rust=await initRustMesh(options.rust||{});
+ const rust=await (options.rust?.ready||initRustMesh(options.rust||{}));
  K.threadMesh=(o,tolerance)=>rust.threadMesh(o.type,o.params,tolerance);
  function placeObject(value,requested,floor){const o=structuredClone(value),at=Array.from(requested);if(at.length!==3||at.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('Invalid placement coordinates.');if(floor)at[2]=Math.max(0,at[2]);o.position=[0,0,0];validateProject(booleanProject([o]));const s=makeObject(K,o,.005);try{const b=s.boundingBox();if(s.isEmpty())throw Error('This object contains no material.');o.position=[at[0]-(b.min[0]+b.max[0])/2,at[1]-(b.min[1]+b.max[1])/2,at[2]-b.min[2]];o.positionReference='base';o.placement=at;validateProject(booleanProject([o]));return {object:o};}finally{s.delete();}}
  function groundProject(value){const p=validateProject(value);let min=0;for(const o of p.objects.filter(o=>o.enabled)){const s=makeObject(K,o,.005);try{if(!s.isEmpty())min=Math.min(min,s.boundingBox().min[2]);}finally{s.delete();}}if(min<0)for(const o of p.objects){o.position[2]-=min;if(o.placement)o.placement[2]-=min;}p.buildPlaneEnabled=true;return {project:validateProject(p),lift:-min};}

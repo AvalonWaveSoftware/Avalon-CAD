@@ -34,3 +34,9 @@ export const FILLET_MESH_CACHE=true;
 // WS7: model/job assembly in JS (web/js-engine.mjs) instead of Pyodide. Build-time as well: build-web.mjs ships
 // app/assets/python only when this is false (ADR: -12.29 MB). false restores the Pyodide engine.
 export const JS_ENGINE=true;
+// WS8: startup pipeline. The worker compiles Manifold, OCCT and the Rust core concurrently (streaming compile) and
+// requests the wasm with the app's ?v= token; the desktop protocol streams files and marks ?v= assets immutable
+// (code cache); Android serves them immutable with the WebView cache on (LOAD_DEFAULT) and the APK stores *.wasm and
+// *.zip uncompressed. build-web.mjs mirrors this flag into app/assets/perf-flags.json for desktop/main.cjs and
+// MainActivity. false restores sequential init, no-store responses, LOAD_NO_CACHE and deflated assets.
+export const PARALLEL_INIT=true;

@@ -21,12 +21,14 @@ PY
 python3 - <<'PY'
 import zipfile
 from pathlib import Path
+stored='PARALLEL_INIT=true' in Path('web/perf-flags.mjs').read_text()
 with zipfile.ZipFile('build/base-resources.apk') as resources:
  assert 'AndroidManifest.xml' in resources.namelist()
  with zipfile.ZipFile('build/unsigned.apk','w',compression=zipfile.ZIP_DEFLATED) as z:
   for entry in resources.infolist():z.writestr(entry,resources.read(entry.filename))
   for p in Path('app/assets').rglob('*'):
-   if p.is_file():z.write(p,'assets/'+str(p.relative_to('app/assets')))
+   # WS8 (PARALLEL_INIT, ADR D3): store wasm/zip uncompressed so AssetManager streams them without inflating.
+   if p.is_file():z.write(p,'assets/'+str(p.relative_to('app/assets')),compress_type=zipfile.ZIP_STORED if stored and p.suffix in ('.wasm','.zip') else None)
   z.write('build/dex/classes.dex','classes.dex')
 with zipfile.ZipFile('build/unsigned.apk') as z:
  assert 'AndroidManifest.xml' in z.namelist() and z.testzip() is None

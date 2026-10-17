@@ -5,7 +5,9 @@ await build({entryPoints:['web/worker.mjs'],outfile:'app/assets/worker.js',bundl
 for(const [src,dst] of [['THIRD_PARTY_NOTICES.txt','app/assets/THIRD_PARTY_NOTICES.txt'],['web/index.html','app/assets/index.html'],['web/style.css','app/assets/style.css'],['node_modules/replicad-opencascadejs/dist/replicad_single.wasm','app/assets/cad-kernel.wasm'],['node_modules/manifold-3d/manifold.wasm','app/assets/manifold.wasm']])fs.copyFileSync(src,dst);
 if(!fs.existsSync('app/assets/mesh-core.wasm'))throw Error('Run ./build-rust.sh before bundling the app.');
 // WS7: with JS_ENGINE the worker never loads Pyodide, so app/assets/python is not shipped (-12.29 MB).
-const {JS_ENGINE}=await import('./web/perf-flags.mjs');
+const {JS_ENGINE,PARALLEL_INIT}=await import('./web/perf-flags.mjs');
+// WS8: the native shells (desktop/main.cjs, MainActivity) read the startup flag and the ?v= token from here.
+fs.writeFileSync('app/assets/perf-flags.json',JSON.stringify({PARALLEL_INIT,version:JSON.parse(fs.readFileSync('package.json','utf8')).version})+'\n');
 if(JS_ENGINE)fs.rmSync('app/assets/python',{recursive:true,force:true});
 else{fs.mkdirSync('app/assets/python',{recursive:true});
 for(const name of ['pyodide.mjs','pyodide.asm.js','pyodide.asm.wasm','python_stdlib.zip','pyodide-lock.json'])fs.copyFileSync('node_modules/pyodide/'+name,'app/assets/python/'+name);

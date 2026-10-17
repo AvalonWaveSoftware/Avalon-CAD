@@ -1,6 +1,9 @@
-export async function initRustMesh({binary,url}={}){
- const bytes=binary||await (async()=>{const r=await fetch(url);if(!r.ok)throw Error('The bundled Rust engine could not load.');return r.arrayBuffer();})();
- const {instance}=await WebAssembly.instantiate(bytes,{}),core=instance.exports;
+export async function initRustMesh({binary,url,streaming}={}){
+ let instance;
+ // WS8: streaming compile straight from the response (same bytes, same module); errors keep the same message.
+ if(!binary&&streaming&&WebAssembly.instantiateStreaming){const r=await fetch(url);if(!r.ok)throw Error('The bundled Rust engine could not load.');({instance}=await WebAssembly.instantiateStreaming(r,{}));}
+ else{const bytes=binary||await (async()=>{const r=await fetch(url);if(!r.ok)throw Error('The bundled Rust engine could not load.');return r.arrayBuffer();})();({instance}=await WebAssembly.instantiate(bytes,{}));}
+ const core=instance.exports;
  if(core.engine_version()!==3)throw Error('Unsupported Rust geometry engine.');
  function withBuffers(fn){const allocations=[];
   const allocate=bytes=>{if(!bytes)return 0;const ptr=core.mesh_alloc(bytes);if(!ptr)throw Error('The model exceeds available geometry memory.');allocations.push([ptr,bytes]);return ptr;};

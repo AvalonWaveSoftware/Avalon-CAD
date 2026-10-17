@@ -7,6 +7,8 @@ import {layerOf,normalizeLayers,materialGroups} from './layers.mjs';
 
 export async function initKernel(options={}) {
   const {default:Module}=await import('manifold-3d');
+  // WS8 (options.parallel): Manifold and OCCT download and compile concurrently; neither depends on the other.
+  if(options.parallel&&options.solidOptions!==false){const [K]=await Promise.all([Module(options).then(K=>{K.setup();return K;}),initSolid(options.solidOptions||{})]);return K;}
   const K = await Module(options); K.setup(); if(options.solidOptions!==false)await initSolid(options.solidOptions||{}); return K;
 }
 export const QUALITY = { draft:0.15, fine:0.03, ultra:0.01, maximum:0.005 };
