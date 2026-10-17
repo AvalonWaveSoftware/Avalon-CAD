@@ -4,6 +4,15 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 
 ## [Unreleased]
 
+### Changed
+- One layout on every platform (ADR unified-desktop-layout). The Mac app no longer loads its own desktop.css: the 21
+  Mac-only rules are gone and the Mac, Linux (RPM) and web builds now ship byte-identical assets with one stylesheet and
+  a plain `<body>`, so the Mac app looks exactly like the web and Linux builds out of the box.
+- The mouse-controls help line ("Drag to orbit · Shift/right-drag to pan…") now shows on every platform with a mouse
+  (`any-hover:hover` and `any-pointer:fine`), not only on the Mac. It sits 18 px right of the Objects toggle, centred
+  on it, and moves beside the Objects panel when the panel is open instead of disappearing. It hides at any window size
+  where it would overlap a viewport control. Phones and tablets (touch only) are unchanged and never show it.
+
 ## [2.7.2] - 2026-10-17
 
 ### Added
