@@ -18,7 +18,7 @@ const meshPassed=new WeakMap();
 // shared: they cannot change, and every other array/object is a fresh mutable copy.
 function cloneSharing(v){if(v===null||typeof v!=='object')return v;if(Array.isArray(v))return v.length>=256&&Object.isFrozen(v)&&typeof v[0]==='number'?v:v.map(cloneSharing);const o={};for(const k of Object.keys(v))o[k]=cloneSharing(v[k]);return o;}
 export function validateProject(p, shareFrozen=false) {
-  if (!p || p.format!=='tristancad' || p.version!==2 || !Array.isArray(p.objects) || p.objects.length>100) throw Error('This is not a supported AvalonCad project (maximum 100 objects).');
+  if (!p || p.format!=='tristancad' || (p.version!==2&&p.version!==3) || !Array.isArray(p.objects) || p.objects.length>100) throw Error('This is not a supported AvalonCad project (maximum 100 objects).');
   const out=shareFrozen?cloneSharing(p):structuredClone(p);
   normalizeLayers(out);
   if(out.buildPlaneEnabled!==undefined&&typeof out.buildPlaneEnabled!=='boolean')throw Error('Invalid build-plane setting.');
