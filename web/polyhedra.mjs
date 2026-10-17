@@ -1,6 +1,11 @@
 // Exact planar primitive surfaces, shared by the mesh and CAD kernels.
-export function primitiveFaces(type,{w,d,h}){
- const x=w/2,y=d/2,z=h/2;
+import {ADVANCED_FACE_TYPES,polyhedronFaces,polyBounds} from './polyhedra-shapes.mjs';
+export {ADVANCED_FACE_TYPES,polyBounds};
+// Every type whose solid is exactly its primitiveFaces() table (flat faces, mesh and B-rep from one table).
+export const PLANAR_TYPES=Object.freeze(['wedge','pyramid',...ADVANCED_FACE_TYPES]);
+export function primitiveFaces(type,params){
+ if(ADVANCED_FACE_TYPES.includes(type))return polyhedronFaces(type,params);
+ const {w,d,h}=params,x=w/2,y=d/2,z=h/2;
  let vertices,faces;
  if(type==='wedge'){
   vertices=[[-x,-y,-z],[x,-y,-z],[x,-y,z],[-x,y,-z],[x,y,-z],[x,y,z]];

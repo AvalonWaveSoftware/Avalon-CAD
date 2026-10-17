@@ -125,6 +125,15 @@ const scenes={
  'sheet-add-shape':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await s();},
  'sheet-edit-object':async(p,s)=>{await loadTemplate(p,'plate');await H.tap(p,'select',[[0,0,6]],2);await p.locator('#quickEdit').click();await s();},
  'build-plane-on':async(p,s)=>{await loadTemplate(p,'plate');if(!(await p.locator('#buildPlane').isChecked()))await p.locator('#buildPlane').check();await s();},
+ // ADR new-primitives-polyhedra-text §5.12: the new sheets, the Text draft and a scene with every new shape.
+ 'sheet-advanced-shapes':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await p.locator('#advancedBtn').click();await s();},
+ 'sheet-letters':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await p.locator('#lettersBtn').click();await p.waitForFunction(()=>document.querySelectorAll('[data-glyph] svg').length===94,null,{timeout:120000});await s();},
+ 'edit-glyph':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await p.locator('#lettersBtn').click();await p.waitForFunction(()=>document.querySelectorAll('[data-glyph] svg').length===94,null,{timeout:120000});
+  await p.locator('[data-glyph][aria-label="g"]').click();await p.waitForFunction(()=>document.querySelector('#objectName')?.value==='Letter g');await s();},
+ 'new-shapes-scene':async(p,s)=>{const F='roboto-bold@1',NS=[['torus',{diameter:30,tube:8},4],['triprism',{w:30,d:40,h:26},13],['tetrahedron',{size:30},12.245],['octahedron',{size:25},10.205],['decahedron',{diameter:20,h:36},8.08],['dodecahedron',{size:11},12.25],['icosahedron',{size:16},12.09],['glyph',{char:'A',size:20,depth:5,font:F},2.5],['glyph',{char:'g',size:20,depth:5,font:F},2.5],['glyph',{char:'&',size:20,depth:5,font:F},2.5]];
+  await load(p,proj('New shapes',NS.map(([t,q,z],i)=>ob('n'+i,t,q,[(i%5)*40,Math.floor(i/5)*-45,z],{name:t+i})),{buildPlaneEnabled:true}),NS.length);await s('solid');
+  await p.locator('#wire').click();await s('wireframe');await p.locator('#wire').click();
+  await deselect(p);await settle(p);await H.tap(p,'select',[[124,-4,13]]);await p.waitForFunction(()=>window.__cad.selected==='n3',null,{timeout:20000});await settle(p);await s('selection');},
  // §5.1 interactions: orbit by a fixed delta (then damping settles), move an object 5 mm through __cad.touch, undo, redo.
  'interactions':async(p,s)=>{await loadTemplate(p,'tray');
   await p.evaluate(()=>{const c=document.querySelector('#scene'),r=c.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;const ev=(t,dx)=>c.dispatchEvent(new PointerEvent(t,{clientX:x+dx,clientY:y,pointerId:7,pointerType:'mouse',button:0,buttons:t==='pointerup'?0:1,isPrimary:true,bubbles:true}));ev('pointerdown',0);for(let i=1;i<=8;i++)ev('pointermove',i*10);ev('pointerup',80);});

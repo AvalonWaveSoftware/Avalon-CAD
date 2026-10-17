@@ -5,12 +5,13 @@
 // when a fillet mesh is pending, and that it never reaches the engine caches (the next result is still exact).
 import assert from 'node:assert/strict';import fs from 'node:fs';import {createHash} from 'node:crypto';
 import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';
-import {object,defaults,blank} from '../web/templates.mjs';import {migrateProject} from '../web/migrate.mjs';
+import {object,defaults,blank,advancedDefaults,glyphDefaults} from '../web/templates.mjs';import {loadGlyphs} from '../web/glyph-geometry.mjs';import {migrateProject} from '../web/migrate.mjs';
 import {sidecarClient} from './occt-sidecar-client.mjs';
 const refDir=new URL('./.occt-sidecar-ref/',import.meta.url).pathname;fs.rmSync(refDir,{recursive:true,force:true});fs.cpSync('web',refDir+'web',{recursive:true});
 process.on('exit',()=>fs.rmSync(refDir,{recursive:true,force:true}));
 const rust={binary:fs.readFileSync('app/assets/mesh-core.wasm')};
 const refKernel=await import(refDir+'web/kernel.mjs'),refEngine=await import(refDir+'web/local-engine.mjs');
+await loadGlyphs();await (await import(refDir+'web/glyph-geometry.mjs')).loadGlyphs();
 const KB=await refKernel.initKernel(),B=await refEngine.initLocalEngine(KB,{rust});
 const KA=await initKernel({solidOptions:false}),A=await initLocalEngine(KA,{rust}),client=sidecarClient();
 const bytes=v=>v instanceof ArrayBuffer?Buffer.from(v):Buffer.from(v.buffer,v.byteOffset,v.byteLength);
@@ -31,8 +32,9 @@ async function check(project,tolerance,what){for(const type of ['preview','check
  if(offered){interims++;assert.equal(type,'preview');}same(a,b,what+' '+type);jobs++;if(b.error)errors++;}}
 for(const f of fs.readdirSync('tests/fixtures').filter(f=>f.endsWith('.tcad'))){const p=migrateProject(JSON.parse(fs.readFileSync('tests/fixtures/'+f,'utf8')),[]);await check(p,.15,f);}
 let seed=0x14ab;const rnd=()=>((seed=Math.imul(seed^seed>>>15,0x2c1b3c6d)+0x6d2b79f5>>>0)/4294967296),pick=a=>a[Math.floor(rnd()*a.length)],num=(a,b)=>Math.round((a+rnd()*(b-a))*4)/4;
-const TYPES=['box','cylinder','sphere','tube','cone','rounded'];
-const make=()=>{const t=pick(TYPES),o=object(t,structuredClone(defaults[t]),[num(-30,30),num(-30,30),num(0,8)]);return o;};
+// ADR new-primitives-polyhedra-text: torus, triangular prism, two polyhedra and text join the random scenes.
+const TYPES=['box','cylinder','sphere','tube','cone','rounded','torus','triprism','dodecahedron','decahedron','glyph'],ALL={...defaults,...advancedDefaults,...glyphDefaults};
+const make=()=>{const t=pick(TYPES),o=object(t,structuredClone(ALL[t]),[num(-30,30),num(-30,30),num(0,8)]);return o;};
 const fillet=o=>{if(o.type==='box')o.fillets=[{edges:pick([[0,1,2,3],[0,1,2,3,4,5,6,7,8,9,10,11],[4,5]]),radius:num(.5,2)}];else if(o.type==='cylinder')o.fillets=[{edges:[0,2],radius:num(.5,2)}];};
 const EDITS=[
  p=>{const o=pick(p.objects);if(o)fillet(o);},

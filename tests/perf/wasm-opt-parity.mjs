@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import {loadPyodide} from 'pyodide';
 import {initKernel,buildModel,writeSTL} from '../../web/kernel.mjs';
 import {initLocalEngine} from '../../web/local-engine.mjs';
-import {object,defaults,blank} from '../../web/templates.mjs';
+import {object,defaults,blank,advancedDefaults,glyphDefaults} from '../../web/templates.mjs';import {loadGlyphs} from '../../web/glyph-geometry.mjs';await loadGlyphs();
 import {migrateProject} from '../../web/migrate.mjs';
 import {ENGINE_CACHE,ENGINE_CACHE_MERGE} from '../../web/perf-flags.mjs';
 import {corners} from '../display-corners.mjs';
@@ -29,6 +29,8 @@ const offDir=new URL('../.engine-parity-wasm-'+process.env.WASM+'/',import.meta.
 fs.writeFileSync(offDir+'web/perf-flags.mjs',fs.readFileSync(offDir+'web/perf-flags.mjs','utf8').replace('ENGINE_CACHE=true','ENGINE_CACHE=false'));
 process.on('exit',()=>fs.rmSync(offDir,{recursive:true,force:true}));
 const offKernel=await import(offDir+'web/kernel.mjs'),offEngine=await import(offDir+'web/local-engine.mjs');
+// The reference copy has its own glyph-geometry module instance; load its outlines too (the worker does this per job).
+await (await import(offDir+'web/glyph-geometry.mjs')).loadGlyphs();
 const OPT=process.env.WASM==='opt',MB=fs.readFileSync(OPT?'app/assets/manifold.wasm':'node_modules/manifold-3d/manifold.wasm'),OB=fs.readFileSync(OPT?'app/assets/cad-kernel.wasm':'node_modules/replicad-opencascadejs/dist/replicad_single.wasm');
 const K=await initKernel({wasmBinary:MB,solidOptions:{wasmBinary:OB}}),K0=await offKernel.initKernel({wasmBinary:MB,solidOptions:{wasmBinary:OB}});
 const {createHash}=await import('node:crypto');const H=createHash('sha256');let hashed=0;
@@ -67,8 +69,9 @@ function check(project,tolerance,what){
  const warm=run({type:'preview',project,tolerance}),again=run({type:'preview',project,tolerance});same(warm,again,what+' warm');}
 for(const f of fs.readdirSync('tests/fixtures').filter(f=>f.endsWith('.tcad'))){const p=migrateProject(JSON.parse(fs.readFileSync('tests/fixtures/'+f,'utf8')),[]);check(p,.15,f);check({...p,buildPlaneEnabled:true},.05,f+' on the build plane');}
 let seed=0x5eed;const rnd=()=>((seed=Math.imul(seed^seed>>>15,0x2c1b3c6d)+0x6d2b79f5>>>0)/4294967296),pick=a=>a[Math.floor(rnd()*a.length)],num=(a,b)=>Math.round((a+rnd()*(b-a))*4)/4;
-const TYPES=['box','cylinder','sphere','wedge','cone','rounded','tube','pyramid'];
-const make=()=>{const o=object(pick(TYPES),structuredClone(defaults[pick(TYPES)]&&defaults[TYPES[0]]),[num(-20,20),num(-20,20),num(-6,10)]);o.params=structuredClone(defaults[o.type]);return o;};
+// ADR new-primitives-polyhedra-text: the eight new object types join the random scenes.
+const TYPES=['box','cylinder','sphere','wedge','cone','rounded','tube','pyramid','torus','triprism','tetrahedron','octahedron','decahedron','dodecahedron','icosahedron','glyph'],ALL={...defaults,...advancedDefaults,...glyphDefaults};
+const make=()=>{const o=object(pick(TYPES),structuredClone(ALL[pick(TYPES)]&&ALL[TYPES[0]]),[num(-20,20),num(-20,20),num(-6,10)]);o.params=structuredClone(ALL[o.type]);return o;};
 const EDITS=[
  p=>{const o=pick(p.objects);if(o)o.position=[o.position[0]+num(-5,5),o.position[1]+num(-5,5),o.position[2]+num(-4,4)];},
  p=>{const o=pick(p.objects);if(o)o.rotation=[num(0,90),0,num(0,180)];},

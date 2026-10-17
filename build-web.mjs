@@ -46,5 +46,7 @@ if(fs.existsSync('licenses'))fs.cpSync('licenses','app/assets/licenses',{recursi
 if(JS_ENGINE){const t=fs.readFileSync('THIRD_PARTY_NOTICES.txt','utf8'),a=t.indexOf('Pyodide 0.29.3'),b=t.indexOf('Rust 1.90.0 standard library');
  if(a<0||b<a)throw Error('THIRD_PARTY_NOTICES.txt: Pyodide/CPython block not found');
  fs.writeFileSync('app/assets/THIRD_PARTY_NOTICES.txt',(t.slice(0,a)+t.slice(b)).replace('Local Python/Rust processing runtime (AvalonCad 2.0)','Local Rust processing runtime (AvalonCad 2.0)'));}
+// The bundled Roboto Bold outline data (web/glyphs.mjs) is OFL 1.1: its licence and notice must ship with it.
+if(!fs.existsSync('app/assets/licenses/Roboto-OFL-1.1.txt')||!fs.readFileSync('app/assets/THIRD_PARTY_NOTICES.txt','utf8').includes('Roboto Bold outline data'))throw Error('The Roboto OFL licence or notice is missing from app/assets.');
 // Stamp what this build was made from (tools/web-stamp.mjs; checked by desktop/build-rpm.sh --skip-web).
 {const {execFileSync}=await import('node:child_process');execFileSync(process.execPath,['tools/web-stamp.mjs','write'],{stdio:'inherit'});}

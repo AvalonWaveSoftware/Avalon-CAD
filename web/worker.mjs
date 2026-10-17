@@ -1,11 +1,12 @@
 import {initKernel} from './kernel.mjs';
 import {initLocalEngine} from './local-engine.mjs';
 import {TOPOLOGY_SERVICE,PARALLEL_INIT,BUNDLE_SPLIT,OCCT_SIDECAR} from './perf-flags.mjs';
-import {initSolid,solidMeshFresh,objectTopology} from './cad-solid.mjs';
+import {initSolid,solidMeshFresh,objectTopology,warmShape} from './cad-solid.mjs';
 import {solidRemote,runJob,packError} from './occt-remote.mjs';
 import {needsSolid} from './solid-gate.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
 import {shipTopologies} from './topology-pack.mjs';
+import {prepareGlyphs,glyphOutlines,glyphsReady} from './glyph-geometry.mjs';
 // WS8: with PARALLEL_INIT the Rust core, Manifold and OCCT start together, and every wasm carries the worker's ?v=
 // token (worker.js?v=<version>) so the immutable responses are cached per release.
 function geometryWorker(){
@@ -28,7 +29,19 @@ function askSidecar(requests){startSidecar();return Promise.all(requests.map(r=>
 // buffer is detached.
 function postInterim(id,r){const d={id,interim:true};for(const k of ['vertices','triangles','flatTriangles','smoothingGroups','displayPositions','displayNormals','displayIndex'])if(r[k])d[k]=r[k];self.postMessage(d);}
 let queue=[],running=false,current=null;
+// Amendment A2.5: idle warm-up of the torus and glyph topology paths. The UI asks once, after the first user
+// interaction (never during startup, on every platform). The torus is warmed once OCCT is ready; the glyph once the
+// outlines are loaded (the Letters sheet loads them), so glyphs.mjs stays lazy. Each warm-up runs only while no job
+// is queued or running, and never in the sidecar build (its OCCT lives in the other worker).
+const warmed={torus:false,glyph:false};let warmAsked=false;
+function warmIdle(){if(!warmAsked||OCCT_SIDECAR||warmed.torus&&warmed.glyph)return;
+ (BUNDLE_SPLIT?startSolid():runtime).then(()=>setTimeout(function step(){if(running||queue.length)return setTimeout(step,50);
+  try{if(!warmed.torus){warmed.torus=true;warmShape({type:'torus',params:{diameter:3,tube:1}});return setTimeout(step,0);}
+   if(!warmed.glyph&&glyphsReady()){warmed.glyph=true;warmShape({type:'glyph',params:{char:'B',size:2,depth:1,font:'roboto-bold@1'}});}}catch{}},0),()=>{});}
 self.onmessage=({data})=>{
+ if(data?.type==='warmShapes'){warmAsked=true;warmIdle();return;}
+ // The Letters, numbers & symbols picker asks for the outlines once; this loads them (no engine or OCCT needed).
+ if(data?.type==='glyphOutlines'){glyphOutlines().then(outlines=>{self.postMessage({id:data.id,outlines});warmIdle();},e=>self.postMessage({id:data.id,error:e.message||String(e)}));return;}
  if(OCCT_SIDECAR){if(data?.type==='warm'){startSidecar();return;}if(needsSolid(data))startSidecar();}
  else{if(BUNDLE_SPLIT&&data?.type==='warm'){startSolid().catch(()=>{});return;}
  // A job that may need OCCT starts its compile at once, alongside the Manifold/Rust init it also waits for.
@@ -39,6 +52,8 @@ self.onmessage=({data})=>{
 async function drain(){if(running)return;running=true;
  try{while(queue.length){const data=queue.shift();try{
   const engine=await runtime;let result;
+  // Letters: the outlines load (dynamic import) with the first job that contains a glyph, never at startup.
+  await prepareGlyphs(data);
   // WS14: a preview waiting for the sidecar is dropped as soon as a newer preview arrives.
   if(OCCT_SIDECAR){const abort=data.type==='preview'?new Promise(r=>current={type:'preview',abort:r}):null;try{result=await runJob(engine,data,remote,{fetch:askSidecar,onInterim:r=>postInterim(data.id,r),abort});}finally{current=null;}if(result.canceled){self.postMessage({id:data.id,canceled:true});continue;}}
   else{if(BUNDLE_SPLIT&&needsSolid(data))await startSolid();result=engine.process(data);}
@@ -59,6 +74,7 @@ function occtSidecar(){
  const ready=initSolid({locateFile:()=>asset('cad-kernel.wasm')});
  self.onmessage=async({data:{id,request:r}})=>{let answer;try{await ready;}catch(e){self.postMessage({id,answer:{error:packError(e),init:true}});return;}
   try{
+   await prepareGlyphs(r.o);
    if(r.kind==='mesh'){const m=solidMeshFresh(r.o,r.tolerance,r.display);answer={m};self.postMessage({id,answer},[m.vertices.buffer,m.triangles.buffer]);return;}
    answer={t:objectTopology(r.o)};}catch(e){answer={error:packError(e)};}
   self.postMessage({id,answer});};

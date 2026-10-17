@@ -3,7 +3,7 @@
 // error message verbatim. Fixtures x all job kinds, error cases, and seeded random projects and booleans.
 import assert from 'node:assert/strict';
 import {BUNDLE_SPLIT} from '../web/perf-flags.mjs';import fs from 'node:fs';import {loadPyodide} from 'pyodide';
-import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';import {object,defaults,blank} from '../web/templates.mjs';
+import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';import {object,defaults,blank,advancedDefaults,glyphDefaults} from '../web/templates.mjs';import {loadGlyphs} from '../web/glyph-geometry.mjs';await loadGlyphs();
 import {migrateProject} from '../web/migrate.mjs';import {JS_ENGINE} from '../web/perf-flags.mjs';
 const K=await initKernel(),opts={loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}};
 const js=await initLocalEngine(K,opts),py=await initLocalEngine(K,{...opts,oracle:true});
@@ -37,10 +37,11 @@ for(const [what,job] of Object.entries({
 }))same(job,what);
 // Seeded random projects (layers, cuts, exclusions, build plane, disabled) through every kind.
 let seed=7;const rnd=()=>((seed=Math.imul(seed^seed>>>15,0x2c1b3c6d)+0x6d2b79f5>>>0)/4294967296),pick=a=>a[Math.floor(rnd()*a.length)],num=(a,b)=>Math.round((a+rnd()*(b-a))*4)/4;
-const TYPES=['box','cylinder','sphere','wedge','cone','rounded','tube','pyramid'];
+// ADR new-primitives-polyhedra-text: the eight new object types join the random scenes.
+const TYPES=['box','cylinder','sphere','wedge','cone','rounded','tube','pyramid','torus','triprism','tetrahedron','octahedron','decahedron','dodecahedron','icosahedron','glyph'],ALL={...defaults,...advancedDefaults,...glyphDefaults};
 const N=+(process.env.AVALON_JS_PARITY_PROJECTS||150);
 for(let n=0;n<N;n++){const p=blank();p.layers.push({id:'layer-2',name:'Layer 2'});p.buildPlaneEnabled=rnd()<.4;
- for(let i=0,c=1+Math.floor(rnd()*6);i<c;i++){const t=pick(TYPES),o=object(t,structuredClone(defaults[t]),[num(-20,20),num(-20,20),num(-8,10)]);o.rotation=[num(0,90),0,num(0,180)];if(rnd()<.3)o.mode='cut';if(rnd()<.3)o.layerId='layer-2';if(rnd()<.1)o.enabled=false;p.objects.push(o);}
+ for(let i=0,c=1+Math.floor(rnd()*6);i<c;i++){const t=pick(TYPES),o=object(t,structuredClone(ALL[t]),[num(-20,20),num(-20,20),num(-8,10)]);o.rotation=[num(0,90),0,num(0,180)];if(rnd()<.3)o.mode='cut';if(rnd()<.3)o.layerId='layer-2';if(rnd()<.1)o.enabled=false;p.objects.push(o);}
  const c=p.objects.find(o=>o.mode==='cut'),s=p.objects.find(o=>o.mode!=='cut');if(c&&s&&rnd()<.5)s.excludedCutouts=[c.id];
  const tol=pick([.15,.05]);for(const type of ['preview','check','export'])same({type,project:p,tolerance:tol,ground:rnd()<.5},'random '+n+' '+type);
  const solids=p.objects.filter(o=>o.mode!=='cut'&&o.layerId==='layer-1'),cuts=p.objects.filter(o=>o.mode==='cut'&&o.layerId==='layer-1');

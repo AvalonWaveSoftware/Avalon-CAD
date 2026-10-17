@@ -12,12 +12,18 @@ const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 export const STATIC_FILES=['style.css','index.html'];
 // Code-like fragments (containing = ( ) { } ; < > [ ] $ \ or backticks) are skipped; template/HTML strings are covered
 // by the per-scene DOM snapshots instead. User-visible strings come from the app's own sources (three.js/replicad strings are not UI text).
-const STRING_SOURCES=()=>[...fs.readdirSync(path.join(REPO,'web')).filter(f=>/\.(mjs|html|css)$/.test(f)).map(f=>'web/'+f),'engine/python/model_jobs.py','desktop/main.cjs'].filter(f=>fs.existsSync(path.join(REPO,f)));
+// web/glyphs.mjs is generated font outline data (ADR new-primitives-polyhedra-text §2.2), not UI text.
+const GENERATED_DATA=new Set(['glyphs.mjs']);
+const STRING_SOURCES=()=>[...fs.readdirSync(path.join(REPO,'web')).filter(f=>/\.(mjs|html|css)$/.test(f)&&!GENERATED_DATA.has(f)).map(f=>'web/'+f),'engine/python/model_jobs.py','desktop/main.cjs'].filter(f=>fs.existsSync(path.join(REPO,f)));
 export function extractStrings(){const set=new Set();
  for(const f of STRING_SOURCES()){const src=fs.readFileSync(path.join(REPO,f),'utf8');
   if(f.endsWith('.html')){for(const m of src.matchAll(/>([^<>]*[A-Za-z][^<>]*)</g))set.add(m[1].trim());for(const m of src.matchAll(/(?:title|aria-label|placeholder)="([^"]+)"/g))set.add(m[1]);continue;}
   for(const m of src.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)){const s=(m[1]??m[2]??m[3]);if(s.length>1&&!/[=(){};<>\[\]`$\\]/.test(s)&&!/^\.{0,2}\/|\.(m?js|cjs|wasm|py)$/.test(s)&&/[A-Za-z]/.test(s)&&/[ .!?…:·]|^[A-Z][a-z]+$/.test(s))set.add(s);}}
  return [...set].filter(Boolean).sort();}
+// ADR new-primitives-polyhedra-text §5.12: the string table may differ from the baseline only by the additions listed
+// in tests/perf/strings-additions.json (each one approved with the feature); a baseline string may never be removed
+// or edited, and any other new string still fails.
+export const APPROVED_ADDITIONS=()=>{const f=path.join(HERE,'strings-additions.json');return fs.existsSync(f)?new Set(JSON.parse(fs.readFileSync(f,'utf8')).strings):new Set();};
 export function staticState(){return Object.fromEntries(STATIC_FILES.map(f=>[f,sha(fs.readFileSync(path.join(ASSETS,f)))]));}
 // Runs in the page: outerHTML of body (id/class/style/text and all other attributes) with the #scene canvas size
 // attributes dropped and random object ids normalised; computed styles hashed per element.
@@ -41,8 +47,8 @@ function main(){const update=process.argv.includes('--update');fs.mkdirSync(BASE
  if(update){fs.writeFileSync(fS,JSON.stringify(st,null,1)+'\n');fs.writeFileSync(fT,JSON.stringify(strings,null,1)+'\n');console.log('wrote',fS,'and',fT,strings.length,'strings');return;}
  const bs=JSON.parse(fs.readFileSync(fS,'utf8')),bt=new Set(JSON.parse(fs.readFileSync(fT,'utf8'))),now=new Set(strings);let bad=0;
  for(const f of STATIC_FILES)if(bs[f]!==st[f]){bad++;console.error(`FAIL ${f} is not byte-identical to the baseline (${bs[f]} → ${st[f]})`);}
- const added=strings.filter(s=>!bt.has(s)),removed=[...bt].filter(s=>!now.has(s));
+ const approved=APPROVED_ADDITIONS(),added=strings.filter(s=>!bt.has(s)&&!approved.has(s)),removed=[...bt].filter(s=>!now.has(s)),approvedSeen=strings.filter(s=>!bt.has(s)&&approved.has(s)).length;
  for(const s of added){bad++;console.error('FAIL new/changed user-visible string:',JSON.stringify(s));}
  for(const s of removed){bad++;console.error('FAIL string missing vs baseline:',JSON.stringify(s));}
- if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length} strings identical`);}
+ if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length-approvedSeen} baseline strings identical${approvedSeen?`, ${approvedSeen} approved addition(s)`:''}`);}
 if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname)main();

@@ -51,6 +51,6 @@ export function facetMesh(faces){
  for(const f of faces){const indices=f.points.map(id);for(let i=1;i<indices.length-1;i++)triangles.push(indices[0],indices[i],indices[i+1]);}
  return {vertices:new Float32Array(vertices),triangles:new Uint32Array(triangles)};
 }
-export const curvedTypes=['sphere','cylinder','cone','tube','rounded','threadrod','threadtube'];
+export const curvedTypes=['sphere','cylinder','cone','tube','rounded','threadrod','threadtube','torus'];
 export function resolutionTolerance(o,fallback){return o.resolution?.mode==='tolerance'?o.resolution.tolerance:fallback;}
 export function customFaces(o){return o.resolution?.mode==='faces'?o.resolution.count:0;}

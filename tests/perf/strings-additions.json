@@ -1,0 +1,32 @@
+{
+ "note": "User-visible strings added by ADR new-primitives-polyhedra-text (phase 2: Torus, Triangular prism, Advanced shapes, Letters, numbers & symbols). dom-baseline.mjs accepts exactly these additions to the aab9865 string baseline; anything else new, or any removal, still fails.",
+ "strings": [
+  "Advanced shapes",
+  "Capital letters",
+  "Choose a letter, number or symbol.",
+  "Depth Z",
+  "Dodecahedron",
+  "Edge length",
+  "Icosahedron",
+  "Letter height",
+  "Letters, numbers & symbols",
+  "Numbers",
+  "Octahedron",
+  "Outer diameter",
+  "Overall size ",
+  "Ring diameter",
+  "Roboto Bold",
+  "Small letters",
+  "Symbols",
+  "Tetrahedron",
+  "Text",
+  "The letter outlines are not loaded yet. Try again.",
+  "The tube diameter must be less than half the outer diameter.",
+  "Torus",
+  "Triangular prism",
+  "Tube diameter",
+  "Letter ",
+  "Number ",
+  "Symbol "
+ ]
+}

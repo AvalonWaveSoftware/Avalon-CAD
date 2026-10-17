@@ -3,6 +3,10 @@
 import {curvedTypes} from './facets.mjs';
 import {isThread,containsThreads,validateThread} from './threads.mjs';
 import {normalizeLayers} from './layers.mjs';
+import {GLYPH_CHARS,GLYPH_METRICS} from './glyph-metrics.mjs';
+// Letters, numbers & symbols: font ids this build can draw (the id is part of the saved params, ADR §2.2).
+export const GLYPH_FONTS=Object.freeze([GLYPH_METRICS.id]);
+export const isGlyphChar=c=>typeof c==='string'&&c.length===1&&GLYPH_CHARS.includes(c);
 export const QUALITY = { draft:0.15, fine:0.03, ultra:0.01, maximum:0.005 };
 export function segments(radius, tolerance) {
   if (!(radius>0)) return 32;
@@ -19,7 +23,7 @@ export function validateProject(p, shareFrozen=false) {
   normalizeLayers(out);
   if(out.buildPlaneEnabled!==undefined&&typeof out.buildPlaneEnabled!=='boolean')throw Error('Invalid build-plane setting.');
   out.name=String(out.name||'Untitled').slice(0,80);
-  const types=['box','rounded','cylinder','cone','sphere','tube','threadrod','threadtube','polygon','mesh','joined','wedge','pyramid','prefab'];
+  const types=['box','rounded','cylinder','cone','sphere','tube','threadrod','threadtube','polygon','mesh','joined','wedge','pyramid','prefab','torus','triprism','tetrahedron','octahedron','decahedron','dodecahedron','icosahedron','glyph'];
   const ids=new Set();
   for (const o of out.objects) {
     if (!types.includes(o.type)||typeof o.id!=='string'||ids.has(o.id)) throw Error('Project contains an invalid object.'); ids.add(o.id);
@@ -35,7 +39,7 @@ export function validateProject(p, shareFrozen=false) {
     if(o.excludedCutouts!==undefined&&(!Array.isArray(o.excludedCutouts)||o.excludedCutouts.length>100||o.excludedCutouts.some(id=>typeof id!=='string'||id.length>100)||new Set(o.excludedCutouts).size!==o.excludedCutouts.length))throw Error('Invalid saved cutout exclusions.');
     if(o.resolution){
       const r=o.resolution;
-      if(!curvedTypes.includes(o.type)||!['auto','faces','tolerance'].includes(r.mode))throw Error('Invalid face-resolution mode.');
+      if(!curvedTypes.includes(o.type)||!['auto','faces','tolerance'].includes(r.mode)||o.type==='torus'&&r.mode==='faces')throw Error('Invalid face-resolution mode.');
       if(r.mode==='faces'&&(!Number.isInteger(r.count)||r.count<(o.type==='sphere'?4:o.type==='rounded'?1:3)||r.count>(o.type==='rounded'?128:512)))throw Error(o.type==='sphere'?'Sphere face count must be a whole number from 4 to 512.':o.type==='rounded'?'Segments per corner must be a whole number from 1 to 128.':'Sides must be a whole number from 3 to 512.');
       if(r.mode==='tolerance'&&(!Number.isFinite(r.tolerance)||r.tolerance<.005||r.tolerance>2))throw Error('Face resolution must be from 0.005 to 2 mm.');
     }
@@ -44,11 +48,13 @@ export function validateProject(p, shareFrozen=false) {
     if(o.type==='joined') {if(!Array.isArray(o.params.children)||o.params.children.length<2)throw Error('A combined solid needs at least two components.');if(!o.params.children.some(c=>c.mode!=='cut'))throw Error('Combined objects need positive material.');validateProject({format:'tristancad',version:2,objects:o.params.children,layers:out.layers,activeLayer:out.activeLayer});}
     if(o.type==='prefab'){if(!Array.isArray(o.params.children)||!o.params.children.length||o.params.children.length>100||!o.params.children.some(c=>c.enabled!==false&&c.mode!=='cut'))throw Error('A prefab needs 1–100 components with positive material.');if(!Array.isArray(o.params.layers))throw Error('The prefab is missing its internal layers.');validateProject({format:'tristancad',version:2,objects:o.params.children,layers:o.params.layers});}
     for(const v of Object.values(o.params)) if(typeof v==='number' && (!Number.isFinite(v)||Math.abs(v)>10000)) throw Error('Invalid dimensions.');
-    const positiveKeys={wedge:['w','d','h'],pyramid:['w','d','h'],box:['w','d','h'],rounded:['w','d','h','r'],cylinder:['diameter','h'],cone:['diameter','h'],sphere:['diameter'],tube:['diameter','inner','h'],polygon:['h']}[o.type]||[];
+    const positiveKeys={wedge:['w','d','h'],pyramid:['w','d','h'],box:['w','d','h'],rounded:['w','d','h','r'],cylinder:['diameter','h'],cone:['diameter','h'],sphere:['diameter'],tube:['diameter','inner','h'],polygon:['h'],torus:['diameter','tube'],triprism:['w','d','h'],tetrahedron:['size'],octahedron:['size'],decahedron:['diameter','h'],dodecahedron:['size'],icosahedron:['size'],glyph:['size','depth']}[o.type]||[];
     if(positiveKeys.some(k=>!(o.params[k]>=0.05))) throw Error('Dimensions must be at least 0.05 mm.');
     if(o.type==='cone' && !(o.params.top>=0 && o.params.top<=10000)) throw Error('Invalid cone top diameter.');
     if(o.type==='rounded' && o.params.r>Math.min(o.params.w,o.params.d)/2) throw Error('Corner radius is larger than half the width or depth.');
     if(o.type==='tube' && o.params.inner>=o.params.diameter) throw Error('The inner diameter must be smaller than the outer diameter.');
+    if(o.type==='torus' && !(o.params.tube<o.params.diameter/2)) throw Error('The tube diameter must be less than half the outer diameter.');
+    if(o.type==='glyph' && (!isGlyphChar(o.params.char)||!GLYPH_FONTS.includes(o.params.font))) throw Error('Choose a letter, number or symbol.');
     if(o.type==='polygon') {
       const pts=o.params.points;
       if(!Array.isArray(pts)||pts.length<3||pts.length>300||pts.some(a=>!Array.isArray(a)||a.length!==2||a.some(v=>!Number.isFinite(v)||Math.abs(v)>10000))) throw Error('Invalid sketch polygon.');
