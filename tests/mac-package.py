@@ -79,6 +79,9 @@ assert machos >= 7
 assets = app / 'Contents/Resources/app/web'
 for name in ['cad-kernel.wasm', 'manifold.wasm', 'mesh-core.wasm'] + (['python/pyodide.asm.wasm'] if PYTHON else []):
     assert (assets / name).read_bytes()[:4] == b'\x00asm'
-for name in ['main.js', 'worker.js', 'desktop.css'] + (['python/model_jobs.py', 'python/python_stdlib.zip'] if PYTHON else []):
+for name in ['main.js', 'worker.js', 'style.css'] + (['python/model_jobs.py', 'python/python_stdlib.zip'] if PYTHON else []):
     assert (assets / name).is_file()
+# ADR unified-desktop-layout: no desktop-only stylesheet and a plain <body>.
+assert not (assets / 'desktop.css').exists() and not list(assets.glob('*.css'))[1:]
+assert '<body>' in (assets / 'index.html').read_text() and 'desktop.css' not in (assets / 'index.html').read_text()
 print(f'PASS: Apple silicon app identity, {machos} arm64 Mach-O binaries with valid ad-hoc page hashes, {sealed} resource seals and complete offline Python/Rust/CAD assets.')
