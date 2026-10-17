@@ -11,8 +11,8 @@ import fs from 'node:fs';import path from 'node:path';import http from 'node:htt
 import {diffPixels} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {execSync} from 'node:child_process';
 
 const require=createRequire(import.meta.url);const {chromium}=require(process.env.AVALON_PLAYWRIGHT||'playwright');
-// open()/tap() mirror tools/readme-shots/harness.mjs exactly; they are inlined because harness.mjs imports the bare
-// 'playwright' specifier at load time, which ignores AVALON_PLAYWRIGHT.
+// open()/tap() mirror tools/readme-shots/harness.mjs exactly (inlined since before harness.mjs honoured
+// AVALON_PLAYWRIGHT; kept so the pixel gate does not change).
 const H={
  async open(env,{desktop=false}={}){
   const ctx=await env.browser.newContext(desktop?{viewport:{width:1440,height:900},deviceScaleFactor:1,serviceWorkers:'block'}:{viewport:{width:412,height:915},deviceScaleFactor:2,hasTouch:true,isMobile:true,serviceWorkers:'block'});

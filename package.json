@@ -32,7 +32,7 @@
     "test:ws5": "node tests/perf/ws5-bench.mjs --check",
     "test:ws6": "node tests/perf/ws6-bench.mjs --check",
     "test:ws7": "node tests/perf/ws7-bench.mjs --check",
-    "test:ws8": "node tests/perf/ws8-bench.mjs --check",
+    "test:ws8": "node desktop/stage.mjs >/dev/null && node tests/perf/ws8-bench.mjs --check",
     "test:ws9": "node tests/perf/ws9-bench.mjs --check",
     "test:picks": "node tests/pick-reuse.mjs",
     "test:ws10": "node tests/perf/ws10-bench.mjs --check",
