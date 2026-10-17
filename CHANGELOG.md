@@ -4,8 +4,11 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 
 ## [Unreleased]
 
+## [2.7.2] - 2026-10-17
+
 ### Added
 - **New shapes:** Torus and Triangular prism in Primitive Objects; Advanced shapes (Tetrahedron, Octahedron, Decahedron (d10), Dodecahedron, Icosahedron); Letters, numbers & symbols (94 tiles, each adds a letter object such as "Letter A" or "Symbol @" that moves and resizes like any shape; Roboto Bold, SIL OFL 1.1, licence shipped in THIRD_PARTY_NOTICES; glyph triangle budget ≤ 2,000 at Maximum quality, largest is "@" at 1,540).
+- **Text tool.** Add → Letters, numbers & symbols places solid letters, numbers and symbols you can position, resize (Letter height, Depth Z), round and export like any other shape. A short warm-up after startup (on Android, after the first tap) keeps the first torus or letter quick to add.
 
 ### Compatibility
 - Project, backup and prefab files that contain any of the new shapes cannot be opened by AvalonCad 2.7.1 or older; those versions report "Project contains an invalid object." Files without the new shapes are unchanged and still open in older versions.
