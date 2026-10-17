@@ -17,6 +17,8 @@ const offDir=new URL('./.engine-parity-off/',import.meta.url).pathname;fs.rmSync
 fs.writeFileSync(offDir+'web/perf-flags.mjs',fs.readFileSync(offDir+'web/perf-flags.mjs','utf8').replace('ENGINE_CACHE=true','ENGINE_CACHE=false'));
 process.on('exit',()=>fs.rmSync(offDir,{recursive:true,force:true}));
 const offKernel=await import(offDir+'web/kernel.mjs'),offEngine=await import(offDir+'web/local-engine.mjs');
+// The reference copy has its own glyph-geometry module instance; load its outlines too (the worker does this per job).
+await (await import(offDir+'web/glyph-geometry.mjs')).loadGlyphs();
 const K=await initKernel(),K0=await offKernel.initKernel();
 const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
 const reference=await offEngine.initLocalEngine(K0,{loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});assert.equal(reference.engineCache,null);
