@@ -4,7 +4,7 @@
 // 2) Touch long-press (450 ms) on a mode-bar, toolbar or dock button shows the same text as a bubble for 1.5 s, loads
 //    the bubble chunk only then, and does not fire the button; a moved press, a short tap and a mouse are unaffected.
 import assert from 'node:assert/strict';import * as H from '../tools/readme-shots/harness.mjs';
-import {BUBBLE_MS,commandId,keyText,tooltipText} from '../web/tooltips.mjs';import {LONG_PRESS_MS} from '../web/objects-panel.mjs';import {createCommands,COMMAND_IDS} from '../web/commands.mjs';
+import {BUBBLE_MS,commandId,keyText,tooltipText,visibleLabel} from '../web/tooltips.mjs';import {LONG_PRESS_MS} from '../web/objects-panel.mjs';import {createCommands,COMMAND_IDS} from '../web/commands.mjs';
 assert.equal(LONG_PRESS_MS,450);assert.equal(BUBBLE_MS,1500);
 // Registry tooltips: the label, except Clear, which uses the accessible name index.html already gives it (no new text).
 {const c=createCommands();for(const cmd of c.list)assert.equal(cmd.tooltip,cmd.id==='clear'?'Deselect everything':cmd.label,cmd.id);
@@ -15,9 +15,10 @@ assert.equal(LONG_PRESS_MS,450);assert.equal(BUBBLE_MS,1500);
 // Ruling 1: label plus its first shortcut, in the help table's spelling; no shortcut, no parentheses.
 assert.equal(tooltipText({tooltip:'Move',shortcut:['M']}),'Move (M)');assert.equal(tooltipText({tooltip:'Undo',shortcut:['Mod+Z']}),'Undo (Cmd/Ctrl+Z)');
 assert.equal(tooltipText({tooltip:'Close panel',shortcut:['Escape']}),'Close panel (Esc)');assert.equal(tooltipText({tooltip:'Edit',shortcut:null}),'Edit');
-assert.equal(keyText('Mod+Shift+S'),'Cmd/Ctrl+Shift+S');assert.equal(keyText('Shift+Delete'),'Shift+Delete');
-const SHORT=Object.fromEntries(createCommands().list.filter(c=>c.shortcut).map(c=>[c.id,tooltipText(c)]));
-const say=(id,l)=>SHORT[id]||l,want=(id,l)=>[say(id,l),say(id,l)];
+assert.equal(tooltipText({tooltip:'Round',shortcut:['F']},'Edge'),'Edge (F)');assert.equal(keyText('Mod+Shift+S'),'Cmd/Ctrl+Shift+S');assert.equal(keyText('Shift+Delete'),'Shift+Delete');
+// Expected text: the visible label (registry label for icon-only buttons) plus the first shortcut, when there is one.
+const KEY=Object.fromEntries(createCommands().list.filter(c=>c.shortcut).map(c=>[c.id,keyText(c.shortcut[0])]));
+const say=(id,l)=>KEY[id]?`${l} (${KEY[id]})`:l,want=(id,l)=>[say(id,l),say(id,l)];
 const env=await H.start();const out=[];
 const audit=page=>page.evaluate(()=>[...document.querySelectorAll('button')].filter(b=>!b.closest('.pending,[aria-hidden="true"]')).filter(b=>!b.getAttribute('title')?.trim()||!b.getAttribute('aria-label')?.trim()).map(b=>b.outerHTML.slice(0,120)));
 const count=page=>page.evaluate(()=>[...document.querySelectorAll('button')].filter(b=>!b.closest('.pending,[aria-hidden="true"]')).length);
@@ -31,9 +32,15 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
  // Text sources: markup title, registry, markup aria-label, own text. Reserved slots are untouched.
  assert.deepEqual(await tip(page,'#undo'),want('undo','Undo'));assert.deepEqual(await tip(page,'#fit'),want('fit','Fit model'));
  assert.deepEqual(await tip(page,'[data-mode="move"]'),want('mode:move','Move'));assert.deepEqual(await tip(page,'#addBtn'),want('add','Add'));assert.deepEqual(await tip(page,'#exportBtn'),want('export','Export'));
- assert.deepEqual(await tip(page,'#deselectBtn'),want('clear','Deselect everything'));{const [t,a]=await tip(page,'#layersBtn');assert.equal(t,a);assert.match(t,/^Layers · Layer 1$/,'the app-set aria-label wins over the button text');}
+ assert.deepEqual(await tip(page,'#deselectBtn'),want('clear','Clear'));{const [t,a]=await tip(page,'#layersBtn');assert.equal(t,a);assert.match(t,/^Layers · Layer 1$/,'the app-set aria-label wins over the button text');}
  assert.deepEqual(await tip(page,'#helpBtn'),want('help','Help'));assert.deepEqual(await tip(page,'[data-view="iso"]'),want('view:3d','3D'));assert.deepEqual(await tip(page,'#quickEdit'),['Edit dimensions →','Edit dimensions →']);
  for(const s of ['#rotateMode','#mirrorMode','#measureBtn'])assert.deepEqual(await tip(page,s),[null,null],s+' stays untouched');
+ // Follow-up ruling: the tooltip follows the rendered label minus a trailing ▾ ("Edge ▾" → "Edge (F)" once the geometry
+ // lane renames Round); data-tip-label overrides one button; icon glyphs drop out; today Round reads "Round (F)".
+ {const R='[data-mode="round"]',set=v=>page.evaluate(([r,v])=>{document.querySelector(r).firstChild.nodeValue=v;},[R,v]).then(()=>page.waitForTimeout(80));
+  assert.deepEqual(await tip(page,R),want('mode:round','Round'));await set('Edge ▾');assert.deepEqual(await tip(page,R),want('mode:round','Edge'),'a button labelled "X ▾" gets "X (key)"');
+  await page.evaluate(r=>{const b=document.querySelector(r);b.dataset.tipLabel='Fillet';b.firstChild.nodeValue='Edge';},R);await page.waitForTimeout(80);assert.deepEqual(await tip(page,R),want('mode:round','Fillet'),'data-tip-label overrides');
+  await page.evaluate(r=>{delete document.querySelector(r).dataset.tipLabel;},R);await set('Round');assert.deepEqual(await tip(page,R),want('mode:round','Round'));}
  // Every sheet and panel.
  for(const [btn,what] of [['#addBtn','add'],['#projectMenu','projects'],['#layersBtn','layers'],['#exportBtn','export'],['#helpBtn','help']]){await page.click(btn);await page.waitForFunction(()=>!document.querySelector('#sheet').hidden&&document.querySelector('#sheetContent button'));await check(what+' sheet');await closeSheet(page);}
  await page.click('#helpBtn');await page.waitForSelector('#loadExample');await page.click('#loadExample');await page.waitForFunction(()=>window.__cad.project.objects.length>0&&window.__cad.selected);await page.waitForTimeout(500);await check('example loaded');
@@ -66,7 +73,7 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
   assert.equal(await longPress('#helpBtn'),say('help','Help'));assert.equal(await sheetOpen(page),false,'long-press on Help opened nothing');
   assert.equal(await longPress('#projectMenu'),'Project menu');assert.equal(await sheetOpen(page),false,'long-press on the project menu opened nothing');
   await page.evaluate(()=>window.__cad.touch.selectFace(window.__cad.project.objects[0].id,0));await page.waitForTimeout(100);
-  assert.equal(await longPress('#deselectBtn'),say('clear','Deselect everything'));assert.ok(await page.evaluate(()=>!!window.__cad.selected),'long-press on Clear kept the selection');
+  assert.equal(await longPress('#deselectBtn'),say('clear','Clear'));assert.ok(await page.evaluate(()=>!!window.__cad.selected),'long-press on Clear kept the selection');
   assert.equal(await longPress('#quickEdit'),'Edit dimensions →');assert.equal(await sheetOpen(page),false,'long-press on Edit dimensions opened nothing');
   await page.evaluate(()=>window.__cad.touch.deselect());await page.click('[data-mode="select"]');
   // A press that moves 20 px is not a long-press; a short tap right after a long-press still works.
