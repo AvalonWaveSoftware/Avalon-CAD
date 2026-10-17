@@ -1,7 +1,8 @@
 // ADR-0001 F1b: tooltips. Every button gets a non-empty title and aria-label at startup and whenever the app adds or
 // relabels one (sheets, panels, action bars), with no index.html edit per button. A button that runs a registry command
-// (commands.mjs) gets the command's tooltip plus its shortcut, "Move (M)" (Architect UI round 1, ruling 1: the existing
-// label plus the approved shortcut, no new prose). Any other button keeps, in order: a title the markup already has, an
+// (commands.mjs) gets its visible label plus the command's shortcut, "Move (M)" (Architect UI round 1, ruling 1, and
+// the follow-up ruling: the rendered label minus a trailing ▾, so a button relabelled Edge plus a dropdown arrow reads Edge (F)).
+// An icon-only button (no letter or digit in its text) uses the registry label; data-tip-label overrides per button. Any other button keeps, in order: a title the markup already has, an
 // aria-label the markup or app already set, then its own visible text. So every tooltip is text the app already shows.
 // On touch screens a LONG_PRESS_MS long-press on a header, toolbar, mode-bar, selection-bar or dock button (ruling 2)
 // shows the same text as a bubble for BUBBLE_MS and does not fire the button; the bubble is the lazy tooltip-bubble
@@ -14,16 +15,20 @@ const IDS={helpBtn:'help',addBtn:'add',editBtn:'edit',exportBtn:'export',deselec
 export const commandId=({id,dataset:d={}})=>IDS[id]||(/^(undo|redo|wire|fit)$/.test(id)?id:d.mode?`mode:${d.mode}`:d.view?`view:${d.view==='iso'?'3d':d.view}`:null);
 // keyText('Mod+Shift+Z') → 'Cmd/Ctrl+Shift+Z', the approved help-table spelling (same on every platform); Escape → Esc.
 export const keyText=k=>k.replace(/^Mod\+/,'Cmd/Ctrl+').replace(/^Escape$/,'Esc');
-// tooltipText(cmd) → "Label (first shortcut)", or the plain tooltip when the command has no shortcut.
-export const tooltipText=cmd=>cmd.shortcut?.length?`${cmd.tooltip} (${keyText(cmd.shortcut[0])})`:cmd.tooltip;
+// tooltipText(cmd, label) → "label (first shortcut)", or the plain label when the command has no shortcut.
+export const tooltipText=(cmd,label=cmd.tooltip)=>cmd.shortcut?.length?`${label} (${keyText(cmd.shortcut[0])})`:label;
 // Reserved W0 slots (class pending, aria-hidden) stay untouched until their feature unhides them.
 const inert=el=>!!el.closest('.pending,[aria-hidden="true"]');
 const textOf=el=>{const t=[],walk=n=>{for(const c of n.childNodes)c.nodeType===3?t.push(c.nodeValue):c.nodeType===1&&walk(c);};walk(el);return t.join(' ').replace(/\s+/g,' ').trim();};
+// visibleLabel(el) → the label the button shows: its text pieces that hold a letter or digit (so icon glyphs such as
+// ＋ or ↶ drop out), without a trailing ▾; '' for an icon-only button.
+export const visibleLabel=el=>{const t=[],walk=n=>{for(const c of n.childNodes)c.nodeType===3?t.push(c.nodeValue):c.nodeType===1&&walk(c);};walk(el);
+ return t.filter(x=>/[\p{L}\p{N}]/u.test(x)).join(' ').replace(/\s+/g,' ').replace(/\s*▾$/,'').trim();};
 export function installTooltips({commands,root=document}={}){
  // What this module last wrote, per button and attribute; any other value came from the markup or the app.
  // A registry command owns both attributes; on other buttons the values set by the markup or the app win.
  const ours=new WeakMap(),cmdOf=el=>commands?.get(commandId(el)),authored=(el,a)=>!cmdOf(el)&&el.hasAttribute(a)&&el.getAttribute(a)!==ours.get(el)?.[a];
- const tipFor=el=>{const cmd=cmdOf(el);return cmd?tooltipText(cmd):authored(el,'title')?el.getAttribute('title'):authored(el,'aria-label')?el.getAttribute('aria-label'):textOf(el);};
+ const tipFor=el=>{const cmd=cmdOf(el);return cmd?tooltipText(cmd,el.dataset.tipLabel||visibleLabel(el)||cmd.tooltip):authored(el,'title')?el.getAttribute('title'):authored(el,'aria-label')?el.getAttribute('aria-label'):textOf(el);};
  const label=el=>{if(inert(el))return;const tip=tipFor(el);if(!tip)return;
   const mine=ours.get(el)||{};for(const a of ['title','aria-label'])if(!authored(el,a)){if(el.getAttribute(a)!==tip)el.setAttribute(a,tip);mine[a]=tip;}ours.set(el,mine);};
  const apply=(node=root)=>{if(node.matches?.('button'))label(node);node.querySelectorAll?.('button').forEach(label);};
