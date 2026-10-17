@@ -43,10 +43,19 @@ rt.destroy();
 console.log('weld (FxHash) vs WS9 wasm, '+corpus.length+' meshes ('+skipped+' fixtures rejected by the engine):',old?(weld?'byte-identical PASS':'DIFFERENT FAIL'):'skipped (no git)');
 console.log('indexed expands to prepare_mesh:',expand?'byte-identical PASS':'FAIL',`(${unique} vertices for ${corners} corners)`);
 // 2. worker numbers per variant
-const res={};
-for(const [v,flag] of [['off','false'],['on','true']]){const dir=R+`tests/perf/.variant-ws10-${v}/`;fs.rmSync(dir,{recursive:true,force:true});fs.cpSync(R+'web',dir+'web',{recursive:true});
- const f=dir+'web/perf-flags.mjs';fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace('INDEXED_DISPLAY=true','INDEXED_DISPLAY='+flag));
- try{res[v]=JSON.parse(execFileSync(process.execPath,[fileURLToPath(import.meta.url),'--node',dir+'web/'],{encoding:'utf8',maxBuffer:1<<26}).trim().split('\n').pop());}finally{fs.rmSync(dir,{recursive:true,force:true});}}
+// QA fix: the 10 % gate compares two timings, so it must not depend on load drift between them. off and on run
+// interleaved (off, on, off, on, ...) for ROUNDS rounds (AVALON_WS10_ROUNDS, default 5), each child waits until the
+// 1-minute load is under 2 (up to 10 minutes, then it runs and the load is reported), and the gate uses the median of
+// each variant's per-round medians. The target (on <= 1.1 x off) is unchanged.
+const ROUNDS=+(process.env.AVALON_WS10_ROUNDS||5),quiet=async()=>{const t=Date.now();while(os.loadavg()[0]>=2&&Date.now()-t<600000)await new Promise(r=>setTimeout(r,5000));return load();};
+const res={},runs={off:[],on:[]},dirs={};
+try{for(const [v,flag] of [['off','false'],['on','true']]){const dir=dirs[v]=R+`tests/perf/.variant-ws10-${v}/`;fs.rmSync(dir,{recursive:true,force:true});fs.cpSync(R+'web',dir+'web',{recursive:true});
+  const f=dir+'web/perf-flags.mjs';fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace('INDEXED_DISPLAY=true','INDEXED_DISPLAY='+flag));}
+ for(let k=0;k<ROUNDS;k++)for(const v of ['off','on']){const l=await quiet();
+  const r=JSON.parse(execFileSync(process.execPath,[fileURLToPath(import.meta.url),'--node',dirs[v]+'web/'],{encoding:'utf8',maxBuffer:1<<26}).trim().split('\n').pop());r.load=+l;runs[v].push(r);}}
+finally{for(const d of Object.values(dirs))fs.rmSync(d,{recursive:true,force:true});}
+for(const v of ['off','on'])res[v]={filletMove:median(runs[v].map(r=>r.filletMove)),move100:median(runs[v].map(r=>r.move100)),previewBytes100:runs[v][0].previewBytes100,
+ filletRuns:runs[v].map(r=>r.filletMove),maxLoad:Math.max(...runs[v].map(r=>r.load))};
 // 3. browser uploads
 const {buildVariant,removeVariant}=await import('./variant-build.mjs');
 const offDir=await buildVariant('ws10-off',s=>s.replace('INDEXED_DISPLAY=true','INDEXED_DISPLAY=false'));
