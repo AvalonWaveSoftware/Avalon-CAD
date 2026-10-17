@@ -1,7 +1,7 @@
 import {makeObject,meshData,validateProject} from './kernel.mjs';
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
 import {objectTopology,objectTopologyEntry,memoTopology} from './cad-solid.mjs';
-import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE} from './perf-flags.mjs';
+import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE,BUNDLE_SPLIT} from './perf-flags.mjs';
 import {jsJobs} from './js-engine.mjs';
 import {engineCache} from './engine-cache.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
@@ -34,7 +34,8 @@ export async function initLocalEngine(K,options={}){
   boolean_result:(s,removedVolume,targetVolume)=>{const pieces=s.decompose();try{return {count:pieces.filter(p=>p.volume()>0).length,bounds:s.boundingBox(),volume:s.volume(),removedVolume,targetVolume};}finally{pieces.forEach(p=>p.delete());}},
   finish_result:(model,kind,ground)=>{
    if(kind==='export')return {buffer:rust.writeSTL(model.vertices,model.triangles,ground),triangles:model.triangles.length/3,bounds:model.bounds,volume:model.volume};
-   if(kind==='conjoin'){const solid=new K.Manifold(new K.Mesh({numProp:3,vertProperties:model.vertices,triVerts:model.triangles}));const pieces=solid.decompose();try{return {count:pieces.length,bounds:model.bounds};}finally{pieces.forEach(p=>p.delete());solid.delete();}}
+   // WS9: the dead conjoin result is dropped with BUNDLE_SPLIT (the JS engine rejects the job; Python keeps it).
+   if(kind==='conjoin'&&!(BUNDLE_SPLIT&&JS_ENGINE)){const solid=new K.Manifold(new K.Mesh({numProp:3,vertProperties:model.vertices,triVerts:model.triangles}));const pieces=solid.decompose();try{return {count:pieces.length,bounds:model.bounds};}finally{pieces.forEach(p=>p.delete());solid.delete();}}
    if(kind==='preview'){const display=rust.prepare(model.vertices,model.triangles,model.flatTriangles,model.smoothingGroups);model.displayPositions=display.positions;model.displayNormals=display.normals;}
    return model;
   },

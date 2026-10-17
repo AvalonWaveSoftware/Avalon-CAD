@@ -1,10 +1,12 @@
+import {BUNDLE_SPLIT} from './perf-flags.mjs';
 // WS7 (ADR v2): model/job assembly in JS. A line-for-line port of engine/python/model_jobs.py (build_model,
 // evaluate_boolean, process_job, runtime_info) over the same native bridge, with the same messages. The Python file
 // stays as the test-only parity oracle (tests/js-engine-parity.mjs) and as the JS_ENGINE=false build.
 // engine.info keeps its shape; the Python version it reported is kept as a constant (ADR D2).
 export const PYTHON_VERSION='3.13.2';
 const TYPES=new Set(['box','rounded','cylinder','cone','sphere','tube','threadrod','threadtube','polygon','mesh','joined','wedge','pyramid','prefab']);
-const KINDS=['preview','check','export','boolean','conjoin','place','groundProject'];
+// WS9 (BUNDLE_SPLIT): the UI never sends 'conjoin' (dead since the operations moved to the UI); it is unsupported.
+const KINDS=['preview','check','export','boolean',...(BUNDLE_SPLIT?[]:['conjoin']),'place','groundProject'];
 const field=(obj,name,fallback)=>{const v=obj?.[name];return v==null?fallback:v;};
 // Python's math.isfinite raised a TypeError for a non-numeric coordinate; here it is an invalid coordinate (the UI's
 // validateProject rejects such projects before any job, so no caller reaches this case).

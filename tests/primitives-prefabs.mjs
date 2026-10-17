@@ -5,7 +5,7 @@ import {initKernel,buildModel,validateProject} from '../web/kernel.mjs';
 import {initLocalEngine} from '../web/local-engine.mjs';
 import {object,blank} from '../web/templates.mjs';
 import {withRoundover,stretch,dimensions,conjoined} from '../web/operations.mjs';
-import {evaluateBoolean} from '../web/boolean-model.mjs';
+import {evaluateBoolean} from './boolean-model.mjs';
 import {makePrefab,prefabParts,validatePrefab,instantiatePrefab} from '../web/prefabs.mjs';
 import {booleanProject} from '../web/layers.mjs';
 const K=await initKernel(),runtime=await initLocalEngine(K,{loadPyodide,pythonURL:process.cwd()+'/node_modules/pyodide/',pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});

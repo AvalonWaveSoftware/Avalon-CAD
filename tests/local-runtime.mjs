@@ -7,7 +7,7 @@ import {initLocalEngine} from '../web/local-engine.mjs';
 import {displayGeometry} from '../web/display-geometry.mjs';
 import {blank,object,defaults,plate,tray} from '../web/templates.mjs';
 import {withRoundover,mergeResult} from '../web/operations.mjs';
-import {evaluateBoolean} from '../web/boolean-model.mjs';
+import {evaluateBoolean} from './boolean-model.mjs';
 
 const K=await initKernel(),start=performance.now();
 const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});

@@ -6,7 +6,7 @@ import {isThread,containsThreads} from './threads.mjs';
 import {installMergeTools} from './merge-tools.mjs';
 import {axes,matrix,direction,dimensions,stretch,faceAxis,centerPoints,worldCenter,withRoundover,conjoined,connectingBridges,alignCenters,alignFaceCenters} from './operations.mjs';
 import {object,uid,names} from './templates.mjs';
-import {validateProject} from './kernel.mjs';
+import {validateProject} from './kernel-ui.mjs';
 export function installTouch(S){
  const {canvas,scene,camera,controls}=S, $=id=>document.getElementById(id);
  let mode='select',axis='XY',snap=true,step=.1,face=null,selection='shape',edgeSelection=[],multi=new Set(),gesture=null,committing=false,commitSnapshot=null,replay=false,firstPointer=null,lastTap=null,ray=new T.Raycaster(),baseMeshes=[],markers=[],handles=[],paint=new T.Group(),lastPaint=0;

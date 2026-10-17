@@ -1,6 +1,17 @@
 import {build} from 'esbuild';
 import fs from 'node:fs';
-await build({entryPoints:['web/main.mjs'],outfile:'app/assets/main.js',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,external:['node:*','module','fs','path','crypto']});
+import path from 'node:path';
+const {BUNDLE_SPLIT}=await import('./web/perf-flags.mjs');
+// WS9: with BUNDLE_SPLIT=false the UI's kernel-ui.mjs imports resolve to kernel.mjs again (the legacy single bundle).
+const legacyKernel={name:'legacy-kernel',setup(b){b.onResolve({filter:/\/kernel-ui\.mjs$/},a=>BUNDLE_SPLIT||a.importer.endsWith(path.sep+'kernel.mjs')?undefined:{path:path.resolve('web/kernel.mjs')});}};
+const ui=await build({entryPoints:['web/main.mjs'],outfile:'app/assets/main.js',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,metafile:true,plugins:[legacyKernel],external:['node:*','module','fs','path','crypto']});
+// WS9 size guard (ADR: fail if main.js grows by more than 1 %). The reference is tools/main-js-size.json; after an
+// intended change, update it in the same commit. Only the split bundle is guarded.
+if(BUNDLE_SPLIT){const bytes=Object.values(ui.metafile.outputs).find(o=>o.entryPoint==='web/main.mjs').bytes,ref=JSON.parse(fs.readFileSync('tools/main-js-size.json','utf8'))['main.js'];
+ const ui_inputs=Object.keys(Object.values(ui.metafile.outputs).find(o=>o.entryPoint==='web/main.mjs').inputs);
+ const engine=ui_inputs.filter(f=>/replicad|cad-solid|web\/kernel\.mjs$|manifold-3d|pyodide/.test(f));
+ if(engine.length)throw Error('main.js must not bundle engine modules: '+engine.join(', '));
+ if(bytes>ref*1.01)throw Error(`main.js is ${bytes} B, more than 1 % over the ${ref} B reference (tools/main-js-size.json)`);}
 await build({entryPoints:['web/worker.mjs'],outfile:'app/assets/worker.js',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,external:['node:*','module','fs','path','crypto']});
 for(const [src,dst] of [['THIRD_PARTY_NOTICES.txt','app/assets/THIRD_PARTY_NOTICES.txt'],['web/index.html','app/assets/index.html'],['web/style.css','app/assets/style.css'],['node_modules/replicad-opencascadejs/dist/replicad_single.wasm','app/assets/cad-kernel.wasm'],['node_modules/manifold-3d/manifold.wasm','app/assets/manifold.wasm']])fs.copyFileSync(src,dst);
 if(!fs.existsSync('app/assets/mesh-core.wasm'))throw Error('Run ./build-rust.sh before bundling the app.');

@@ -1,0 +1,23 @@
+// WS9 (BUNDLE_SPLIT): main.js carries no engine modules, the OCCT gate lets only empty-project jobs skip OCCT, the
+// worker defers OCCT, and an empty-project preview runs on Manifold/JS/Rust alone (OCCT never initialised).
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {BUNDLE_SPLIT} from '../web/perf-flags.mjs';
+import {needsSolid} from '../web/solid-gate.mjs';
+const main=fs.readFileSync('app/assets/main.js','utf8'),size=fs.statSync('app/assets/main.js').size;
+if(!BUNDLE_SPLIT){assert.ok(size>800000,'legacy bundle');console.log('Startup split skipped: BUNDLE_SPLIT is off (main.js',size,'B)');process.exit(0);}
+assert.ok(size<=690000,'main.js '+size+' B > 690 KB (ADR)');
+for(const marker of ['BRepAlgoAPI','opencascade','setOC'])assert.ok(!main.includes(marker),'main.js contains '+marker);
+const empty={objects:[],layers:[]},one={objects:[{id:'a'}]};
+for(const type of ['preview','check','export','groundProject'])assert.equal(needsSolid({type,project:empty}),false,type+' empty');
+for(const type of ['preview','check','export','groundProject','boolean','place','conjoin','mystery'])assert.equal(needsSolid({type,project:one}),true,type+' with objects');
+for(const type of ['boolean','place'])assert.equal(needsSolid({type,project:empty}),true,type+' always waits');
+assert.equal(needsSolid({type:'preview'}),true,'no project waits');
+// Manifold + Rust + JS engine without OCCT: an empty project previews, OCCT stays uninitialised.
+const {initKernel}=await import('../web/kernel.mjs'),{initLocalEngine}=await import('../web/local-engine.mjs'),{heapBytes}=await import('../web/cad-solid.mjs');
+const engine=await initLocalEngine(await initKernel({solidOptions:false}),{rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
+const r=engine.process({id:1,type:'preview',project:{...JSON.parse(JSON.stringify((await import('../web/templates.mjs')).blank())),objects:[]},tolerance:.15});
+assert.ok(!r.error,r.error);assert.equal(heapBytes(),0,'OCCT was not initialised');
+const worker=fs.readFileSync('app/assets/worker.js','utf8');assert.ok(worker.includes('"warm"')||worker.includes("'warm'"),'worker handles warm');
+assert.ok(main.includes('"warm"')||main.includes("'warm'"),'UI sends warm after the first frame');
+console.log('Startup split: main.js',size,'B with no engine modules; OCCT deferred; empty-project preview without OCCT');engine.destroy();

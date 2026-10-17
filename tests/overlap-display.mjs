@@ -6,7 +6,7 @@ import {initLocalEngine} from '../web/local-engine.mjs';
 import {prepareDisplayMesh} from '../web/display-geometry.mjs';
 import {blank,object} from '../web/templates.mjs';
 import {mergeResult,withRoundover} from '../web/operations.mjs';
-import {evaluateBoolean} from '../web/boolean-model.mjs';
+import {evaluateBoolean} from './boolean-model.mjs';
 import {makePrefab} from '../web/prefabs.mjs';
 
 const K=await initKernel(),engine=await initLocalEngine(K,{loadPyodide,pythonURL:process.cwd()+'/node_modules/pyodide/',pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build:web": "node build-web.mjs",
-    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs && node tests/migration.mjs && node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs && node tests/occt-scope.mjs && node tests/topology-service.mjs && node tests/render-resources.mjs && node tests/render-scheduler.mjs && node tests/engine-parity.mjs && node tests/js-engine-parity.mjs && node tests/engine-cache-accounting.mjs && node tests/notices.mjs && node tests/parallel-init.mjs",
+    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs && node tests/migration.mjs && node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs && node tests/occt-scope.mjs && node tests/topology-service.mjs && node tests/render-resources.mjs && node tests/render-scheduler.mjs && node tests/engine-parity.mjs && node tests/js-engine-parity.mjs && node tests/engine-cache-accounting.mjs && node tests/notices.mjs && node tests/parallel-init.mjs && node tests/startup-split.mjs",
     "build:rust": "./build-rust.sh",
     "test:local": "node tests/local-runtime.mjs",
     "test:browser": "node tests/browser-runtime.mjs",
@@ -24,6 +24,7 @@
     "test:migration": "node tests/migration.mjs",
     "test:panel": "node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs",
     "test:pixels": "node tests/perf/dom-baseline.mjs && node tests/pixels.mjs",
+    "test:startup-frames": "node tests/startup-frames.mjs",
     "test:leak": "node tests/perf/leak-bench.mjs --check",
     "test:ws2": "node tests/perf/ws2-bench.mjs --check",
     "test:ws3": "node tests/perf/gl-bench.mjs --check",
@@ -32,6 +33,7 @@
     "test:ws6": "node tests/perf/ws6-bench.mjs --check",
     "test:ws7": "node tests/perf/ws7-bench.mjs --check",
     "test:ws8": "node tests/perf/ws8-bench.mjs --check",
+    "test:ws9": "node tests/perf/ws9-bench.mjs --check",
     "test:picks": "node tests/pick-reuse.mjs"
   },
   "keywords": [],
@@ -39,7 +41,6 @@
   "license": "BSD-3-Clause",
   "type": "module",
   "dependencies": {
-    "esbuild": "0.28.2",
     "manifold-3d": "3.5.4",
     "pyodide": "0.29.3",
     "replicad": "1.1.0",
@@ -48,6 +49,7 @@
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
+    "esbuild": "0.28.2",
     "jsdom": "30.1.2"
   }
 }

@@ -1,5 +1,5 @@
-import {makeObject,validateProject} from './kernel.mjs';
-import {assertSameLayer,booleanProject} from './layers.mjs';
+import {makeObject,validateProject} from '../web/kernel.mjs';
+import {assertSameLayer,booleanProject} from '../web/layers.mjs';
 
 // Merge unites the selected shapes on one layer. Cutouts subtract per primitive on their own layer.
 export function evaluateBoolean(K,objects,operation,tolerance=.03,cutouts=[],fillOverlaps=false){

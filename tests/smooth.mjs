@@ -4,7 +4,7 @@ import {applySmoothPreset} from '../web/resolution-ui.mjs';
 import {displayGeometry,hasFixedFacets} from '../web/display-geometry.mjs';
 import {blank,object,defaults} from '../web/templates.mjs';
 import {mergeResult,withRoundover} from '../web/operations.mjs';
-import {evaluateBoolean} from '../web/boolean-model.mjs';
+import {evaluateBoolean} from './boolean-model.mjs';
 const K=await initKernel();let checks=0;
 for(const type of ['sphere','cylinder','cone','tube','rounded']){
  const o=applySmoothPreset(object(type,structuredClone(defaults[type]))),p=validateProject({...blank(),objects:[o]});

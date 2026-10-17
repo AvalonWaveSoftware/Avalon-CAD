@@ -1,7 +1,8 @@
 // WS7 parity: the JS job engine (web/js-engine.mjs) against the Python oracle (engine/python/model_jobs.py through
 // Pyodide, options.oracle) on the same kernel: every result must be identical, typed arrays byte for byte, and every
 // error message verbatim. Fixtures x all job kinds, error cases, and seeded random projects and booleans.
-import assert from 'node:assert/strict';import fs from 'node:fs';import {loadPyodide} from 'pyodide';
+import assert from 'node:assert/strict';
+import {BUNDLE_SPLIT} from '../web/perf-flags.mjs';import fs from 'node:fs';import {loadPyodide} from 'pyodide';
 import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';import {object,defaults,blank} from '../web/templates.mjs';
 import {migrateProject} from '../web/migrate.mjs';import {JS_ENGINE} from '../web/perf-flags.mjs';
 const K=await initKernel(),opts={loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}};
@@ -14,7 +15,9 @@ function same(job,what){const a=js.process({...structuredClone(job),id:++id}),b=
  assert.deepEqual(norm(a),norm(b),what);jobs++;if(a.error)errors++;return a;}
 const fixtures=fs.readdirSync('tests/fixtures').filter(f=>f.endsWith('.tcad')).map(f=>[f,migrateProject(JSON.parse(fs.readFileSync('tests/fixtures/'+f,'utf8')),[])]);
 for(const [f,p] of fixtures)for(const plane of [false,true]){const q={...p,buildPlaneEnabled:plane};
- for(const type of ['preview','check','export','conjoin'])same({type,project:q,tolerance:.15,ground:plane},f+' '+type);
+ for(const type of ['preview','check','export',...(BUNDLE_SPLIT?[]:['conjoin'])])same({type,project:q,tolerance:.15,ground:plane},f+' '+type);
+ // WS9: with BUNDLE_SPLIT the JS engine drops the dead conjoin job (the Python oracle still has it).
+ if(BUNDLE_SPLIT){const r=js.process({type:'conjoin',project:q,tolerance:.15,ground:plane,id:++id});assert.equal(r.error,'Unsupported geometry command.',f+' conjoin');}
  same({type:'groundProject',project:q},f+' ground');}
 // Error cases: messages must be verbatim.
 const box=object('box',structuredClone(defaults.box),[0,0,0]),cyl=object('cylinder',structuredClone(defaults.cylinder),[10,0,0]),cut=object('cylinder',{diameter:6,h:40},[0,0,0]);cut.mode='cut';

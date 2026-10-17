@@ -10,14 +10,14 @@ import {resolutionPanel,bindResolution,readResolution,sameTopology,faceSummary,a
 import {displayGeometry} from './display-geometry.mjs';
 import {startAtOrigin,applyFloorAdjustments} from './placement.mjs';
 import {isThread} from './threads.mjs';
-import {TOPOLOGY_SERVICE} from './perf-flags.mjs';
+import {TOPOLOGY_SERVICE,BUNDLE_SPLIT} from './perf-flags.mjs';
 import {topologyClient} from './topology-client.mjs';
 import {PERSISTENT_GL,RENDER_ON_DEMAND,ENGINE_CACHE} from './perf-flags.mjs';
 import {renderOnDemand} from './render-scheduler.mjs';
 import {material,updateInPlace,pooled,overlayPool} from './render-resources.mjs';
 import {threadPanel,bindThreads} from './threads-ui.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {validateProject,readSTL,QUALITY,assertSimplePolygon} from './kernel.mjs';
+import {validateProject,readSTL,QUALITY,assertSimplePolygon} from './kernel-ui.mjs';
 import {object,blank,plate,tray,defaults,names,uid} from './templates.mjs';
 const $=id=>document.getElementById(id),escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let invalidate=()=>{},touch=null,prefabs=null,objectsPanel=null,smoothNewShapes=true,panelBusy=false,panelControls=[];
@@ -38,6 +38,8 @@ let keepV1=false,v1Loaded=false,lastAutosaveWarning=0;const AUTOSAVE_REWARN_MS=6
 const worker=new Worker(new URL('worker.js?v=2.6.1',import.meta.url),{type:'module'}),requests=new Map(),topologies=TOPOLOGY_SERVICE?topologyClient():null;
 function request(type,data){return new Promise((resolve,reject)=>{const id=++sequence;requests.set(id,{resolve,reject});worker.postMessage(topologies?topologies.outgoing({id,type,...data}):{id,type,...data});});}
 worker.onmessage=({data})=>{if(topologies)topologies.incoming(data);const r=requests.get(data.id);if(!r)return;requests.delete(data.id);data.error?r.reject(Error(data.error)):r.resolve(data);};
+// WS9: OCCT compiles off the startup path; ask the worker to start it once the first frame has been drawn.
+if(BUNDLE_SPLIT)requestAnimationFrame(()=>setTimeout(()=>worker.postMessage({type:'warm'}),0));
 worker.onerror=e=>{topologies?.reset();for(const r of requests.values())r.reject(Error('The modeling engine could not start. Close and reopen the app.'));requests.clear();toast('The modeling engine could not start: '+e.message,true);};
 function toast(message,error=false){clearTimeout(toastTimer);$('toast').textContent=message;$('toast').classList.toggle('error',error);$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,error?7000:3500);}
 function status(s){$('busy').textContent=s;}

@@ -40,3 +40,9 @@ export const JS_ENGINE=true;
 // *.zip uncompressed. build-web.mjs mirrors this flag into app/assets/perf-flags.json for desktop/main.cjs and
 // MainActivity. false restores sequential init, no-store responses, LOAD_NO_CACHE and deflated assets.
 export const PARALLEL_INIT=true;
+// WS9: bundle split and OCCT off the startup path. The UI imports only UI-safe modules (kernel-ui.mjs), so main.js
+// carries no replicad/OCCT glue; the dead 'conjoin' job is gone. The worker starts with Manifold, JS and Rust only and
+// begins the OCCT compile after the first frame (or at the first job that needs it); only jobs that can touch OCCT
+// wait for it. false restores the single bundle, the conjoin job and OCCT in the startup path (build-web.mjs aliases
+// kernel-ui.mjs back to kernel.mjs for the UI).
+export const BUNDLE_SPLIT=true;
