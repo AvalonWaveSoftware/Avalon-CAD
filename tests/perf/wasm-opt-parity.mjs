@@ -29,6 +29,8 @@ const offDir=new URL('../.engine-parity-wasm-'+process.env.WASM+'/',import.meta.
 fs.writeFileSync(offDir+'web/perf-flags.mjs',fs.readFileSync(offDir+'web/perf-flags.mjs','utf8').replace('ENGINE_CACHE=true','ENGINE_CACHE=false'));
 process.on('exit',()=>fs.rmSync(offDir,{recursive:true,force:true}));
 const offKernel=await import(offDir+'web/kernel.mjs'),offEngine=await import(offDir+'web/local-engine.mjs');
+// The reference copy has its own glyph-geometry module instance; load its outlines too (the worker does this per job).
+await (await import(offDir+'web/glyph-geometry.mjs')).loadGlyphs();
 const OPT=process.env.WASM==='opt',MB=fs.readFileSync(OPT?'app/assets/manifold.wasm':'node_modules/manifold-3d/manifold.wasm'),OB=fs.readFileSync(OPT?'app/assets/cad-kernel.wasm':'node_modules/replicad-opencascadejs/dist/replicad_single.wasm');
 const K=await initKernel({wasmBinary:MB,solidOptions:{wasmBinary:OB}}),K0=await offKernel.initKernel({wasmBinary:MB,solidOptions:{wasmBinary:OB}});
 const {createHash}=await import('node:crypto');const H=createHash('sha256');let hashed=0;
