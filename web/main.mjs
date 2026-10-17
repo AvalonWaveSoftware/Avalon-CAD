@@ -213,8 +213,21 @@ $('layersBtn').onclick=()=>{if(!touch.isDragging()&&!touch.isCommitting())layers
 window.__cad={touch,get project(){return project;},get selected(){return selected;},get historyLength(){return history.length;},get model(){return model;},get display(){return resultMesh;},change:fn=>change(()=>fn(project)),get uploads(){return uploads.bytes;},get picks(){return pickMeshes;},get scene(){return scene;},request,objectsPanel,selection,load:p=>{project=loadProject(p);selected=project.objects.find(o=>layerOf(o)===project.activeLayer)?.id;refresh(true);},templates:{blank,plate,tray},exportMenu};
 refresh(true);
 
+// ADR unified-desktop-layout: the help line exists on every platform; CSS shows it only with a mouse or trackpad
+// ((any-hover:hover) and (any-pointer:fine)). It sits 18 px right of the Objects toggle, centred on it, or 18 px right
+// of the open Objects panel at the same top; at widths where that would overlap a viewport control it is hidden.
+{const help=document.createElement('div');help.id='desktopHelp';help.textContent='Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom';$('viewport').appendChild(help);
+ const CONTROLS='#objectsToggle,#objectsPanel:not([hidden]),.views,.axis,#bounds,#liveMeasure:not([hidden]),#empty:not([hidden])>*';
+ const place=()=>{if(getComputedStyle(help).display==='none')return;const vp=$('viewport').getBoundingClientRect(),t=$('objectsToggle').getBoundingClientRect(),panel=$('objectsPanel'),h=help.offsetHeight,w=help.offsetWidth;
+  const left=(panel.hidden?t.right:panel.getBoundingClientRect().right)-vp.left+18,top=Math.round(t.top-vp.top+(t.height-h)/2);help.style.left=left+'px';help.style.top=top+'px';
+  const r={left:vp.left+left,top:vp.top+top,right:vp.left+left+w,bottom:vp.top+top+h};
+  const clash=r.right>vp.right||[...$('viewport').querySelectorAll(CONTROLS)].some(e=>{const b=e.getBoundingClientRect();return b.width&&b.height&&b.left<r.right&&b.right>r.left&&b.top<r.bottom&&b.bottom>r.top;});
+  help.classList.toggle('clash',clash);};
+ const ro=new ResizeObserver(place);for(const e of [$('viewport'),$('objectsToggle'),$('objectsPanel'),help])ro.observe(e);
+ new MutationObserver(place).observe($('objectsPanel'),{attributes:true,attributeFilter:['hidden']});new MutationObserver(place).observe($('viewport'),{attributes:true,subtree:true,attributeFilter:['hidden']});
+ globalThis.__placeHelp=place;place();}
+
 if(window.AvalonDesktop){
- const legend=document.createElement('div');legend.id='desktopHelp';legend.textContent='Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom';$('viewport').appendChild(legend);
  const action=command=>{if(panelBusy||touch.isDragging()||touch.isCommitting())return;const focused=document.activeElement,isInput=focused?.matches('input,textarea,[contenteditable=true]');if(['undo','redo'].includes(command)&&isInput){document.execCommand(command);return;}
   if(command==='open')return importDialog();if(command==='save'){saveProject();closeSheet();return;}if(command==='backup')return saveFile(JSON.stringify(project,null,2),safeName()+'.tcad','application/json');
   if(command==='new'){projectMenu();document.querySelector('[data-template="blank"]').click();return;}if(command.startsWith('view:'))return document.querySelector('[data-view="'+command.slice(5)+'"]')?.click();
