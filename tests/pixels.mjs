@@ -129,7 +129,7 @@ const scenes={
  'sheet-advanced-shapes':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await p.locator('#advancedBtn').click();await s();},
  'sheet-letters':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await p.locator('#lettersBtn').click();await p.waitForFunction(()=>document.querySelectorAll('[data-glyph] svg').length===94,null,{timeout:120000});await s();},
  'edit-glyph':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await p.locator('#lettersBtn').click();await p.waitForFunction(()=>document.querySelectorAll('[data-glyph] svg').length===94,null,{timeout:120000});
-  await p.locator('[data-glyph][aria-label="g"]').click();await p.waitForFunction(()=>document.querySelector('#objectName')?.value==='Letter g');await s();},
+  await p.locator('[data-glyph][aria-label="Letter g"]').click();await p.waitForFunction(()=>document.querySelector('#objectName')?.value==='Letter g');await s();},
  'new-shapes-scene':async(p,s)=>{const F='roboto-bold@1',NS=[['torus',{diameter:30,tube:8},4],['triprism',{w:30,d:40,h:26},13],['tetrahedron',{size:30},12.245],['octahedron',{size:25},10.205],['decahedron',{diameter:20,h:36},8.08],['dodecahedron',{size:11},12.25],['icosahedron',{size:16},12.09],['glyph',{char:'A',size:20,depth:5,font:F},2.5],['glyph',{char:'g',size:20,depth:5,font:F},2.5],['glyph',{char:'&',size:20,depth:5,font:F},2.5]];
   await load(p,proj('New shapes',NS.map(([t,q,z],i)=>ob('n'+i,t,q,[(i%5)*40,Math.floor(i/5)*-45,z],{name:t+i})),{buildPlaneEnabled:true}),NS.length);await s('solid');
   await p.locator('#wire').click();await s('wireframe');await p.locator('#wire').click();
