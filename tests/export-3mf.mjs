@@ -6,13 +6,17 @@
 //  - round trip: vertex and triangle counts equal the export mesh, every STL triangle corner equals the 3MF vertex bits;
 //  - deterministic bytes (same engine, fresh engine);
 //  - STL, preview preparation and thread meshes byte-identical to the 8fa7115 (ABI v3) mesh-core.wasm;
-//  - size (≤ 0.3× STL on a large mesh) and encode time, reported.
+//  - size (≤ 0.3× STL on a large mesh) and encode time, reported;
+//  - mesh-core.wasm ≤ 120 KB hard ceiling (also enforced by build-rust.sh).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {execFileSync,spawnSync} from 'node:child_process';
 import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';import {initRustMesh} from '../web/rust-mesh.mjs';
 import {migrateProject} from '../web/migrate.mjs';import {read3MF,meshRules,sameAsSTL} from './three-mf-reader.mjs';import {object,defaults,blank,plate,tray} from '../web/templates.mjs';
 const BASE_SHA='8fa7115';
 const binary=fs.readFileSync('app/assets/mesh-core.wasm');
+// ADR-0001 F2a ruling: 120 KB (122,880 B) is a HARD ceiling for mesh-core.wasm; what is left is reserved for F1d/F2b.
+const WASM_CEILING=120*1024;assert.ok(binary.length<=WASM_CEILING,`mesh-core.wasm is ${binary.length} B, over the ${WASM_CEILING} B hard ceiling (ADR-0001 F2a)`);
+console.log(`mesh-core.wasm ${binary.length} B ≤ ${WASM_CEILING} B hard ceiling (${WASM_CEILING-binary.length} B left for F1d/F2b)`);
 const K=await initKernel(),engine=await initLocalEngine(K,{rust:{binary}});
 let id=0,checks=0;
 const run=(project,format,ground=true,tolerance=.03)=>{const r=engine.process({type:'export',id:++id,project:structuredClone(project),tolerance,ground,...(format?{format}:{})});if(r.error)throw Error(r.error);return r;};
