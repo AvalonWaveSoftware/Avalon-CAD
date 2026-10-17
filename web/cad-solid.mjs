@@ -83,17 +83,10 @@ function legacyTopology(s,edges) {
  const faces=s.faces,edgeIds=new Map(edges.map((e,i)=>[e.hashCode,i]));
  const mesh=s.mesh({tolerance:.08,angularTolerance:.12});
  const groups=mesh.faceGroups.map(g=>({...g,face:faces.findIndex(f=>f.hashCode===g.faceId)}));
- // A torus has only its two seam edges, each bordering the one face twice, so it never has a pick edge; meshEdges
- // would triangulate the whole surface (≈190 ms) just to drop them.
- const lines=GLYPH_FAST&&o?.type==='torus'&&faces.length===1?{edgeGroups:[],lines:[]}:s.meshEdges({tolerance:.06,angularTolerance:.12});
+ const lines=s.meshEdges({tolerance:.06,angularTolerance:.12});
  const edgeData=lines.edgeGroups.map(g=>({index:edgeIds.get(g.edgeId),points:Array.from(lines.lines.slice(g.start*3,(g.start+g.count)*3))})).filter(e=>e.index!==undefined);
  const faceData=faces.map((f,i)=>{const es=f.edges;let center=[0,0,0],normal=[0,0,1];try{center=safeTuple(f.center);normal=safeTuple(f.normalAt());}catch{}const indices=es.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);es.forEach(dispose);const wires=[f.clone().outerWire(),...f.clone().innerWires()],loops=wires.map(w=>{const eds=w.edges,result=eds.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);eds.forEach(dispose);dispose(w);return result;});return {index:i,kind:f.geomType,center,normal,edges:indices,loops};});
- // Amendment A2 (glyphs, ~170 edges): adjacency is collected once, and an edge on a cap (a ±Z plane) is always a
- // sharp edge because every side face of an extrusion is vertical. tests/new-shapes.mjs checks this against the full
- // computation for all 94 glyphs.
- const glyph=o?.type==='glyph',adjacency=new Map();if(glyph)for(const f of faceData)for(const e of f.edges){const l=adjacency.get(e);if(l)l.push(f);else adjacency.set(e,[f]);}
- const cap=f=>f.kind==='PLANE'&&Math.abs(f.normal[0])<1e-12&&Math.abs(f.normal[1])<1e-12&&f.normal[2]!==0;
- const pickEdges=edgeData.filter(e=>{const fs=glyph?adjacency.get(e.index)||[]:faceData.filter(f=>f.edges.includes(e.index)),adjacent=fs.map(f=>faces[f.index]);if(adjacent.length<2)return false;if(glyph&&GLYPH_FAST&&(cap(fs[0])||cap(fs[1])))return true;try{const at=safeTuple(edges[e.index].pointAt(.5)),a=safeTuple(adjacent[0].normalAt(at)),b=safeTuple(adjacent[1].normalAt(at)),dot=a.reduce((sum,v,i)=>sum+v*b[i],0)/(Math.hypot(...a)*Math.hypot(...b));return Math.abs(dot)<.9999;}catch{return true;}});
+ const pickEdges=edgeData.filter(e=>{const adjacent=faceData.filter(f=>f.edges.includes(e.index)).map(f=>faces[f.index]);if(adjacent.length<2)return false;try{const at=safeTuple(edges[e.index].pointAt(.5)),a=safeTuple(adjacent[0].normalAt(at)),b=safeTuple(adjacent[1].normalAt(at)),dot=a.reduce((sum,v,i)=>sum+v*b[i],0)/(Math.hypot(...a)*Math.hypot(...b));return Math.abs(dot)<.9999;}catch{return true;}});
  faces.forEach(dispose);
  return {vertices:new Float32Array(mesh.vertices),triangles:new Uint32Array(mesh.triangles),groups,faces:faceData,edges:pickEdges};
 }
@@ -253,7 +246,7 @@ function containsScale(o){return o.scale?.some(v=>Math.abs(v-1)>1e-8)||o.params?
 function containsMesh(o){return o.type==='mesh'||isThread(o)||o.params?.children?.some(containsMesh);}
 export function disposeSolidCache(){meshes.clear();meshBytes=0;for(const entry of cache.values())release(entry);cache.clear();brepBytes=0;topologies.clear();topologyTotal=0;}
 // Test hook (WS1 parity): topology of o through the legacy or the scoped extractor, without touching the cache.
-export function topologyVariant(o,scoped){const base=baseShape(o),edges=base.edges;try{return (scoped?scopedTopology:legacyTopology)(base,edges);}finally{edges.forEach(dispose);if(scoped){try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}}dispose(base);}}
+export function topologyVariant(o,scoped){const base=baseShape(o),edges=base.edges;try{return scoped?scopedTopology(base,edges,o):legacyTopology(base,edges);}finally{edges.forEach(dispose);if(scoped){try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}}dispose(base);}}
 // Test hook (new-primitives ADR §5.4, exact STEP): the exact base B-rep of o, outside the cache; the caller deletes it.
 export function baseShapeForTest(o){return baseShape(o);}
 // Amendment A2.5: warm the torus / glyph topology code paths once (JIT and wasm tier-up) on a tiny shape, outside the
