@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {initKernel,buildModel,validateProject,writeSTL,readSTL} from '../web/kernel.mjs';
-import {evaluateBoolean} from '../web/boolean-model.mjs';
+import {evaluateBoolean} from './boolean-model.mjs';
 import {mergeResult,selectedPieces,connectingBridges} from '../web/operations.mjs';
 import {blank,object} from '../web/templates.mjs';
 import {solidMesh} from '../web/cad-solid.mjs';

@@ -4,6 +4,14 @@ import struct
 from pathlib import Path
 from zipfile import ZipFile, ZIP_STORED
 
+# WS7: the Pyodide assets ship only when web/perf-flags.mjs has JS_ENGINE=false.
+_FLAGS = (Path(__file__).resolve().parent.parent / 'web/perf-flags.mjs').read_text()
+PYTHON_ENTRIES = ['assets/python/pyodide.mjs', 'assets/python/pyodide.asm.js', 'assets/python/pyodide.asm.wasm',
+                  'assets/python/python_stdlib.zip', 'assets/python/pyodide-lock.json',
+                  'assets/python/model_jobs.py'] if 'JS_ENGINE=false' in _FLAGS else []
+# WS8: with PARALLEL_INIT the APK stores *.wasm and *.zip uncompressed (ADR D3) and ships assets/perf-flags.json.
+STORED_ASSETS = 'PARALLEL_INIT=true' in _FLAGS
+
 
 def check_apk(path):
     with ZipFile(path) as apk:
@@ -13,10 +21,7 @@ def check_apk(path):
         for name in ['AndroidManifest.xml', 'resources.arsc', 'classes.dex',
                      'assets/index.html', 'assets/main.js', 'assets/worker.js',
                      'assets/cad-kernel.wasm', 'assets/manifold.wasm',
-                     'assets/mesh-core.wasm', 'assets/python/pyodide.mjs',
-                     'assets/python/pyodide.asm.js', 'assets/python/pyodide.asm.wasm',
-                     'assets/python/python_stdlib.zip', 'assets/python/pyodide-lock.json',
-                     'assets/python/model_jobs.py']:
+                     'assets/mesh-core.wasm'] + PYTHON_ENTRIES:
             assert name in names, f'Missing required APK entry: {name}'
         resources = apk.getinfo('resources.arsc')
         assert resources.compress_type == ZIP_STORED, (
@@ -29,10 +34,18 @@ def check_apk(path):
             offset = resources.header_offset + 30 + header[-2] + header[-1]
             assert offset % 4 == 0, 'resources.arsc is not 4-byte aligned'
         assert apk.read('assets/cad-kernel.wasm')[:4] == b'\x00asm', 'Invalid CAD kernel'
-        for asset in ['assets/manifold.wasm', 'assets/mesh-core.wasm',
-                      'assets/python/pyodide.asm.wasm']:
+        for asset in ['assets/manifold.wasm', 'assets/mesh-core.wasm'] + PYTHON_ENTRIES[2:3]:
             assert apk.read(asset)[:4] == b'\x00asm', f'Invalid runtime: {asset}'
-        assert b'def process_job(' in apk.read('assets/python/model_jobs.py')
+        for info in apk.infolist():
+            if info.filename.startswith('assets/') and info.filename.endswith(('.wasm', '.zip')):
+                assert (info.compress_type == ZIP_STORED) == STORED_ASSETS, (
+                    f'{info.filename} should be {"stored" if STORED_ASSETS else "deflated"}')
+        if STORED_ASSETS:
+            assert b'"PARALLEL_INIT":true' in apk.read('assets/perf-flags.json'), 'perf-flags.json missing PARALLEL_INIT'
+        if PYTHON_ENTRIES:
+            assert b'def process_job(' in apk.read('assets/python/model_jobs.py')
+        else:
+            assert not any(n.startswith('assets/python/') for n in names), 'JS_ENGINE build ships Python'
     print(f'APK packaging passed: resources.arsc uncompressed and aligned at {offset}')
 
 

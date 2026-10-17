@@ -1,5 +1,7 @@
 import fs from 'node:fs';import http from 'node:http';import path from 'node:path';
-import {chromium} from 'playwright';
+import {createRequire} from 'node:module';
+// Playwright is not a dependency (README: install it with --no-save, or point AVALON_PLAYWRIGHT at an installed copy).
+const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 // Bundled app to serve (read-only). Defaults to the repo this folder lives in (tools/readme-shots -> ../../app/assets).
 export const ROOT=path.resolve(process.env.AVALON_ASSETS||path.resolve(new URL('.',import.meta.url).pathname,'../../app/assets'));
 export async function start(){

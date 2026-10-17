@@ -7,7 +7,8 @@ const layers=[{id:'layer-1',name:'Layer 1'},{id:'layer-2',name:'Layer 2'}];
 const start={format:'tristancad',version:2,name:'Panel',layers,activeLayer:'layer-1',buildPlaneEnabled:false,objects:[box('A',20,20,10),box('B',20,20,10,[10,0,0]),box('hole',4,4,30,[-5,0,0],'layer-1','cut'),box('C',10,10,10,[40,0,0]),box('D',10,10,10,[0,30,0],'layer-2'),box('E',4,4,30,[0,30,0],'layer-2','cut'),box('F',5,5,5,[30,30,0],'layer-2','solid',false)]};
 const ctrl=(el,extra={})=>el.dispatchEvent(new w.MouseEvent('click',{bubbles:true,cancelable:true,ctrlKey:true,...extra}));
 const row=id=>q(`[data-row="${id}"]`),selectedRows=()=>qa('#objectsList [data-row].selected').map(r=>r.dataset.row).sort();
-const rowsMatch=()=>{const p=w.__cad.project,expected=p.layers.flatMap(l=>p.objects.filter(o=>(o.layerId||'layer-1')===l.id).map(o=>o.id));assert.deepEqual(qa('#objectsList [data-row]').map(r=>r.dataset.row),expected);for(const o of p.objects)assert.ok(row(o.id).querySelector('.rowmain').textContent.startsWith(o.name));};
+const rowsMatch=()=>{const p=w.__cad.project,expected=Array.from(p.layers.flatMap(l=>p.objects.filter(o=>(o.layerId||'layer-1')===l.id).map(o=>o.id)));// Array.from: Undo snapshots are window-realm arrays in the jsdom harness
+assert.deepEqual(qa('#objectsList [data-row]').map(r=>r.dataset.row),expected);for(const o of p.objects)assert.ok(row(o.id).querySelector('.rowmain').textContent.startsWith(o.name));};
 function tapScreen(point,mods={}){const at=tool.pointScreen(point);for(const type of ['pointerdown','pointerup']){const ev=new w.MouseEvent(type,{clientX:at[0],clientY:at[1],bubbles:true,cancelable:true,...mods});Object.defineProperty(ev,'pointerId',{value:1});Object.defineProperty(ev,'pointerType',{value:'mouse'});$('scene').dispatchEvent(ev);}}
 w.__cad.load(start);await wait(()=>w.__cad.model.parts.length===6,'load');
 // 1: four modes, three dock buttons, no Objects dock button.

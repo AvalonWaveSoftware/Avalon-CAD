@@ -4,7 +4,7 @@ import {loadPyodide} from 'pyodide';
 import {initKernel,buildModel,validateProject,readSTL} from '../web/kernel.mjs';
 import {initLocalEngine} from '../web/local-engine.mjs';
 import {blank,object} from '../web/templates.mjs';
-import {evaluateBoolean} from '../web/boolean-model.mjs';
+import {evaluateBoolean} from './boolean-model.mjs';
 import {mergeResult} from '../web/operations.mjs';
 import {migrateProject} from '../web/migrate.mjs';
 const K=await initKernel(),runtime=await initLocalEngine(K,{loadPyodide,pythonURL:process.cwd()+'/node_modules/pyodide/',pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});

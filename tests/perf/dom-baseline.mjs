@@ -1,0 +1,48 @@
+// Perf ADR v2 WS0 / §4.2: DOM, CSS and string invariance against the captured baseline.
+//   node tests/perf/dom-baseline.mjs            check static files + string table (exit 1 on any difference)
+//   node tests/perf/dom-baseline.mjs --update   regenerate static.json and strings-baseline.json in AVALON_PIXEL_BASELINE
+// The per-scene DOM/computed-style snapshots are taken by tests/pixels.mjs through domSnapshot() below.
+import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';
+const HERE=path.dirname(new URL(import.meta.url).pathname);
+export const REPO=path.resolve(HERE,'../..');
+// Baselines are artifacts outside git (ADR v2 WS0 step 3).
+export const BASE=path.resolve(process.env.AVALON_PIXEL_BASELINE||'/workspace/avalon-cad-artifacts/perf-baseline');
+export const ASSETS=path.resolve(process.env.AVALON_ASSETS||path.join(REPO,'app/assets'));
+const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+export const STATIC_FILES=['style.css','index.html'];
+// Code-like fragments (containing = ( ) { } ; < > [ ] $ \ or backticks) are skipped; template/HTML strings are covered
+// by the per-scene DOM snapshots instead. User-visible strings come from the app's own sources (three.js/replicad strings are not UI text).
+const STRING_SOURCES=()=>[...fs.readdirSync(path.join(REPO,'web')).filter(f=>/\.(mjs|html|css)$/.test(f)).map(f=>'web/'+f),'engine/python/model_jobs.py','desktop/main.cjs'].filter(f=>fs.existsSync(path.join(REPO,f)));
+export function extractStrings(){const set=new Set();
+ for(const f of STRING_SOURCES()){const src=fs.readFileSync(path.join(REPO,f),'utf8');
+  if(f.endsWith('.html')){for(const m of src.matchAll(/>([^<>]*[A-Za-z][^<>]*)</g))set.add(m[1].trim());for(const m of src.matchAll(/(?:title|aria-label|placeholder)="([^"]+)"/g))set.add(m[1]);continue;}
+  for(const m of src.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)){const s=(m[1]??m[2]??m[3]);if(s.length>1&&!/[=(){};<>\[\]`$\\]/.test(s)&&!/^\.{0,2}\/|\.(m?js|cjs|wasm|py)$/.test(s)&&/[A-Za-z]/.test(s)&&/[ .!?…:·]|^[A-Z][a-z]+$/.test(s))set.add(s);}}
+ return [...set].filter(Boolean).sort();}
+export function staticState(){return Object.fromEntries(STATIC_FILES.map(f=>[f,sha(fs.readFileSync(path.join(ASSETS,f)))]));}
+// Runs in the page: outerHTML of body (id/class/style/text and all other attributes) with the #scene canvas size
+// attributes dropped and random object ids normalised; computed styles hashed per element.
+export async function domSnapshot(page){return page.evaluate(async()=>{
+ const ids=new Map();const walk=list=>{for(const o of list||[]){if(o?.id&&!ids.has(o.id))ids.set(o.id,'obj'+ids.size);walk(o.children);walk(o.objects);walk(o.params?.objects);}};walk(window.__cad?.project?.objects);
+ const body=document.body.cloneNode(true);const c=body.querySelector('#scene');if(c){c.removeAttribute('width');c.removeAttribute('height');c.removeAttribute('style');}
+ // #toast is hidden in captures (as capture.mjs does); its text/hidden state depends on a timer, so it is not compared.
+ const tst=body.querySelector('#toast');if(tst){tst.removeAttribute('hidden');tst.removeAttribute('class');tst.textContent='';}
+ let html=body.outerHTML;for(const [id,n] of [...ids].sort((a,b)=>b[0].length-a[0].length))html=html.split(id).join('{'+n+'}');
+ html=html.replace(/\b[a-z0-9]{6,10}-[a-z0-9]+-[a-z0-9]{5}\b/g,'{uid}');
+ const enc=new TextEncoder(),hex=async s=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(s)))].map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,16);
+ const pathOf=e=>{const p=[];for(;e&&e!==document.body;e=e.parentElement){p.unshift(e.tagName.toLowerCase()+(e.id?'#'+e.id:'')+':'+[...e.parentElement.children].indexOf(e));}return p.join('>');};
+ const styles={};for(const e of document.body.querySelectorAll('*')){if(e.id==='scene')continue;const cs=getComputedStyle(e);let s='';const names=[];for(let i=0;i<cs.length;i++)names.push(cs[i]);names.sort();// custom-property enumeration order is not stable across runs
+  for(const k of names){if(k==='display'&&e.id==='toast')continue;s+=k+':'+cs.getPropertyValue(k)+';';}
+  const r=e.getBoundingClientRect();styles[pathOf(e)]=await hex(s+'|'+[r.x,r.y,r.width,r.height].join(','));}
+ return {html,styles};});}
+export function compareDom(a,b){const out=[];if(a.html!==b.html){let i=0;while(i<a.html.length&&a.html[i]===b.html[i])i++;out.push(`outerHTML differs at char ${i}: baseline …${a.html.slice(Math.max(0,i-60),i+60)}… now …${b.html.slice(Math.max(0,i-60),i+60)}…`);}
+ const keys=new Set([...Object.keys(a.styles),...Object.keys(b.styles)]);let n=0;for(const k of keys)if(a.styles[k]!==b.styles[k]){if(n++<5)out.push('computed style/box differs: '+k);}if(n>5)out.push(`…${n} elements with style differences`);return out;}
+function main(){const update=process.argv.includes('--update');fs.mkdirSync(BASE,{recursive:true});
+ const st=staticState(),strings=extractStrings(),fS=path.join(BASE,'static.json'),fT=path.join(BASE,'strings-baseline.json');
+ if(update){fs.writeFileSync(fS,JSON.stringify(st,null,1)+'\n');fs.writeFileSync(fT,JSON.stringify(strings,null,1)+'\n');console.log('wrote',fS,'and',fT,strings.length,'strings');return;}
+ const bs=JSON.parse(fs.readFileSync(fS,'utf8')),bt=new Set(JSON.parse(fs.readFileSync(fT,'utf8'))),now=new Set(strings);let bad=0;
+ for(const f of STATIC_FILES)if(bs[f]!==st[f]){bad++;console.error(`FAIL ${f} is not byte-identical to the baseline (${bs[f]} → ${st[f]})`);}
+ const added=strings.filter(s=>!bt.has(s)),removed=[...bt].filter(s=>!now.has(s));
+ for(const s of added){bad++;console.error('FAIL new/changed user-visible string:',JSON.stringify(s));}
+ for(const s of removed){bad++;console.error('FAIL string missing vs baseline:',JSON.stringify(s));}
+ if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length} strings identical`);}
+if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname)main();

@@ -1,11 +1,12 @@
 import * as T from 'three';
+import {material,sphere as sharedSphere,beginSpheres,pooled,toolPool} from './render-resources.mjs';
 import {layerOf} from './layers.mjs';
 import {startAtOrigin,applyFloorAdjustments} from './placement.mjs';
 import {isThread,containsThreads} from './threads.mjs';
 import {installMergeTools} from './merge-tools.mjs';
 import {axes,matrix,direction,dimensions,stretch,faceAxis,centerPoints,worldCenter,withRoundover,conjoined,connectingBridges,alignCenters,alignFaceCenters} from './operations.mjs';
 import {object,uid,names} from './templates.mjs';
-import {validateProject} from './kernel.mjs';
+import {validateProject} from './kernel-ui.mjs';
 export function installTouch(S){
  const {canvas,scene,camera,controls}=S, $=id=>document.getElementById(id);
  let mode='select',axis='XY',snap=true,step=.1,face=null,selection='shape',edgeSelection=[],multi=new Set(),gesture=null,committing=false,commitSnapshot=null,replay=false,firstPointer=null,lastTap=null,ray=new T.Raycaster(),baseMeshes=[],markers=[],handles=[],paint=new T.Group(),lastPaint=0;
@@ -24,25 +25,25 @@ export function installTouch(S){
  function geometry(t){const g=new T.BufferGeometry();g.setAttribute('position',new T.BufferAttribute(t.vertices,3));g.setIndex(new T.BufferAttribute(t.triangles,1));return g;}
  function onModel(){if(face?.id!==S.selected()){face=null;selection='shape';edgeSelection=[];}else if(face.index>=0&&!topology(face.id)?.groups.some(g=>g.face===face.index)){face=null;selection='shape';edgeSelection=[];}for(const m of baseMeshes){m.geometry.dispose();m.material.dispose();}baseMeshes=[];
   for(const p of parts()){const obj=project().objects.find(a=>a.id===p.userData.id);if(!obj)continue;const inv=matrix(obj).invert(),v=p.geometry.attributes.position.array,min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];for(let i=0;i<v.length;i+=3){const q=new T.Vector3(v[i],v[i+1],v[i+2]).applyMatrix4(inv);for(let j=0;j<3;j++){min[j]=Math.min(min[j],q.getComponent(j));max[j]=Math.max(max[j],q.getComponent(j));}}obj.localBounds={min,max};
-   const t=p.userData.topology;if(t){const m=new T.Mesh(geometry(t),new T.MeshBasicMaterial({side:T.DoubleSide}));m.matrix.copy(matrix(obj));m.matrixAutoUpdate=false;m.updateMatrixWorld(true);m.userData={id:obj.id,topology:t};baseMeshes.push(m);}
+   const t=p.userData.topology;if(t){const m=new T.Mesh(geometry(t),material('basic',T.MeshBasicMaterial,{side:T.DoubleSide}));m.matrix.copy(matrix(obj));m.matrixAutoUpdate=false;m.updateMatrixWorld(true);m.userData={id:obj.id,topology:t};baseMeshes.push(m);}
   }
   multi=new Set([...multi].filter(id=>project().objects.some(a=>a.id===id)));update();draw();
  }
  function pixelSize(px){const z=camera.position.distanceTo(controls.target);return z*Math.tan(T.MathUtils.degToRad(camera.fov/2))*2/(canvas.clientHeight||500)*px;}
- function draw(){if(gesture?.moved)return;clear(paint);markers=[];handles=[];
+ function draw(){if(gesture?.moved)return;clear(paint);beginSpheres();markers=[];handles=[];
   const obj=o();if(!obj)return;
-  if(multi.size>1){for(const id of multi){const m=part(id);if(!m)continue;const color=m.userData.mode==='cut'?0xffb66f:0x77e2d2,fill=new T.Mesh(m.geometry.clone(),new T.MeshBasicMaterial({color,depthTest:false,depthWrite:false,transparent:true,opacity:.28,side:T.DoubleSide}));fill.userData.multiId=id;fill.renderOrder=7;paint.add(fill);const edge=new T.LineSegments(new T.EdgesGeometry(m.geometry,15),new T.LineBasicMaterial({color,depthTest:false,transparent:true,opacity:.95}));edge.renderOrder=8;paint.add(edge);}}
-  if(mode==='move'||snap&&mode==='select')for(const item of project().objects.filter(a=>a.enabled))for(const c of centerPoints(item,topology(item.id))){if(c.kind==='axis')continue;const sphere=new T.Mesh(new T.SphereGeometry(pixelSize(c.kind==='center'?4.5:3),10,8),new T.MeshBasicMaterial({color:item.id===obj.id?0xb8ffee:0x85a9b8,depthTest:false,transparent:true,opacity:item.id===obj.id?.9:.45}));sphere.position.set(...c.point);sphere.renderOrder=12;paint.add(sphere);markers.push({...c,id:item.id});}
+  if(multi.size>1){for(const id of multi){const m=part(id);if(!m)continue;const color=m.userData.mode==='cut'?0xffb66f:0x77e2d2,fill=new T.Mesh(m.geometry.clone(),material('basic',T.MeshBasicMaterial,{color,depthTest:false,depthWrite:false,transparent:true,opacity:.28,side:T.DoubleSide}));fill.userData.multiId=id;fill.renderOrder=7;paint.add(fill);const edge=new T.LineSegments(new T.EdgesGeometry(m.geometry,15),material('line',T.LineBasicMaterial,{color,depthTest:false,transparent:true,opacity:.95}));edge.renderOrder=8;paint.add(edge);}}
+  if(mode==='move'||snap&&mode==='select')for(const item of project().objects.filter(a=>a.enabled))for(const c of centerPoints(item,topology(item.id))){if(c.kind==='axis')continue;const sphere=new T.Mesh(sharedSphere(T.SphereGeometry,pixelSize(c.kind==='center'?4.5:3),10,8),material('basic',T.MeshBasicMaterial,{color:item.id===obj.id?0xb8ffee:0x85a9b8,depthTest:false,transparent:true,opacity:item.id===obj.id?.9:.45}));sphere.position.set(...c.point);sphere.renderOrder=12;paint.add(sphere);markers.push({...c,id:item.id});}
   if(mode==='move'){
-   const center=point(worldCenter(obj)),length=pixelSize(52);for(let i=0;i<3;i++){const dir=new T.Vector3();dir.setComponent(i,1);const end=center.clone().addScaledVector(dir,length),color=[0xff8d85,0xa3e690,0x83beff][i];const line=new T.Line(new T.BufferGeometry().setFromPoints([center,end]),new T.LineBasicMaterial({color,depthTest:false}));line.renderOrder=15;paint.add(line);const sphere=new T.Mesh(new T.SphereGeometry(pixelSize(7),12,8),new T.MeshBasicMaterial({color,depthTest:false}));sphere.position.copy(end);sphere.renderOrder=15;paint.add(sphere);handles.push({axis:axes[i],point:end});}
+   const center=point(worldCenter(obj)),length=pixelSize(52);for(let i=0;i<3;i++){const dir=new T.Vector3();dir.setComponent(i,1);const end=center.clone().addScaledVector(dir,length),color=[0xff8d85,0xa3e690,0x83beff][i];const line=new T.Line(pooled(toolPool,()=>new T.BufferGeometry().setFromPoints([center,end])),material('line',T.LineBasicMaterial,{color,depthTest:false}));line.renderOrder=15;paint.add(line);const sphere=new T.Mesh(sharedSphere(T.SphereGeometry,pixelSize(7),12,8),material('basic',T.MeshBasicMaterial,{color,depthTest:false}));sphere.position.copy(end);sphere.renderOrder=15;paint.add(sphere);handles.push({axis:axes[i],point:end});}
   }
-  const t=topology(obj.id);if(mode==='round'&&t){for(const e of t.edges){const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(e.points,3));const line=new T.LineSegments(g,new T.LineBasicMaterial({color:edgeSelection.includes(e.index)?0xffbc70:0x638c96,depthTest:!edgeSelection.includes(e.index),transparent:true,opacity:edgeSelection.includes(e.index)?1:.4}));line.matrix.copy(matrix(obj));line.matrixAutoUpdate=false;line.renderOrder=10;paint.add(line);}}
+  const t=topology(obj.id);if(mode==='round'&&t){for(const e of t.edges){const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(e.points,3));const line=new T.LineSegments(g,material('line',T.LineBasicMaterial,{color:edgeSelection.includes(e.index)?0xffbc70:0x638c96,depthTest:!edgeSelection.includes(e.index),transparent:true,opacity:edgeSelection.includes(e.index)?1:.4}));line.matrix.copy(matrix(obj));line.matrixAutoUpdate=false;line.renderOrder=10;paint.add(line);}}
   if(selection==='face'&&face){const group=t?.groups.find(g=>g.face===face.index);let g;
    if(group){g=geometry(t);g.setDrawRange(group.start,group.count);}
    else if(!t&&Number.isInteger(face.triangle)){g=part(obj.id)?.geometry.clone();g?.setDrawRange(face.triangle*3,3);}
-   if(g){const m=new T.Mesh(g,new T.MeshBasicMaterial({color:0xffcf83,transparent:true,opacity:.3,side:T.DoubleSide,depthTest:false,depthWrite:false}));if(t){m.matrix.copy(matrix(obj));m.matrixAutoUpdate=false;}m.userData.faceId=face.index;m.renderOrder=9;paint.add(m);}
+   if(g){const m=new T.Mesh(g,material('basic',T.MeshBasicMaterial,{color:0xffcf83,transparent:true,opacity:.3,side:T.DoubleSide,depthTest:false,depthWrite:false}));if(t){m.matrix.copy(matrix(obj));m.matrixAutoUpdate=false;}m.userData.faceId=face.index;m.renderOrder=9;paint.add(m);}
   }
-  if(mode==='select'&&selection==='shape'){const p=part(obj.id);if(p){const m=new T.Mesh(p.geometry.clone(),new T.MeshBasicMaterial({color:0x9af0cf,transparent:true,opacity:.18,side:T.DoubleSide,depthTest:false,depthWrite:false}));m.userData.wholeId=obj.id;m.renderOrder=8;paint.add(m);}}
+  if(mode==='select'&&selection==='shape'){const p=part(obj.id);if(p){const m=new T.Mesh(pooled(toolPool,()=>p.geometry.clone()),material('basic',T.MeshBasicMaterial,{color:0x9af0cf,transparent:true,opacity:.18,side:T.DoubleSide,depthTest:false,depthWrite:false}));m.userData.wholeId=obj.id;m.renderOrder=8;paint.add(m);}}
  }
  function objectHits(e){setRay(e);const eligible=parts().filter(p=>project().objects.some(o=>o.id===p.userData.id&&layerOf(o)===project().activeLayer)&&(p.userData.mode==='solid'||p.userData.id===S.selected()||multi.has(p.userData.id)));eligible.forEach(p=>p.updateMatrixWorld(true));const seen=new Set();return ray.intersectObjects(eligible,false).filter(h=>{const id=h.object.userData.id;if(seen.has(id))return false;seen.add(id);return true;});}
  function objectHit(e){return objectHits(e)[0]||null;}
@@ -98,7 +99,7 @@ export function installTouch(S){
   face=pickedFace;selection='face';if(mode==='round'){mode='select';modeButtons();}update();draw();
  }
  function getDrag(e){if(committing)return null;const obj=o();if(!obj)return null;const hit=objectHit(e);let handle=null;if(mode==='move')handle=handles.find(h=>project2(h.point).distanceTo(new T.Vector2(e.clientX,e.clientY))<18);if(!handle&&hit?.object.userData.id!==obj.id&&!(mode==='round'&&pickEdge(e,obj,null)!==null))return null;
-  const g={id:obj.id,startX:e.clientX,startY:e.clientY,base:structuredClone(obj),before:JSON.stringify(project()),moved:false,mode,axis:handle?.axis||axis,preview:0,bottom:part(obj.id)?.userData.bounds.min[2]??0};
+  const g={id:obj.id,startX:e.clientX,startY:e.clientY,base:structuredClone(obj),before:JSON.stringify(project()),snap:S.snapshot?.(),moved:false,mode,axis:handle?.axis||axis,preview:0,bottom:part(obj.id)?.userData.bounds.min[2]??0};
   if(mode==='stretch'){if(['joined','prefab'].includes(obj.type)&&containsThreads(obj)){S.toast('Separate components to change thread length without changing pitch.');return null;}face=faceFromHit({...hit,sx:e.clientX,sy:e.clientY},obj);if(isThread(obj)&&face.axis!==2){S.toast('Pull an end face to change thread length. Change diameter in Edit.');return null;}selection='face';g.axis=axes[face.axis];g.sign=face.sign;g.direction=direction(obj,face.axis,face.sign);}
   if(mode==='round'){const edge=pickEdge(e,obj,hit);if(edge===null)return null;if(hit)face=faceFromHit({...hit,sx:e.clientX,sy:e.clientY},obj);selection='edges';if(!edgeSelection.includes(edge))edgeSelection=[edge];g.radius=radius(obj,edgeSelection);g.edgeIndices=[...edgeSelection];}
   g.origin=point(worldCenter(obj));g.units=pixelSize(1);g.plane=new T.Plane(new T.Vector3(0,0,1),-g.origin.z);setRay(e);g.planeStart=ray.ray.intersectPlane(g.plane,new T.Vector3());return g;
@@ -123,7 +124,7 @@ export function installTouch(S){
  async function finishGesture(cancel=false){const g=gesture;if(!g)return;gesture=null;controls.enabled=true;if(!g.moved){update();draw();return;}
   if(cancel){Object.assign(project(),JSON.parse(g.before));S.refresh();$('liveMeasure').hidden=true;return;}
   committing=true;commitSnapshot=g.before;document.getElementById('app').classList.add('checking');$('liveMeasure').textContent+=' · checking solid…';$('touchModes').style.pointerEvents='none';
-  try{validateProject(project());applyFloorAdjustments(project(),await S.request('check',{project:structuredClone(project()),tolerance:.15}));S.record(g.before);S.refresh();S.toast(g.mode==='round'?'Roundover applied.':g.snapped?'Centers snapped.':'Dimensions updated.');}
+  try{validateProject(project());applyFloorAdjustments(project(),await S.request('check',{project:structuredClone(project()),tolerance:.15}));S.record(g.snap??g.before);S.refresh();S.toast(g.mode==='round'?'Roundover applied.':g.snapped?'Centers snapped.':'Dimensions updated.');}
   catch(e){Object.assign(project(),JSON.parse(g.before));S.refresh();S.toast(e.message,true);}
   finally{committing=false;commitSnapshot=null;S.autosave();document.getElementById('app').classList.remove('checking');$('touchModes').style.pointerEvents='';setTimeout(()=>$('liveMeasure').hidden=true,1600);update();draw();}
  }

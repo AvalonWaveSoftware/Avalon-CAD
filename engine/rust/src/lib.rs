@@ -2,6 +2,7 @@
 //! The ABI consumes borrowed buffers and writes caller-owned result buffers.
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::slice;
 mod threads;
 
@@ -43,21 +44,32 @@ fn unit(n: [f64; 3]) -> [f64; 3] {
     [n[0]*inv,n[1]*inv,n[2]*inv]
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn prepare_mesh(
+// WS10 (Architect note): the corner weld used std's SipHash HashMap. FxHash gives the same ids (ids are assigned in corner
+// order on first insertion, independent of the hasher), so the output is byte-identical, only faster.
+#[derive(Default, Clone, Copy)]
+struct Fx(u64);
+impl Hasher for Fx {
+    fn finish(&self) -> u64 { self.0 }
+    fn write(&mut self, bytes: &[u8]) { for &b in bytes { self.add(b as u64); } }
+    fn write_u32(&mut self, x: u32) { self.add(x as u64); }
+    fn write_u64(&mut self, x: u64) { self.add(x); }
+    fn write_usize(&mut self, x: usize) { self.add(x as u64); }
+}
+impl Fx { #[inline] fn add(&mut self, x: u64) { self.0 = (self.0.rotate_left(5) ^ x).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95); } }
+type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<Fx>>;
+
+/// Shared display preparation: calls `emit(corner, position, normal)` for every triangle corner in order.
+unsafe fn prepare_corners(
     vp: *const f32, nv: usize, tp: *const u32, nt: usize,
     flags: *const u8, nf: usize, groups: *const u32, ng: usize,
-    positions: *mut f32, normals: *mut f32,
+    mut emit: impl FnMut(usize, &[f32], [f32; 3], usize),
 ) -> i32 {
-    if nt == 0 { return 0; }
-    if vp.is_null() || tp.is_null() || positions.is_null() || normals.is_null() { return 1; }
+    if vp.is_null() || tp.is_null() { return 1; }
     let v=slice::from_raw_parts(vp,nv);let t=slice::from_raw_parts(tp,nt);
     if !valid(v,t) || (nf!=0 && (flags.is_null() || nf!=nt/3))
         || (ng!=0 && (groups.is_null() || ng!=nt/3)) { return 2; }
     let flat=if nf>0 {slice::from_raw_parts(flags,nf)}else{&[]};
     let smoothing=if ng>0 {slice::from_raw_parts(groups,ng)}else{&[]};
-    let out=slice::from_raw_parts_mut(positions,nt*3);
-    let normal_out=slice::from_raw_parts_mut(normals,nt*3);
     let mut faces=Vec::with_capacity(nt/3);
     for f in t.chunks_exact(3) {
         let a=point(v,f[0]);let b=point(v,f[1]);let c=point(v,f[2]);
@@ -65,18 +77,29 @@ pub unsafe extern "C" fn prepare_mesh(
     }
     // Weld only identical positions from the same source surface instance.
     // Boolean seams and nearby thin faces must not borrow each other's normals.
+    // The weld key of a corner is (position bits with -0 as 0, smoothing group); ids are numbered in corner order on first
+    // appearance. Positions are hashed once per input vertex, and a vertex remembers its last (group, id), so most
+    // corners skip the hash; the ids are the same as hashing every corner's full key.
     let mut ids=Vec::with_capacity(nt);
-    let mut table=HashMap::with_capacity(nv/3);
+    let bits=|value:f32|if value==0.0 {0}else{value.to_bits()};
+    let mut positions:FxMap<(u32,u32,u32),u32>=FxMap::with_capacity_and_hasher(nv/3,Default::default());
+    let mut table:FxMap<u64,usize>=FxMap::with_capacity_and_hasher(nv/3,Default::default());
+    let (mut pos_id,mut memo_group,mut memo_id)=(vec![u32::MAX;nv/3],vec![0u32;nv/3],vec![usize::MAX;nv/3]);
     for (corner,&vertex) in t.iter().enumerate() {
-        let p=vertex as usize*3;
-        let bits=|value:f32|if value==0.0 {0}else{value.to_bits()};
-        let key=(bits(v[p]),bits(v[p+1]),bits(v[p+2]),smoothing.get(corner/3).copied().unwrap_or(0));
-        let next=table.len();let id=*table.entry(key).or_insert(next);ids.push(id);
+        let vi=vertex as usize;let group=smoothing.get(corner/3).copied().unwrap_or(0);
+        if memo_id[vi]!=usize::MAX && memo_group[vi]==group {ids.push(memo_id[vi]);continue;}
+        if pos_id[vi]==u32::MAX {
+            let p=vi*3;let next=positions.len() as u32;
+            pos_id[vi]=*positions.entry((bits(v[p]),bits(v[p+1]),bits(v[p+2]))).or_insert(next);
+        }
+        let next=table.len();let id=*table.entry(((group as u64)<<32)|pos_id[vi] as u64).or_insert(next);
+        memo_group[vi]=group;memo_id[vi]=id;ids.push(id);
     }
-    let mut offsets=vec![0usize;table.len()+1];
+    let count=table.len();drop(table);drop(positions);
+    let mut offsets=vec![0usize;count+1];
     for &id in &ids {offsets[id+1]+=1;}
-    for i in 0..table.len() {offsets[i+1]+=offsets[i];}
-    let mut buckets=vec![0usize;nt];let mut cursors=offsets[..table.len()].to_vec();
+    for i in 0..count {offsets[i+1]+=offsets[i];}
+    let mut buckets=vec![0usize;nt];let mut cursors=offsets[..count].to_vec();
     for (i,&id) in ids.iter().enumerate() {buckets[cursors[id]]=i/3;cursors[id]+=1;}
     let crease=(std::f64::consts::PI/6.0).cos();
     for (f,tri) in t.chunks_exact(3).enumerate() {
@@ -85,10 +108,9 @@ pub unsafe extern "C" fn prepare_mesh(
             Some(unit(cross(sub(point(v,tri[1]),point(v,tri[0])),sub(point(v,tri[2]),point(v,tri[0])))))
         }else{None};
         for (corner,&vertex) in tri.iter().enumerate() {
-            let at=f*9+corner*3;let p=vertex as usize*3;
-            out[at..at+3].copy_from_slice(&v[p..p+3]);
+            let p=vertex as usize*3;let id=ids[f*3+corner];
             let nn=if let Some(fixed)=fixed {fixed}else{
-                let id=ids[f*3+corner];let mut sum=[0.0;3];
+                let mut sum=[0.0;3];
                 for &adjacent in &buckets[offsets[id]..offsets[id+1]] {
                     let other=faces[adjacent];
                     if n[0]*other[0]+n[1]*other[1]+n[2]*other[2]>crease {
@@ -97,10 +119,62 @@ pub unsafe extern "C" fn prepare_mesh(
                 }
                 unit(sum)
             };
-            for k in 0..3 {normal_out[at+k]=nn[k] as f32;}
+            emit(f*3+corner,&v[p..p+3],[nn[0] as f32,nn[1] as f32,nn[2] as f32],id);
         }
     }
     0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn prepare_mesh(
+    vp: *const f32, nv: usize, tp: *const u32, nt: usize,
+    flags: *const u8, nf: usize, groups: *const u32, ng: usize,
+    positions: *mut f32, normals: *mut f32,
+) -> i32 {
+    if nt == 0 { return 0; }
+    if positions.is_null() || normals.is_null() { return 1; }
+    let out=slice::from_raw_parts_mut(positions,nt*3);
+    let normal_out=slice::from_raw_parts_mut(normals,nt*3);
+    prepare_corners(vp,nv,tp,nt,flags,nf,groups,ng,|corner,p,n,_|{
+        let at=corner*3;out[at..at+3].copy_from_slice(p);normal_out[at..at+3].copy_from_slice(&n);
+    })
+}
+
+/// WS10: the same corners as `prepare_mesh`, indexed. Corners whose position and normal bits are both identical share
+/// one vertex (only within one weld id, i.e. same position key and smoothing group), numbered in first-corner order.
+/// `positions`/`normals` need room for `nt*3` floats, `index` for `nt` entries; `count` receives the vertex
+/// count. Expanding `index` gives `prepare_mesh` exactly.
+#[no_mangle]
+pub unsafe extern "C" fn prepare_indexed(
+    vp: *const f32, nv: usize, tp: *const u32, nt: usize,
+    flags: *const u8, nf: usize, groups: *const u32, ng: usize,
+    positions: *mut f32, normals: *mut f32, index: *mut u32, count: *mut u32,
+) -> i32 {
+    if count.is_null() { return 1; }
+    *count=0;
+    if nt == 0 { return 0; }
+    if positions.is_null() || normals.is_null() || index.is_null() { return 1; }
+    let out=slice::from_raw_parts_mut(positions,nt*3);let normal_out=slice::from_raw_parts_mut(normals,nt*3);
+    let index_out=slice::from_raw_parts_mut(index,nt);
+    let mut heads:Vec<u32>=Vec::new();let mut chain:Vec<u32>=Vec::with_capacity(nt/2);let mut n_out=0usize;
+    let code=prepare_corners(vp,nv,tp,nt,flags,nf,groups,ng,|corner,p,n,id|{
+        if id>=heads.len() {heads.resize(id+1,u32::MAX);}
+        let same=|a:&[f32],b:&[f32]|a.iter().zip(b).all(|(x,y)|x.to_bits()==y.to_bits());
+        let mut at=heads[id];
+        while at!=u32::MAX {
+            let i=at as usize*3;
+            if same(&out[i..i+3],p) && same(&normal_out[i..i+3],&n) {break;}
+            at=chain[at as usize];
+        }
+        if at==u32::MAX {
+            at=n_out as u32;let i=n_out*3;
+            out[i..i+3].copy_from_slice(p);normal_out[i..i+3].copy_from_slice(&n);
+            chain.push(heads[id]);heads[id]=at;n_out+=1;
+        }
+        index_out[corner]=at;
+    });
+    if code==0 {*count=n_out as u32;}
+    code
 }
 
 #[no_mangle]
@@ -159,6 +233,19 @@ mod tests {
     #[test] fn thin_gaps_do_not_weld_distinct_vertices() {
         let angle=20_f32.to_radians();let v=[0.,0.,0.,1.,0.,0.,0.,1.,0.,0.,0.,0.002,1.,0.,0.002,0.,angle.cos(),0.002-angle.sin()];
         let normals=preview(&v,&[0,1,2,3,4,5],&[1,1]);assert!(normals[1].abs()<1e-6);assert!((normals[10]-angle.sin()).abs()<1e-6);
+    }
+    #[test] fn indexed_expands_to_prepare_mesh() {
+        let angle=20_f32.to_radians();let v=[0.,0.,0.,1.,0.,0.,0.,1.,0.,0.,angle.cos(),-angle.sin(),-0.,1.,0.];let t=[0,1,2,0,1,3,4,2,0];
+        for groups in [&[][..],&[1,1,2][..]] {
+            let mut positions=vec![0.;t.len()*3];let mut normals=positions.clone();
+            assert_eq!(unsafe{prepare_mesh(v.as_ptr(),v.len(),t.as_ptr(),t.len(),std::ptr::null(),0,groups.as_ptr(),groups.len(),positions.as_mut_ptr(),normals.as_mut_ptr())},0);
+            let (mut p,mut n,mut i,mut c)=(vec![0f32;t.len()*3],vec![0f32;t.len()*3],vec![0u32;t.len()],0u32);
+            assert_eq!(unsafe{prepare_indexed(v.as_ptr(),v.len(),t.as_ptr(),t.len(),std::ptr::null(),0,groups.as_ptr(),groups.len(),p.as_mut_ptr(),n.as_mut_ptr(),i.as_mut_ptr(),&mut c)},0);
+            assert!((c as usize)<t.len());
+            for k in 0..t.len() {let x=i[k] as usize;for j in 0..3 {
+                assert_eq!(p[x*3+j].to_bits(),positions[k*3+j].to_bits());assert_eq!(n[x*3+j].to_bits(),normals[k*3+j].to_bits());
+}}
+        }
     }
     #[test] fn rejects_invalid_smoothing_group_length() {
         let v=[0.,0.,0.,1.,0.,0.,0.,1.,0.];let t=[0,1,2];let groups=[1,2];let mut positions=[0.;9];let mut normals=[0.;9];

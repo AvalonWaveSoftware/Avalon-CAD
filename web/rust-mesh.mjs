@@ -1,6 +1,9 @@
-export async function initRustMesh({binary,url}={}){
- const bytes=binary||await (async()=>{const r=await fetch(url);if(!r.ok)throw Error('The bundled Rust engine could not load.');return r.arrayBuffer();})();
- const {instance}=await WebAssembly.instantiate(bytes,{}),core=instance.exports;
+export async function initRustMesh({binary,url,streaming}={}){
+ let instance;
+ // WS8: streaming compile straight from the response (same bytes, same module); errors keep the same message.
+ if(!binary&&streaming&&WebAssembly.instantiateStreaming){const r=await fetch(url);if(!r.ok)throw Error('The bundled Rust engine could not load.');({instance}=await WebAssembly.instantiateStreaming(r,{}));}
+ else{const bytes=binary||await (async()=>{const r=await fetch(url);if(!r.ok)throw Error('The bundled Rust engine could not load.');return r.arrayBuffer();})();({instance}=await WebAssembly.instantiate(bytes,{}));}
+ const core=instance.exports;
  if(core.engine_version()!==3)throw Error('Unsupported Rust geometry engine.');
  function withBuffers(fn){const allocations=[];
   const allocate=bytes=>{if(!bytes)return 0;const ptr=core.mesh_alloc(bytes);if(!ptr)throw Error('The model exceeds available geometry memory.');allocations.push([ptr,bytes]);return ptr;};
@@ -23,6 +26,15 @@ export async function initRustMesh({binary,url}={}){
    return withBuffers((allocate,input)=>{const vp=input(vertices),tp=input(triangles),fp=input(flat),gp=input(groups),bytes=triangles.length*12,pp=allocate(bytes),np=allocate(bytes);
     if(core.prepare_mesh(vp,vertices.length,tp,triangles.length,fp,flat.length,gp,groups.length,pp,np))throw Error('The model contains invalid mesh geometry.');
     return {positions:new Float32Array(core.memory.buffer,pp,triangles.length*3).slice(),normals:new Float32Array(core.memory.buffer,np,triangles.length*3).slice()};
+   });
+  },
+  // WS10: indexed display mesh. Expanding index over positions/normals gives prepare() exactly.
+  prepareIndexed(vertices,triangles,flat=new Uint8Array(),groups=new Uint32Array()){
+   validate(vertices,triangles);if(!triangles.length)return {positions:new Float32Array(),normals:new Float32Array(),index:new Uint32Array()};
+   return withBuffers((allocate,input)=>{const n=triangles.length,vp=input(vertices),tp=input(triangles),fp=input(flat),gp=input(groups),pp=allocate(n*12),np=allocate(n*12),ip=allocate(n*4),cp=allocate(4);
+    if(core.prepare_indexed(vp,vertices.length,tp,n,fp,flat.length,gp,groups.length,pp,np,ip,cp))throw Error('The model contains invalid mesh geometry.');
+    const count=new Uint32Array(core.memory.buffer,cp,1)[0];
+    return {positions:new Float32Array(core.memory.buffer,pp,count*3).slice(),normals:new Float32Array(core.memory.buffer,np,count*3).slice(),index:new Uint32Array(core.memory.buffer,ip,n).slice()};
    });
   },
   writeSTL(vertices,triangles,ground=true){

@@ -34,6 +34,11 @@ public class MainActivity extends Activity {
     private final ExecutorService files=Executors.newSingleThreadExecutor();
     private static final int SAVE=40,OPEN=41,MAX_FILE=50*1024*1024;
     private static final String ORIGIN="appassets.androidplatform.net";
+    // WS8 (PARALLEL_INIT, mirrored by build-web.mjs into assets/perf-flags.json): WebView cache on, ?v=<version> assets
+    // served immutable so V8 can keep their compiled code. Missing or false keeps LOAD_NO_CACHE and plain responses.
+    private boolean parallelInit=false;private String assetVersion=null;
+    private void readStartupFlags(){try(InputStream in=getAssets().open("perf-flags.json")){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[4096];int n;while((n=in.read(b))>0)out.write(b,0,n);
+        JSONObject flags=new JSONObject(out.toString("UTF-8"));parallelInit=flags.optBoolean("PARALLEL_INIT",false);assetVersion=flags.optString("version",null);}catch(Exception e){parallelInit=false;}}
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().setStatusBarColor(Color.rgb(16,25,31));
@@ -46,7 +51,8 @@ public class MainActivity extends Activity {
             else v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());
             return insets.consumeSystemWindowInsets();
         });root.requestApplyInsets();
-        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setCacheMode(WebSettings.LOAD_NO_CACHE);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setAllowFileAccessFromFileURLs(false);s.setAllowUniversalAccessFromFileURLs(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setMediaPlaybackRequiresUserGesture(true);s.setSupportMultipleWindows(false);
+        readStartupFlags();
+        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setCacheMode(parallelInit?WebSettings.LOAD_DEFAULT:WebSettings.LOAD_NO_CACHE);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setAllowFileAccessFromFileURLs(false);s.setAllowUniversalAccessFromFileURLs(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setMediaPlaybackRequiresUserGesture(true);s.setSupportMultipleWindows(false);
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest request){return true;}
@@ -56,6 +62,9 @@ public class MainActivity extends Activity {
                     String path=uri.getPath();if(path!=null&&path.startsWith("/assets/")&&!path.contains("..")){
                         String asset=path.substring(8),mime="application/octet-stream";
                         if(asset.endsWith(".html"))mime="text/html";else if((asset.endsWith(".js")||asset.endsWith(".mjs")))mime="text/javascript";else if(asset.endsWith(".json"))mime="application/json";else if(asset.endsWith(".py"))mime="text/plain";else if(asset.endsWith(".css"))mime="text/css";else if(asset.endsWith(".wasm"))mime="application/wasm";
+                        if(parallelInit){try{Map<String,String> headers=new HashMap<>();boolean versioned=assetVersion!=null&&assetVersion.equals(uri.getQueryParameter("v"));
+                            headers.put("Cache-Control",versioned?"public, max-age=31536000, immutable":"no-store");
+                            return new WebResourceResponse(mime,"UTF-8",200,"OK",headers,getAssets().open(asset));}catch(IOException e){return new WebResourceResponse("text/plain","UTF-8",404,"Not Found",new HashMap<>(),new ByteArrayInputStream(new byte[0]));}}
                         try{return new WebResourceResponse(mime,"UTF-8",getAssets().open(asset));}catch(IOException e){return new WebResourceResponse("text/plain","UTF-8",404,"Not Found",new HashMap<>(),new ByteArrayInputStream(new byte[0]));}
                     }
                 }

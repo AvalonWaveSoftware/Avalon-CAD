@@ -6,6 +6,7 @@ import {initLocalEngine} from '../web/local-engine.mjs';
 import {defaults,object,blank} from '../web/templates.mjs';
 import {stretch,dimensions,mergeResult} from '../web/operations.mjs';
 import {parseThreadNumber} from '../web/threads.mjs';
+import {corners} from './display-corners.mjs';
 
 const K=await initKernel(),runtime=await initLocalEngine(K,{loadPyodide,pythonURL:process.cwd()+'/node_modules/pyodide/',pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
 let id=0,cases=0;
@@ -25,7 +26,7 @@ function crests(mesh,o){const values=[],radius=o.params.diameter/2+(o.type==='th
 for(const type of ['threadrod','threadtube'])for(const hand of ['right','left'])for(const units of ['metric','imperial']){
  const params={...defaults[type],hand,units,h:units==='metric'?20.7:50.8,...(units==='imperial'?{diameter:6.35,pitch:1.27}:{}),phase:.31};
  const o=object(type,params),m=run({type:'preview',project:project(o),tolerance:.005});
- assert.ok(Math.abs(closed(m.vertices,m.triangles)-m.volume)<1e-5);assert.equal(m.parts[0].topology.faceCount,type==='threadrod'?3:4);assert.equal(m.parts[0].topology.flatFaces,2);assert.equal(m.parts[0].topology.edges.length,0);assert.equal(m.displayNormals.length,m.triangles.length*3);
+ assert.ok(Math.abs(closed(m.vertices,m.triangles)-m.volume)<1e-5);assert.equal(m.parts[0].topology.faceCount,type==='threadrod'?3:4);assert.equal(m.parts[0].topology.flatFaces,2);assert.equal(m.parts[0].topology.edges.length,0);assert.equal(corners(m).normals.length,m.triangles.length*3);
  assert.ok(Math.abs(m.bounds.max[2]-m.bounds.min[2]-params.h)<1e-5);
  const s=makeObject(K,o,.005),core=K.Manifold.sphere(.1,24),inside=s.intersect(core);
  assert.ok(type==='threadrod'?Math.abs(inside.volume()-core.volume())<1e-7:inside.volume()===0,'Rod core must be solid; tube must remain open');inside.delete();core.delete();s.delete();cases++;

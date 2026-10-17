@@ -1,7 +1,7 @@
 import {validatePrefab,makePrefab,prefabParts,instantiatePrefab,replaceWithInstance} from './prefabs.mjs';
 import {migratePrefabRecord} from './migrate.mjs';
 import {layerOf,layerName,booleanProject} from './layers.mjs';
-import {validateProject} from './kernel.mjs';
+import {validateProject} from './kernel-ui.mjs';
 const STORAGE='tristancad.prefabs';
 // Create Prefab from a multi-selection (ADR Addendum A). Owner defaults; flip here.
 export const PREFAB_DEFAULTS={replaceSelection:true,bakeOutsideCutouts:true};

@@ -10,10 +10,12 @@ import sys
 from pathlib import Path
 
 app = Path(sys.argv[1]).resolve()
+# WS7: the Pyodide assets ship only when web/perf-flags.mjs has JS_ENGINE=false.
+PYTHON = 'JS_ENGINE=false' in (Path(__file__).resolve().parent.parent / 'web/perf-flags.mjs').read_text()
 info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
 assert info['CFBundleIdentifier'] == 'com.avaloncad.desktop'
 assert info['CFBundleExecutable'] == 'AvalonCad'
-assert info['CFBundleShortVersionString'] == '2.6.1'
+assert info['CFBundleShortVersionString'] == '2.7.0'
 assert info['LSMinimumSystemVersion'] == '13.0'
 hashes = {1: hashlib.sha1, 2: hashlib.sha256, 3: hashlib.sha256, 4: hashlib.sha384}
 machos = 0
@@ -75,8 +77,8 @@ for resources in app.rglob('CodeResources'):
         sealed += 1
 assert machos >= 7
 assets = app / 'Contents/Resources/app/web'
-for name in ['cad-kernel.wasm', 'manifold.wasm', 'mesh-core.wasm', 'python/pyodide.asm.wasm']:
+for name in ['cad-kernel.wasm', 'manifold.wasm', 'mesh-core.wasm'] + (['python/pyodide.asm.wasm'] if PYTHON else []):
     assert (assets / name).read_bytes()[:4] == b'\x00asm'
-for name in ['main.js', 'worker.js', 'python/model_jobs.py', 'python/python_stdlib.zip', 'desktop.css']:
+for name in ['main.js', 'worker.js', 'desktop.css'] + (['python/model_jobs.py', 'python/python_stdlib.zip'] if PYTHON else []):
     assert (assets / name).is_file()
 print(f'PASS: Apple silicon app identity, {machos} arm64 Mach-O binaries with valid ad-hoc page hashes, {sealed} resource seals and complete offline Python/Rust/CAD assets.')
