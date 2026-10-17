@@ -19,12 +19,14 @@ for(const [f,p] of fixtures)for(const plane of [false,true]){const q={...p,build
  // WS9: with BUNDLE_SPLIT the JS engine drops the dead conjoin job (the Python oracle still has it).
  if(BUNDLE_SPLIT){const r=js.process({type:'conjoin',project:q,tolerance:.15,ground:plane,id:++id});assert.equal(r.error,'Unsupported geometry command.',f+' conjoin');}
  same({type:'groundProject',project:q},f+' ground');}
+// ADR-0001 F2a: 3MF export through both job engines (the format field reaches finish_result in each).
+for(const [f,p] of fixtures)for(const plane of [false,true])same({type:'export',project:{...p,buildPlaneEnabled:plane},tolerance:.15,ground:plane,format:'3mf'},f+' 3mf');
 // Error cases: messages must be verbatim.
 const box=object('box',structuredClone(defaults.box),[0,0,0]),cyl=object('cylinder',structuredClone(defaults.cylinder),[10,0,0]),cut=object('cylinder',{diameter:6,h:40},[0,0,0]);cut.mode='cut';
 const P=objs=>({...blank(),objects:objs});
 for(const [what,job] of Object.entries({
  'unsupported':{type:'nope'},'no type':{},
- 'bad format':{type:'preview',project:{...P([box]),format:'x'}},'bad version':{type:'check',project:{...P([box]),version:3}},
+ 'bad format':{type:'preview',project:{...P([box]),format:'x'}},'bad export format':{type:'export',project:P([box]),format:'obj'},'stl export format':{type:'export',project:P([box]),format:'stl'},'bad version':{type:'check',project:{...P([box]),version:3}},
  'too many':{type:'check',project:P(Array.from({length:101},(_,i)=>({...box,id:'b'+i})))},
  'bad type':{type:'check',project:P([{...box,type:'blob'}])},'dup id':{type:'check',project:P([box,{...box}])},'num id':{type:'check',project:P([{...box,id:7}])},
  'bad coords':{type:'check',project:P([{...box,position:[0,0,1e6]}])},'nan coords':{type:'check',project:P([{...box,rotation:[0,NaN,0]}])},'short coords':{type:'check',project:P([{...box,position:[0,0]}])},

@@ -1,13 +1,14 @@
-//! Local, allocation-bounded mesh preparation and binary STL encoding.
+//! Local, allocation-bounded mesh preparation, binary STL and 3MF encoding.
 //! The ABI consumes borrowed buffers and writes caller-owned result buffers.
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::slice;
 mod threads;
+mod three_mf;
 
 #[no_mangle]
-pub extern "C" fn engine_version() -> u32 { 3 }
+pub extern "C" fn engine_version() -> u32 { 4 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mesh_alloc(bytes: usize) -> *mut u8 {
@@ -201,6 +202,31 @@ pub unsafe extern "C" fn encode_stl(
         }}
     }
     0
+}
+
+/// ADR-0001 F2a (ABI v4): the 3MF package of the same mesh `encode_stl` writes (same vertices and grounding).
+/// `level` is the DEFLATE level (0-10); `limit` caps the package size in bytes. On success `result[0]` is a
+/// `mesh_alloc` pointer to the package and `result[1]` its length; the caller frees it with `mesh_free`.
+/// Codes: 1 null pointer, 2 invalid mesh, 3 no triangles, 4 larger than `limit`, 5 compressor or memory failure.
+#[no_mangle]
+pub unsafe extern "C" fn encode_3mf(
+    vp: *const f32, nv: usize, tp: *const u32, nt: usize,
+    ground: u32, level: u32, limit: usize, result: *mut usize,
+) -> i32 {
+    if result.is_null() {return 1;}
+    let result=slice::from_raw_parts_mut(result,2);result[0]=0;result[1]=0;
+    if nt==0 {return 3;}
+    if vp.is_null() || tp.is_null() {return 1;}
+    let v=slice::from_raw_parts(vp,nv);let t=slice::from_raw_parts(tp,nt);
+    if !valid(v,t) || level>10 {return 2;}
+    match three_mf::encode(v,t,ground!=0,level as u8,limit) {
+        Ok(bytes) => {
+            let ptr=mesh_alloc(bytes.len());if ptr.is_null() {return 5;}
+            slice::from_raw_parts_mut(ptr,bytes.len()).copy_from_slice(&bytes);
+            result[0]=ptr as usize;result[1]=bytes.len();0
+        }
+        Err(code) => code,
+    }
 }
 
 #[cfg(test)]

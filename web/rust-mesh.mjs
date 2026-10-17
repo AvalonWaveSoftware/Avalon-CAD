@@ -4,14 +4,14 @@ export async function initRustMesh({binary,url,streaming}={}){
  if(!binary&&streaming&&WebAssembly.instantiateStreaming){const r=await fetch(url);if(!r.ok)throw Error('The bundled Rust engine could not load.');({instance}=await WebAssembly.instantiateStreaming(r,{}));}
  else{const bytes=binary||await (async()=>{const r=await fetch(url);if(!r.ok)throw Error('The bundled Rust engine could not load.');return r.arrayBuffer();})();({instance}=await WebAssembly.instantiate(bytes,{}));}
  const core=instance.exports;
- if(core.engine_version()!==3)throw Error('Unsupported Rust geometry engine.');
+ if(core.engine_version()!==4)throw Error('Unsupported Rust geometry engine.');
  function withBuffers(fn){const allocations=[];
   const allocate=bytes=>{if(!bytes)return 0;const ptr=core.mesh_alloc(bytes);if(!ptr)throw Error('The model exceeds available geometry memory.');allocations.push([ptr,bytes]);return ptr;};
   const input=data=>{const ptr=allocate(data.byteLength);if(data.byteLength)new Uint8Array(core.memory.buffer,ptr,data.byteLength).set(new Uint8Array(data.buffer,data.byteOffset,data.byteLength));return ptr;};
   try{return fn(allocate,input);}finally{for(const [ptr,bytes] of allocations)core.mesh_free(ptr,bytes);}
  }
  function validate(vertices,triangles){if(vertices.length%3||triangles.length%3)throw Error('Invalid geometry buffers.');}
- return {version:3,
+ return {version:4,
   threadMesh(type,params,tolerance=.15){
    const p=params,inputParams=new Float64Array([type==='threadtube'?1:0,p.diameter,p.pitch,p.h,p.outer||0,p.clearance,p.hand==='left'?-1:1,p.phase%p.pitch,tolerance]);
    return withBuffers((allocate,input)=>{const pp=input(inputParams),ip=allocate(24);let code=core.thread_mesh(pp,ip,0,0,0,0);
@@ -43,6 +43,15 @@ export async function initRustMesh({binary,url,streaming}={}){
    return withBuffers((allocate,input)=>{const vp=input(vertices),tp=input(triangles),op=allocate(size);
     if(core.encode_stl(vp,vertices.length,tp,triangles.length,ground?1:0,op,size))throw Error('The model contains invalid STL geometry.');
     return new Uint8Array(core.memory.buffer,op,size).slice().buffer;
+   });
+  },
+  // ADR-0001 F2a: 3MF package of the same mesh and grounding as writeSTL (Rust encode_3mf at DEFLATE level 2: within the ADR §8 time and size budgets, see tests/export-3mf.mjs).
+  write3MF(vertices,triangles,ground=true){
+   validate(vertices,triangles);if(!triangles.length)throw Error('The model has no solid material to export.');
+   return withBuffers((allocate,input)=>{const vp=input(vertices),tp=input(triangles),rp=allocate(8);
+    const code=core.encode_3mf(vp,vertices.length,tp,triangles.length,ground?1:0,2,50*1024*1024,rp),[ptr,size]=new Uint32Array(core.memory.buffer,rp,2);
+    if(code===4)throw Error('This 3MF exceeds the 50 MB file transfer limit.');if(code)throw Error('The model contains invalid 3MF geometry.');
+    try{return new Uint8Array(core.memory.buffer,ptr,size).slice().buffer;}finally{core.mesh_free(ptr,size);}
    });
   },
  };

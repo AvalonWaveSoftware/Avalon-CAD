@@ -31,7 +31,7 @@ try{
  await page.addInitScript(()=>{window.Android={beginFile(name,mime){window.savedFile={name,mime,chunks:[]}},appendFile(x){window.savedFile.chunks.push(x)},finishFile(){window.savedFile.done=true}};});
  await page.goto(origin+'/index.html');
  await page.waitForFunction(()=>window.__cad?.model?.engine?.local===true,{},{timeout:60000});
- assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:3,local:true});
+ assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:4,local:true});
  for(const cancel of ['closeSheet','cancelObject','back']){
   await page.locator('#addBtn').click();assert.equal(await page.locator('#sheetTitle').textContent(),'Primitive Objects');await page.locator('[data-shape="sphere"]').click();await page.locator('#p_diameter').fill('37');assert.equal(await page.evaluate(()=>window.__cad.project.objects.length),0);
   if(cancel==='back')assert.equal(await page.evaluate(()=>window.handleBack()),true);else await page.locator('#'+cancel).click();assert.equal(await page.evaluate(()=>window.__cad.project.objects.length),0);assert.equal(await page.locator('#undo').isDisabled(),true);

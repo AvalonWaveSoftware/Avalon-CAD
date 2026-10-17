@@ -17,7 +17,7 @@ w.Android={beginFile(name,mime){w.testSaved={name,mime,chunks:[]}},appendFile(x)
 w.eval(fs.readFileSync('build/test-ui.js','utf8'));
 const $=id=>w.document.getElementById(id),click=id=>$(id).click(),sleep=()=>new Promise(r=>setTimeout(r,25));
 const wait=async fn=>{for(let i=0;i<60;i++){if(fn())return;await sleep();}throw Error('Wait timed out: '+JSON.stringify({resolution:w.__cad.project.objects[0]?.resolution,volume:w.__cad.model?.volume,error:$('editError')?.textContent,toast:$('toast').textContent}))};
-await wait(()=>w.__cad.model!==null);assert.equal(w.__cad.model.volume,0);assert.equal(w.__cad.model.engine.local,true);assert.equal(w.__cad.model.engine.rust,3);
+await wait(()=>w.__cad.model!==null);assert.equal(w.__cad.model.volume,0);assert.equal(w.__cad.model.engine.local,true);assert.equal(w.__cad.model.engine.rust,4);
 
 const box=(id,w=20,d=20,h=20,position=[0,0,0],layerId='layer-1')=>({id,name:id,type:'box',params:{w,d,h},position,rotation:[0,0,0],mode:'solid',enabled:true,layerId});
 w.__cad.load({format:'tristancad',version:1,name:'Legacy',objects:[box('base')]});await wait(()=>w.__cad.model.volume===8000);
