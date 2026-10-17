@@ -4,7 +4,7 @@
 // 2) Touch long-press (450 ms) on a mode-bar, toolbar or dock button shows the same text as a bubble for 1.5 s, loads
 //    the bubble chunk only then, and does not fire the button; a moved press, a short tap and a mouse are unaffected.
 import assert from 'node:assert/strict';import * as H from '../tools/readme-shots/harness.mjs';
-import {BUBBLE_MS,commandId} from '../web/tooltips.mjs';import {LONG_PRESS_MS} from '../web/objects-panel.mjs';import {createCommands,COMMAND_IDS} from '../web/commands.mjs';
+import {BUBBLE_MS,commandId,keyText,tooltipText} from '../web/tooltips.mjs';import {LONG_PRESS_MS} from '../web/objects-panel.mjs';import {createCommands,COMMAND_IDS} from '../web/commands.mjs';
 assert.equal(LONG_PRESS_MS,450);assert.equal(BUBBLE_MS,1500);
 // Registry tooltips: the label, except Clear, which uses the accessible name index.html already gives it (no new text).
 {const c=createCommands();for(const cmd of c.list)assert.equal(cmd.tooltip,cmd.id==='clear'?'Deselect everything':cmd.label,cmd.id);
@@ -12,6 +12,12 @@ assert.equal(LONG_PRESS_MS,450);assert.equal(BUBBLE_MS,1500);
  const map=[[el('undo'),'undo'],[el('redo'),'redo'],[el('wire'),'wire'],[el('fit'),'fit'],[el('helpBtn'),'help'],[el('addBtn'),'add'],[el('editBtn'),'edit'],[el('exportBtn'),'export'],[el('deselectBtn'),'clear'],
   [el('',{mode:'move'}),'mode:move'],[el('',{view:'iso'}),'view:3d'],[el('',{view:'top'}),'view:top'],[el('quickEdit'),null],[el('undoX'),null]];
  for(const [e,id] of map){assert.equal(commandId(e),id,JSON.stringify(e));if(id)assert.ok(COMMAND_IDS.includes(id),id+' is a registry id');}}
+// Ruling 1: label plus its first shortcut, in the help table's spelling; no shortcut, no parentheses.
+assert.equal(tooltipText({tooltip:'Move',shortcut:['M']}),'Move (M)');assert.equal(tooltipText({tooltip:'Undo',shortcut:['Mod+Z']}),'Undo (Cmd/Ctrl+Z)');
+assert.equal(tooltipText({tooltip:'Close panel',shortcut:['Escape']}),'Close panel (Esc)');assert.equal(tooltipText({tooltip:'Edit',shortcut:null}),'Edit');
+assert.equal(keyText('Mod+Shift+S'),'Cmd/Ctrl+Shift+S');assert.equal(keyText('Shift+Delete'),'Shift+Delete');
+const SHORT=Object.fromEntries(createCommands().list.filter(c=>c.shortcut).map(c=>[c.id,tooltipText(c)]));
+const say=(id,l)=>SHORT[id]||l,want=(id,l)=>[say(id,l),say(id,l)];
 const env=await H.start();const out=[];
 const audit=page=>page.evaluate(()=>[...document.querySelectorAll('button')].filter(b=>!b.closest('.pending,[aria-hidden="true"]')).filter(b=>!b.getAttribute('title')?.trim()||!b.getAttribute('aria-label')?.trim()).map(b=>b.outerHTML.slice(0,120)));
 const count=page=>page.evaluate(()=>[...document.querySelectorAll('button')].filter(b=>!b.closest('.pending,[aria-hidden="true"]')).length);
@@ -23,10 +29,10 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
  const check=async what=>{await page.waitForTimeout(50);const bad=await audit(page);assert.deepEqual(bad,[],`${name} ${what}: buttons without title/aria-label`);audited+=await count(page);};
  await page.waitForTimeout(500);await check('startup');
  // Text sources: markup title, registry, markup aria-label, own text. Reserved slots are untouched.
- assert.deepEqual(await tip(page,'#undo'),['Undo','Undo']);assert.deepEqual(await tip(page,'#fit'),['Fit model','Fit model']);
- assert.deepEqual(await tip(page,'[data-mode="move"]'),['Move','Move']);assert.deepEqual(await tip(page,'#addBtn'),['Add','Add']);assert.deepEqual(await tip(page,'#exportBtn'),['Export','Export']);
- assert.deepEqual(await tip(page,'#deselectBtn'),['Deselect everything','Deselect everything']);{const [t,a]=await tip(page,'#layersBtn');assert.equal(t,a);assert.match(t,/^Layers · Layer 1$/,'the app-set aria-label wins over the button text');}
- assert.deepEqual(await tip(page,'#helpBtn'),['Help','Help']);assert.deepEqual(await tip(page,'[data-view="iso"]'),['3D','3D']);assert.deepEqual(await tip(page,'#quickEdit'),['Edit dimensions →','Edit dimensions →']);
+ assert.deepEqual(await tip(page,'#undo'),want('undo','Undo'));assert.deepEqual(await tip(page,'#fit'),want('fit','Fit model'));
+ assert.deepEqual(await tip(page,'[data-mode="move"]'),want('mode:move','Move'));assert.deepEqual(await tip(page,'#addBtn'),want('add','Add'));assert.deepEqual(await tip(page,'#exportBtn'),want('export','Export'));
+ assert.deepEqual(await tip(page,'#deselectBtn'),want('clear','Deselect everything'));{const [t,a]=await tip(page,'#layersBtn');assert.equal(t,a);assert.match(t,/^Layers · Layer 1$/,'the app-set aria-label wins over the button text');}
+ assert.deepEqual(await tip(page,'#helpBtn'),want('help','Help'));assert.deepEqual(await tip(page,'[data-view="iso"]'),want('view:3d','3D'));assert.deepEqual(await tip(page,'#quickEdit'),['Edit dimensions →','Edit dimensions →']);
  for(const s of ['#rotateMode','#mirrorMode','#measureBtn'])assert.deepEqual(await tip(page,s),[null,null],s+' stays untouched');
  // Every sheet and panel.
  for(const [btn,what] of [['#addBtn','add'],['#projectMenu','projects'],['#layersBtn','layers'],['#exportBtn','export'],['#helpBtn','help']]){await page.click(btn);await page.waitForFunction(()=>!document.querySelector('#sheet').hidden&&document.querySelector('#sheetContent button'));await check(what+' sheet');await closeSheet(page);}
@@ -52,10 +58,17 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
   assert.ok(box&&box.l>=0&&box.r<=412&&box.t>=0&&box.b<=915&&box.pe==='none','bubble inside the window and click-through '+JSON.stringify(box));
   await page.waitForFunction(()=>!document.querySelector('#tipBubble'),null,{timeout:BUBBLE_MS+1000});const gone=Date.now()-t0;assert.ok(gone>=BUBBLE_MS,'bubble stays 1.5 s ('+gone+' ms)');
   // Dock: Export long-press shows the bubble and opens no sheet; Toolbar: Fit and Undo.
-  assert.equal(await longPress('#exportBtn'),'Export');assert.equal(await sheetOpen(page),false,'long-press on Export opened nothing');
-  assert.equal(await longPress('#addBtn'),'Add');assert.equal(await sheetOpen(page),false,'long-press on Add opened nothing');
-  const hist=await page.evaluate(()=>window.__cad.historyLength);assert.equal(await longPress('#wire'),'Wireframe');assert.equal(await page.evaluate(()=>document.querySelector('#wire').classList.contains('active')),false,'wireframe not toggled');
+  assert.equal(await longPress('#exportBtn'),say('export','Export'));assert.equal(await sheetOpen(page),false,'long-press on Export opened nothing');
+  assert.equal(await longPress('#addBtn'),say('add','Add'));assert.equal(await sheetOpen(page),false,'long-press on Add opened nothing');
+  const hist=await page.evaluate(()=>window.__cad.historyLength);assert.equal(await longPress('#wire'),say('wire','Wireframe'));assert.equal(await page.evaluate(()=>document.querySelector('#wire').classList.contains('active')),false,'wireframe not toggled');
   assert.equal(await page.evaluate(()=>window.__cad.historyLength),hist);
+  // Ruling 2: the header and the selection bar too. Help opens no sheet; Clear keeps the selection.
+  assert.equal(await longPress('#helpBtn'),say('help','Help'));assert.equal(await sheetOpen(page),false,'long-press on Help opened nothing');
+  assert.equal(await longPress('#projectMenu'),'Project menu');assert.equal(await sheetOpen(page),false,'long-press on the project menu opened nothing');
+  await page.evaluate(()=>window.__cad.touch.selectFace(window.__cad.project.objects[0].id,0));await page.waitForTimeout(100);
+  assert.equal(await longPress('#deselectBtn'),say('clear','Deselect everything'));assert.ok(await page.evaluate(()=>!!window.__cad.selected),'long-press on Clear kept the selection');
+  assert.equal(await longPress('#quickEdit'),'Edit dimensions →');assert.equal(await sheetOpen(page),false,'long-press on Edit dimensions opened nothing');
+  await page.evaluate(()=>window.__cad.touch.deselect());await page.click('[data-mode="select"]');
   // A press that moves 20 px is not a long-press; a short tap right after a long-press still works.
   assert.equal(await longPress('[data-mode="stretch"]',{move:20}),null,'moved press shows no bubble');
   await longPress('[data-mode="move"]');const p=await center('[data-mode="move"]');await touch('touchStart',p);await page.waitForTimeout(60);await touch('touchEnd',p);await page.waitForFunction(()=>window.__cad.touch.getState().mode==='move',null,{timeout:3000});
@@ -64,7 +77,7 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
   // Sheet buttons and the canvas get no bubble (canvas long-press keeps its own menu).
   assert.equal(await longPress('#scene'),null,'no bubble on the canvas');
   if(await sheetOpen(page))await closeSheet(page);
-  out.push(`${name}: ${audited} button checks, long-press bubble on Move/Export/Add/Wireframe without firing`);
+  out.push(`${name}: ${audited} button checks, long-press bubble on header, toolbar, mode bar, selection bar and dock buttons without firing`);
  }else{
   // Mouse: a long mouse press is an ordinary click (desktop gets the native title on hover), and no bubble appears.
   const r=await page.evaluate(()=>{const r=document.querySelector('[data-mode="move"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};});
