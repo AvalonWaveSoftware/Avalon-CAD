@@ -180,11 +180,11 @@ fn push_f32(out: &mut Vec<u8>, value: f32) -> bool {
 }
 
 /// One DEFLATE-compressed zip entry being written straight into the package buffer.
-struct Part<'a> { out: &'a mut Vec<u8>, deflate: Box<CompressorOxide>, crc: u32, size: u64, limit: usize, failed: i32 }
+struct Part<'a> { out: &'a mut Vec<u8>, deflate: Box<CompressorOxide>, crc: u32, hash: bool, size: u64, limit: usize, failed: i32 }
 impl Part<'_> {
     fn feed(&mut self, data: &[u8], flush: TDEFLFlush) {
         if self.failed != 0 { return; }
-        self.crc = crc32(self.crc, data);
+        if self.hash { self.crc = crc32(self.crc, data); }
         self.size += data.len() as u64;
         let (out, limit) = (&mut *self.out, self.limit);
         let mut over = false;
@@ -207,14 +207,15 @@ fn le32(out: &mut Vec<u8>, v: u32) { out.extend_from_slice(&v.to_le_bytes()); }
 
 /// Writes one deflated entry: local header (sizes patched afterwards, no data descriptor), then the data that
 /// `write` produces through `Part::feed`.
-fn entry(out: &mut Vec<u8>, name: &'static [u8], level: u8, limit: usize, write: impl FnOnce(&mut Part)) -> Result<Entry, i32> {
+/// `known_crc`: the CRC-32 of the data when the caller already computed it (the model text, hashed while written).
+fn entry(out: &mut Vec<u8>, name: &'static [u8], level: u8, limit: usize, known_crc: Option<u32>, write: impl FnOnce(&mut Part)) -> Result<Entry, i32> {
     let offset = out.len();
     le32(out, 0x0403_4b50); le16(out, 20); le16(out, 0); le16(out, 8); le16(out, DOS_TIME); le16(out, DOS_DATE);
     le32(out, 0); le32(out, 0); le32(out, 0); le16(out, name.len() as u16); le16(out, 0);
     out.extend_from_slice(name);
     let start = out.len();
     let flags = create_comp_flags_from_zip_params(level as i32, 0, 0);
-    let mut part = Part { out, deflate: Box::new(CompressorOxide::new(flags)), crc: 0, size: 0, limit, failed: 0 };
+    let mut part = Part { out, deflate: Box::new(CompressorOxide::new(flags)), crc: known_crc.unwrap_or(0), hash: known_crc.is_none(), size: 0, limit, failed: 0 };
     write(&mut part);
     part.feed(&[], TDEFLFlush::Finish);
     let (crc, size, failed) = (part.crc, part.size, part.failed);
@@ -235,10 +236,17 @@ fn coordinate(value: f32, k: usize, min_z: f64) -> f32 { (value as f64 - if k ==
 /// three indices are not distinct (zero-area by construction; the core spec forbids them) are skipped; Manifold
 /// never produces them. Err(TOO_LARGE) if the text would exceed `limit` (it is compressed afterwards, but text over
 /// 4 GiB cannot be stored without ZIP64).
-pub fn model_xml(v: &[f32], t: &[u32], min_z: f64) -> Result<Vec<u8>, i32> {
+/// Returns the text and its CRC-32, computed in the same pass over each 32 KB block just written (cache-hot).
+pub fn model_xml(v: &[f32], t: &[u32], min_z: f64) -> Result<(Vec<u8>, u32), i32> {
     // ~13 B per coordinate and ~11 B per index cover typical CAD meshes; room() grows the buffer if not.
     let mut out: Vec<u8> = Vec::with_capacity(MODEL_HEAD.len() + MODEL_MID.len() + MODEL_TAIL.len() + v.len() / 3 * 64 + t.len() / 3 * 52);
     out.extend_from_slice(MODEL_HEAD);
+    let (mut crc, mut hashed) = (0u32, 0usize);
+    // Hash whatever was written since the last call once it reaches `block` bytes (0: everything).
+    let mut hash = |out: &Vec<u8>, w: &W, block: usize| unsafe {
+        let end = w.p.offset_from(out.as_ptr()) as usize;
+        if end - hashed >= block { crc = crc32(crc, core::slice::from_raw_parts(out.as_ptr().add(hashed), end - hashed)); hashed = end; }
+    };
     unsafe {
         let mut w = W { p: out.as_mut_ptr().add(out.len()) };
         for point in v.chunks_exact(3) {
@@ -247,6 +255,7 @@ pub fn model_xml(v: &[f32], t: &[u32], min_z: f64) -> Result<Vec<u8>, i32> {
             w.bytes(b"\" y=\""); if !w.f32(coordinate(point[1], 1, min_z)) { return Err(BROKEN); }
             w.bytes(b"\" z=\""); if !w.f32(coordinate(point[2], 2, min_z)) { return Err(BROKEN); }
             w.bytes(b"\"/>\n");
+            hash(&out, &w, 1 << 15);
         }
         w = room(&mut out, &w, MODEL_MID.len()); w.bytes(MODEL_MID);
         for f in t.chunks_exact(3) {
@@ -256,23 +265,25 @@ pub fn model_xml(v: &[f32], t: &[u32], min_z: f64) -> Result<Vec<u8>, i32> {
             w.bytes(b"\" v2=\""); w.uint(f[1] as u64);
             w.bytes(b"\" v3=\""); w.uint(f[2] as u64);
             w.bytes(b"\"/>\n");
+            hash(&out, &w, 1 << 15);
         }
         w = room(&mut out, &w, MODEL_TAIL.len()); w.bytes(MODEL_TAIL);
+        hash(&out, &w, 0);
         let _ = room(&mut out, &w, 0);
     }
     if out.len() as u64 >= u32::MAX as u64 { return Err(TOO_LARGE); }
-    Ok(out)
+    Ok((out, crc))
 }
 
 /// Builds the whole 3MF package. `v`/`t` must already be validated.
 pub fn encode(v: &[f32], t: &[u32], ground: bool, level: u8, limit: usize) -> Result<Vec<u8>, i32> {
     let min_z = if ground { v.chunks_exact(3).map(|p| p[2] as f64).fold(f64::INFINITY, f64::min) } else { 0.0 };
-    let model = model_xml(v, t, min_z)?;
+    let (model, model_crc) = model_xml(v, t, min_z)?;
     let mut out = Vec::with_capacity(model.len() / 4 + 1024);
     let mut entries = Vec::with_capacity(3);
-    entries.push(entry(&mut out, b"[Content_Types].xml", level, limit, |p| p.feed(CONTENT_TYPES, TDEFLFlush::None))?);
-    entries.push(entry(&mut out, b"_rels/.rels", level, limit, |p| p.feed(RELS, TDEFLFlush::None))?);
-    entries.push(entry(&mut out, b"3D/3dmodel.model", level, limit, |p| p.feed(&model, TDEFLFlush::None))?);
+    entries.push(entry(&mut out, b"[Content_Types].xml", level, limit, None, |p| p.feed(CONTENT_TYPES, TDEFLFlush::None))?);
+    entries.push(entry(&mut out, b"_rels/.rels", level, limit, None, |p| p.feed(RELS, TDEFLFlush::None))?);
+    entries.push(entry(&mut out, b"3D/3dmodel.model", level, limit, Some(model_crc), |p| p.feed(&model, TDEFLFlush::None))?);
     drop(model);
     let directory = out.len();
     for e in &entries {
@@ -303,7 +314,7 @@ pub mod profile {
         let min_z = v.chunks_exact(3).map(|p| p[2] as f64).fold(f64::INFINITY, f64::min);
         if stage == 0 { return min_z as usize; }
         let (v, t) = match stage { 1 => (v, &t[..0]), 2 => (&v[..0], t), _ => (v, t) };
-        *xml() = model_xml(v, t, min_z).unwrap_or_default();
+        *xml() = model_xml(v, t, min_z).map(|x| x.0).unwrap_or_default();
         xml().len()
     }
     #[no_mangle] pub extern "C" fn prof_crc() -> u32 { crc32(0, xml()) }

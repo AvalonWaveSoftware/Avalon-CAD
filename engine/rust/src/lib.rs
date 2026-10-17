@@ -19,6 +19,12 @@ pub unsafe extern "C" fn mesh_alloc(bytes: usize) -> *mut u8 {
     }
 }
 
+/// Frees a byte buffer that an encoder returned (`encode_3mf`): `ptr`/`len` exactly as reported.
+#[no_mangle]
+pub unsafe extern "C" fn free_bytes(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() { drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len))); }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mesh_free(ptr: *mut u8, bytes: usize) {
     if !ptr.is_null() && bytes > 0 {
@@ -206,7 +212,7 @@ pub unsafe extern "C" fn encode_stl(
 
 /// ADR-0001 F2a (ABI v4): the 3MF package of the same mesh `encode_stl` writes (same vertices and grounding).
 /// `level` is the DEFLATE level (0-10); `limit` caps the package size in bytes. On success `result[0]` is a
-/// `mesh_alloc` pointer to the package and `result[1]` its length; the caller frees it with `mesh_free`.
+/// pointer to the package and `result[1]` its length; the caller frees it with `free_bytes`.
 /// Codes: 1 null pointer, 2 invalid mesh, 3 no triangles, 4 larger than `limit`, 5 compressor or memory failure.
 #[no_mangle]
 pub unsafe extern "C" fn encode_3mf(
@@ -221,9 +227,9 @@ pub unsafe extern "C" fn encode_3mf(
     if !valid(v,t) || level>10 {return 2;}
     match three_mf::encode(v,t,ground!=0,level as u8,limit) {
         Ok(bytes) => {
-            let ptr=mesh_alloc(bytes.len());if ptr.is_null() {return 5;}
-            slice::from_raw_parts_mut(ptr,bytes.len()).copy_from_slice(&bytes);
-            result[0]=ptr as usize;result[1]=bytes.len();0
+            // The package buffer itself goes to JS (no second copy); JS frees it with free_bytes.
+            let bytes=std::mem::ManuallyDrop::new(bytes.into_boxed_slice());
+            result[0]=bytes.as_ptr() as usize;result[1]=bytes.len();0
         }
         Err(code) => code,
     }

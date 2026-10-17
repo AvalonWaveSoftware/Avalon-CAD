@@ -51,7 +51,7 @@ export async function initRustMesh({binary,url,streaming}={}){
    return withBuffers((allocate,input)=>{const vp=input(vertices),tp=input(triangles),rp=allocate(8);
     const code=core.encode_3mf(vp,vertices.length,tp,triangles.length,ground?1:0,2,50*1024*1024,rp),[ptr,size]=new Uint32Array(core.memory.buffer,rp,2);
     if(code===4)throw Error('This 3MF exceeds the 50 MB file transfer limit.');if(code)throw Error('The model contains invalid 3MF geometry.');
-    try{return new Uint8Array(core.memory.buffer,ptr,size).slice().buffer;}finally{core.mesh_free(ptr,size);}
+    try{return new Uint8Array(core.memory.buffer,ptr,size).slice().buffer;}finally{core.free_bytes(ptr,size);}
    });
   },
  };
