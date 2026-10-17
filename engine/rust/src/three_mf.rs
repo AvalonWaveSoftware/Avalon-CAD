@@ -248,6 +248,45 @@ pub fn encode(v: &[f32], t: &[u32], ground: bool, level: u8, limit: usize) -> Re
     Ok(out)
 }
 
+/// ADR-0001 F2a speed gate: stage-by-stage timing hooks (feature `profile`, never shipped).
+#[cfg(feature = "profile")]
+pub mod profile {
+    use super::*;
+    static mut XML: Vec<u8> = Vec::new();
+    #[allow(static_mut_refs)]
+    fn xml() -> &'static mut Vec<u8> { unsafe { &mut XML } }
+    /// 0: min_z only; 1: vertices text; 2: triangles text; 3: whole model XML into one buffer (kept for 4/5).
+    #[no_mangle] pub unsafe extern "C" fn prof_xml(vp: *const f32, nv: usize, tp: *const u32, nt: usize, stage: u32) -> usize {
+        let v = core::slice::from_raw_parts(vp, nv); let t = core::slice::from_raw_parts(tp, nt);
+        let min_z = v.chunks_exact(3).map(|p| p[2] as f64).fold(f64::INFINITY, f64::min);
+        if stage == 0 { return min_z as usize; }
+        let out = xml(); out.clear(); out.reserve(nv * 12 + nt * 12 + 1024);
+        if stage == 1 || stage == 3 { out.extend_from_slice(MODEL_HEAD); for point in v.chunks_exact(3) {
+            out.extend_from_slice(b"<vertex x=\""); push_f32(out, coordinate(point[0], 0, min_z));
+            out.extend_from_slice(b"\" y=\""); push_f32(out, coordinate(point[1], 1, min_z));
+            out.extend_from_slice(b"\" z=\""); push_f32(out, coordinate(point[2], 2, min_z));
+            out.extend_from_slice(b"\"/>\n"); } out.extend_from_slice(MODEL_MID); }
+        if stage == 2 || stage == 3 { for f in t.chunks_exact(3) {
+            out.extend_from_slice(b"<triangle v1=\""); push_u32(out, f[0]);
+            out.extend_from_slice(b"\" v2=\""); push_u32(out, f[1]);
+            out.extend_from_slice(b"\" v3=\""); push_u32(out, f[2]);
+            out.extend_from_slice(b"\"/>\n"); } out.extend_from_slice(MODEL_TAIL); }
+        out.len()
+    }
+    #[no_mangle] pub extern "C" fn prof_crc() -> u32 { crc32(0, xml()) }
+    /// DEFLATE the kept XML at `level` in one call; returns the compressed size.
+    #[no_mangle] pub extern "C" fn prof_deflate(level: u32) -> usize { miniz_oxide::deflate::compress_to_vec(xml(), level as u8).len() }
+    /// DEFLATE the kept XML through the streaming path encode() uses (64 KB feeds).
+    #[no_mangle] pub extern "C" fn prof_deflate_stream(level: u32) -> usize {
+        let mut out = Vec::with_capacity(xml().len() / 4);
+        let flags = create_comp_flags_from_zip_params(level as i32, 0, 0);
+        let mut d = Box::new(CompressorOxide::new(flags));
+        for c in xml().chunks(1 << 16) { compress_to_output(&mut d, c, TDEFLFlush::None, |b| { out.extend_from_slice(b); true }); }
+        compress_to_output(&mut d, &[], TDEFLFlush::Finish, |b| { out.extend_from_slice(b); true });
+        out.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

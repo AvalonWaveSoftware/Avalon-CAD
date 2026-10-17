@@ -8,6 +8,10 @@ license = "BSD-3-Clause"
 # ADR-0001 F2a: raw DEFLATE for the 3MF (zip) writer. Vendored in engine/rust/vendor so builds stay offline.
 miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
 
+[features]
+# Stage timings for tests/perf/export-3mf-profile.mjs only; never in the shipped mesh-core.wasm.
+profile = []
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
