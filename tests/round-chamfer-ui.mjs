@@ -37,7 +37,7 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  // Exact chamfer d=1 on edges 0 and 1 (they meet at a corner): 5,985.333 mm³.
  const history0=await page.evaluate(()=>window.__cad.historyLength);
  await page.evaluate(()=>window.__cad.touch.selectEdges('box1',[0,1]));await page.locator('#roundSet').click();
- assert.equal(await page.locator('#sheetTitle').textContent(),'Chamfer selected edges');assert.equal(await page.locator('label[for=exactRadius]').textContent(),'Chamfer distance · mm');
+ assert.equal(await page.locator('#sheetTitle').textContent(),'Chamfer selected edges');assert.ok((await page.locator('#sheet p.subtle').first().textContent()).includes('Drag up/down in Edge mode for live adjustment, or enter an exact distance.'),'Chamfer intro says Edge mode');assert.equal(await page.locator('label[for=exactRadius]').textContent(),'Chamfer distance · mm');
  assert.equal(await page.locator('#applyRadius').textContent(),'Apply chamfer');assert.equal(await page.locator('#removeRadius').textContent(),'Remove selected chamfers');
  await page.locator('#exactRadius').fill('-1');await page.locator('#applyRadius').click();assert.equal(await page.locator('#radiusError').textContent(),'Enter a non-negative distance.');
  await page.locator('#exactRadius').fill('1');await page.locator('#applyRadius').click();
@@ -55,7 +55,7 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  assert.ok(Math.abs(stlVolume(bytes)-(6000-15+1/3))<0.01,name+' STL volume '+stlVolume(bytes));if(await page.locator('#closeSheet').isVisible())await page.locator('#closeSheet').click();
  // Back to Round: a round r2 on edge 6 (the Z edge at the opposite corner, touching neither chamfer) → mixed round + chamfer.
  await round.click();await menu.locator('[data-edge-tool=round]').click();assert.equal(await page.locator('#roundSet').textContent(),'Radius');
- await page.evaluate(()=>window.__cad.touch.selectEdges('box1',[6]));await page.locator('#roundSet').click();assert.equal(await page.locator('#sheetTitle').textContent(),'Round selected edges');
+ await page.evaluate(()=>window.__cad.touch.selectEdges('box1',[6]));await page.locator('#roundSet').click();assert.equal(await page.locator('#sheetTitle').textContent(),'Round selected edges');assert.ok((await page.locator('#sheet p.subtle').first().textContent()).includes('Drag up/down in Edge mode for live adjustment, or enter an exact radius.'),'Round intro says Edge mode');
  await page.locator('#exactRadius').fill('2');await page.locator('#applyRadius').click();await page.waitForFunction(()=>document.querySelector('#sheet').hidden&&window.__cad.project.objects[0].fillets.length===2,{},{timeout:30000});
  assert.deepEqual(await page.evaluate(()=>window.__cad.project.objects[0].fillets),[{edges:[0,1],radius:1,kind:'chamfer'},{edges:[6],radius:2}]);
  // Under load the model can still be the chamfer-only one right after the sheet closes: wait for the rebuilt model.
