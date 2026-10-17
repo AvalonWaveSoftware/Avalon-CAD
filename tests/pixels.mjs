@@ -8,7 +8,7 @@
 //      PIXEL_JOBS (parallel browser contexts in the one shared browser, default 4), AVALON_PIXEL_BASELINE (baseline dir).
 // Same setup as tools/readme-shots/harness.mjs (served app, open(), tap()); one shared browser, PIXEL_JOBS contexts; toasts and #busy are hidden as capture.mjs does.
 import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import {createRequire} from 'node:module';
-import {diffPixels} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {execSync} from 'node:child_process';
+import {diffPixels,decodePNG} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {execSync} from 'node:child_process';
 
 const require=createRequire(import.meta.url);const {chromium}=require(process.env.AVALON_PLAYWRIGHT||'playwright');
 // open()/tap() mirror tools/readme-shots/harness.mjs exactly (inlined since before harness.mjs honoured
@@ -148,6 +148,15 @@ const scenes={
   await p.locator('#undo').click();await idle(p);await p.evaluate(()=>window.__pixelRelease());await p.waitForFunction(()=>document.querySelector('#liveMeasure')?.hidden!==false,null,{timeout:5000});await p.evaluate(()=>window.__pixelRehold());await s('undo');
   await p.locator('#redo').click();await idle(p);await s('redo');},
 };
+// ADR unified-desktop-layout (Architect ruling 5): AVALON_PIXEL_MASK_BASE=<pre-change baseline> additionally checks
+// every capture against that baseline with only the help line approved to change: every pixel outside the help line's
+// box (+1 px antialiasing margin) must be identical, and the DOM/styles must be identical once the #desktopHelp element
+// is removed. Phone captures have no visible help line, so they must be 0 px everywhere.
+const MASK_BASE=process.env.AVALON_PIXEL_MASK_BASE?path.resolve(process.env.AVALON_PIXEL_MASK_BASE):null;
+const stripHelp=dom=>({html:dom.html.replace(/<div id="desktopHelp"[^>]*>[^<]*<\/div>/,''),styles:Object.fromEntries(Object.entries(dom.styles).filter(([k])=>!k.includes('#desktopHelp')))});
+function outsideBox(basePng,png,box,dpr){const A=decodePNG(basePng),B=decodePNG(png);if(A.width!==B.width||A.height!==B.height)return A.width*A.height;
+ const [x0,y0,x1,y1]=box?[Math.floor((box.left-1)*dpr),Math.floor((box.top-1)*dpr),Math.ceil((box.right+1)*dpr),Math.ceil((box.bottom+1)*dpr)]:[0,0,0,0];let n=0;
+ for(let y=0;y<A.height;y++)for(let x=0;x<A.width;x++){if(x>=x0&&x<x1&&y>=y0&&y<y1)continue;const i=(y*A.width+x)*4;if(A.data.readUInt32BE(i)!==B.data.readUInt32BE(i))n++;}return n;}
 const viewports=[['phone',false],['desktop',true]];
 const tasks=[];for(const [name] of Object.entries(scenes))for(const [vp] of viewports){const id=`${name}@${vp}`;if(!only.length||only.some(o=>id.includes(o)))tasks.push([name,vp]);}
 fs.mkdirSync(OUT,{recursive:true});const PX=path.join(BASE,'pixels'),DOM=path.join(BASE,'dom');if(update){fs.mkdirSync(PX,{recursive:true});fs.mkdirSync(DOM,{recursive:true});}
@@ -159,8 +168,12 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
    const dir=update?null:OUT;if(update){fs.writeFileSync(path.join(PX,id+'.png'),png);fs.writeFileSync(path.join(DOM,id+'.json'),JSON.stringify(dom));}else{fs.writeFileSync(path.join(dir,id+'.png'),png);fs.writeFileSync(path.join(dir,id+'.json'),JSON.stringify(dom));}
    caps.push(id);if(!update){const bp=path.join(PX,id+'.png'),bd=path.join(DOM,id+'.json');const r={id,errors:[]};
     if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
-    if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');results.push(r);}
-   console.log(update?'baseline '+id:`checked ${id}: ${results.at(-1).differing??'n/a'} differing px${results.at(-1).errors.length?' FAIL: '+results.at(-1).errors.join('; '):''}`);});
+    if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');
+    if(MASK_BASE){const help=await page.evaluate(()=>{const e=document.getElementById('desktopHelp');if(!e||getComputedStyle(e).display==='none'||getComputedStyle(e).visibility==='hidden')return null;const b=e.getBoundingClientRect();return {left:b.left,top:b.top,right:b.right,bottom:b.bottom};});
+     const mp=path.join(MASK_BASE,'pixels',id+'.png'),md=path.join(MASK_BASE,'dom',id+'.json');if(!fs.existsSync(mp))r.errors.push('no mask baseline');else{r.helpBox=help;r.outsideHelp=outsideBox(fs.readFileSync(mp),png,help,desktop?1:2);if(r.outsideHelp)r.errors.push(`${r.outsideHelp} px differ outside the help line vs ${path.basename(MASK_BASE)}`);if(!desktop&&help)r.errors.push('help line visible on phone');}
+     if(fs.existsSync(md))r.errors.push(...compareDom(stripHelp(JSON.parse(fs.readFileSync(md,'utf8'))),stripHelp(dom)).map(e=>'vs '+path.basename(MASK_BASE)+' without #desktopHelp: '+e));}
+    results.push(r);}
+   console.log(update?'baseline '+id:`checked ${id}: ${results.at(-1).differing??'n/a'} differing px${MASK_BASE?` (outside help line vs mask base: ${results.at(-1).outsideHelp??'n/a'})`:''}${results.at(-1).errors.length?' FAIL: '+results.at(-1).errors.join('; '):''}`);});
   if(!caps.length)throw Error('scene captured nothing');}
  catch(e){results.push({id:`${name}@${vp}`,errors:['scene failed: '+e.message.split('\n')[0]]});console.error('FAIL',name,vp,e.message.split('\n')[0]);}
  finally{if(process.env.PIXEL_TRACE)console.log(`  done ${name}@${vp} ${Date.now()-ts}ms`);await page?.context().close().catch(()=>{});}}
