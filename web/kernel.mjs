@@ -1,6 +1,6 @@
 import {primitiveMesh,PLANAR_TYPES} from './polyhedra.mjs';
 import {glyphManifold,glyphBevelPart,glyphPlate} from './glyph-geometry.mjs';
-import {initSolid,solidMesh,objectTopology,objectTopologyEntry,setTriangulator} from './cad-solid.mjs';
+import {initSolid,solidMesh,noteGlyphBevel,objectTopology,objectTopologyEntry,setTriangulator} from './cad-solid.mjs';
 import {TOPOLOGY_SERVICE,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {facetedSphere,facetMesh,curvedTypes,resolutionTolerance,customFaces} from './facets.mjs';
 import {isThread,containsThreads,validateThread} from './threads.mjs';
@@ -36,12 +36,18 @@ export function makeLocalSolid(K,o,tolerance=0.15,styles) {
       // WS14 (OCCT_SIDECAR): the fillet mesh is still being computed by the sidecar. This run is a stand-in (never
       // cached, sent, if at all, only as display-only interim data): the part without its fillets (and bevel).
       if(!m)return makeLocalSolid(K,bevelled?{...o,fillets:[],params:{...p,bevel:0}}:{...o,fillets:[]},requested,styles);
-      const descriptor={numProp:3,vertProperties:m.vertices,triVerts:m.triangles,tolerance:1e-5};
+      const build=m=>{const descriptor={numProp:3,vertProperties:m.vertices,triVerts:m.triangles,tolerance:1e-5};
       if(styles&&m.displayGroups.length){const first=M.reserveIDs(m.displayGroups.length);descriptor.runIndex=new Uint32Array([...m.displayGroups.map(g=>g.start),m.triangles.length]);descriptor.runOriginalID=new Uint32Array(m.displayGroups.map((g,i)=>{styles.set(first+i,g.flat);return first+i;}));tagged=true;}
-      const mesh=new K.Mesh(descriptor);mesh.merge();
-      // F7: OCCT can return a valid bevelled B-rep whose tessellation is not closed (a face left untriangulated, e.g.
-      // round 'j'); that is reported as the bevel error, never as a broken part.
-      try{s=own(new M(mesh));}catch(e){if(bevelled)throw Error(`Bevel not possible on '${p.char}' at this size`);throw e;}
+      const mesh=new K.Mesh(descriptor);mesh.merge();return new M(mesh);};
+      if(!bevelled)s=own(build(m));
+      else{
+        // F7: OCCT can return a valid bevelled B-rep whose tessellation is not closed (round 'j', 'm' at 0.5 mm). That
+        // bevel counts as failed: retried once at half size (the same "Bevel reduced" notice), else the bevel error.
+        const fail=()=>Error(`Bevel not possible on '${p.char}' at this size`);
+        try{s=own(build(m));}catch{
+          if(m.bevelUsed)throw fail();const half={...o,params:{...p,bevel:p.bevel/2}},mh=solidMesh(glyphBevelPart(half),tolerance,!!styles);
+          if(!mh)return makeLocalSolid(K,{...o,fillets:[],params:{...p,bevel:0}},requested,styles);
+          if(mh.bevelUsed)throw fail();try{s=own(build(mh));}catch{throw fail();}noteGlyphBevel(o,p.bevel/2);}}
       if(bevelled&&p.plate>0){keep.pop();s=own(glyphPlate(K,p,s));}}
     else switch(o.type) {
       case 'threadrod':case 'threadtube':{

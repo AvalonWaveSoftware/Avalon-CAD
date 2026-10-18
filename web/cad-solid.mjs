@@ -275,6 +275,7 @@ export const filletMeshStats=()=>({entries:meshes.size,bytes:meshBytes});
 // ADR-0001 F7 notice: the bevel actually used per bevelled-glyph part (only when halved), by content key, for local-engine part().
 const bevelNotes=new Map();
 export function glyphBevelNote(o){if(o?.type!=='glyph'||!(o.params?.bevel>0))return null;const v=bevelNotes.get(geometryKey(glyphBevelPart(o)));return v==null?null:v;}
+export function noteGlyphBevel(o,v){const k=geometryKey(glyphBevelPart(o));bevelNotes.delete(k);bevelNotes.set(k,v);if(bevelNotes.size>256)bevelNotes.delete(bevelNotes.keys().next().value);}
 export function solidMesh(o,tolerance,display=false){const m=solidMeshEntry(o,tolerance,display);if(m?.bevelUsed){const k=geometryKey(o);bevelNotes.delete(k);bevelNotes.set(k,m.bevelUsed);if(bevelNotes.size>256)bevelNotes.delete(bevelNotes.keys().next().value);}return m;}
 function solidMeshEntry(o,tolerance,display) {
  if(remote)return remote.solidMesh(o,tolerance,display,geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|'+(display?1:0));
