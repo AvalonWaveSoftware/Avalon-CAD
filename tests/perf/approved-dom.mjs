@@ -113,7 +113,8 @@ export function domChanges([base,now,ctx]){
   for(const [x,y] of r.pairs){pairs.push([x,y]);walk(x,y,p+'>'+label(y));}};
  walk(A,B,'body');
  // live-page boxes of the approved pixel areas (CSS px); an element box is inside when it lies entirely within one
- const areas=(ctx.areas||[]).map(s=>{const e=document.querySelector(s);if(!e)return null;const r=e.getBoundingClientRect();return [r.left,r.top,r.right,r.bottom];}).filter(Boolean);
+ // an area with no size (hidden or display:none, e.g. a closed sheet) approves nothing
+ const areas=(ctx.areas||[]).map(s=>{const e=document.querySelector(s);if(!e)return null;const r=e.getBoundingClientRect();return r.width>0&&r.height>0?[r.left,r.top,r.right,r.bottom]:null;}).filter(Boolean);
  const EPS=0.01,inside=b=>!!b&&areas.some(([l,t,r,bt])=>b[0]>=l-EPS&&b[1]>=t-EPS&&b[0]+b[2]<=r+EPS&&b[1]+b[3]<=bt+EPS);
  const out={matched:[],unmatched:[]},rec=(c,extra)=>({path:c.path,kind:c.kind,old:c.old,now:c.now,...extra});
  const matchedEls=new Set(),styleAttr=[];

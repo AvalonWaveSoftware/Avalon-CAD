@@ -207,6 +207,12 @@ try{const page=await browser.newPage();
  assert.equal(loadDomEntries([{scene:'*',selector:'#unitSwitch',kind:'added',approval:'x'}],STR).length,1);
  assert.throws(()=>loadDomEntries([{scene:'*',selector:'div',kind:'added',approval:'x'}],STR),/bare tag/);
  assert.throws(()=>loadDomEntries([{scene:'*',selector:'#u',kind:'added',expected:'nope',approval:'x'}],STR),/not in strings-baseline/);
+ // an area with no size (a closed sheet) approves nothing, not even zero-size boxes at its corner
+ {await page.evaluate(()=>{const z=document.createElement('div');z.id='zero';z.style.cssText='position:absolute;left:0;top:0;width:0;height:0';document.body.appendChild(z);});
+  const Z=[0,0,0,0],bz=mk('<div id="hdr">D</div>',{'div#hdr:0':{comb:'h',style:'s',box:Z}});
+  const nz=mk('<div id="hdr">D</div><div id="unitSwitch"><b>Ready · millimeters</b></div>',{'div#hdr:0':{comb:'h',style:'s',box:Z},'div#unitSwitch:1':{comb:'u',style:'s',box:Z},'div#unitSwitch:1>b:0':{comb:'k',style:'s',box:Z}});
+  r=await chk(bz,nz,[add],['#zero']);assert.deepEqual(r.unmatched.map(c=>c.why),['box not entirely inside an approved pixel area'],'zero-size area approves nothing');
+  await page.evaluate(()=>document.getElementById('zero').remove());}
  // 8. Replaced (ADR-0001 replaced ruling): a removed element passes only when paired with the named new element
  {const old=mk('<div id="sc"><div class="sectionlabel">Pos</div><div id="f">x</div></div>',{'div#sc:0':{comb:'a',style:'s',box:IN1}}),
    rep=mk('<div id="sc"><div class="sectionlabel" id="posTitle">Pos</div><div id="f">x</div></div>',{'div#sc:0':{comb:'a',style:'s',box:IN1},'div#sc:0>div#posTitle:0':{comb:'p',style:'s',box:IN1}});
