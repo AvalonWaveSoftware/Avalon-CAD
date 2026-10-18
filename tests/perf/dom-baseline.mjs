@@ -121,5 +121,6 @@ function main(){const update=process.argv.includes('--update');fs.mkdirSync(BASE
  const c=compareStrings([...bt],strings,APPROVED_ADDITIONS(),APPROVED_REMOVALS(),EXTRACTOR_CORRECTIONS()),approvedSeen=c.approvedSeen;
  for(const e of c.errors){bad++;console.error('FAIL '+e);}
  for(const s of c.stale)console.log('note: listed removal not needed (string still present, or not in this baseline):',JSON.stringify(s));
+ console.log(`strings: ${strings.length} extracted, ${c.errors.length} error(s), ${approvedSeen} approved addition(s) in use, ${c.removedApproved.length} approved removal(s), ${c.corrected.length} extractor correction(s)${c.corrected.length?' ('+c.corrected.map(x=>JSON.stringify(x)).join(', ')+')':''}, ${c.stale.length} stale`);
  if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length-approvedSeen} baseline strings identical${approvedSeen?`, ${approvedSeen} approved addition(s)`:''}${c.removedApproved.length?`, ${c.removedApproved.length} approved removal(s)`:''}${c.corrected.length?`, ${c.corrected.length} extractor correction(s)`:''}`);}
 if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname)main();
