@@ -1,7 +1,7 @@
 // ADR-0001 approved-dom-areas: unit tests for tests/perf/approved-dom.mjs (the "dom" entries of approved-areas.json
 // used by tests/pixels.mjs). Runs domChanges in a blank Chromium page; no app, no baseline folder is written.
 import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
-import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture} from './perf/approved-dom.mjs';import {compareDom} from './perf/dom-baseline.mjs';
+import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture} from './perf/approved-dom.mjs';import {compareDom,compareStrings,stripComments,extractStrings} from './perf/dom-baseline.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const STR=new Set(['Edge (F)','Move (M)','Project menu','Ready · millimeters','Fit model (0)']);
 const E=(o)=>({scene:'*',kind:'title',approval:'test',...o});
@@ -30,6 +30,25 @@ const S=approvedStrings(tmp,add);assert.ok(S.has('Base string')&&S.has('Added st
 // The committed file's dom entries are valid against strings-additions.json and the named baseline's strings (if present).
 {const a=JSON.parse(fs.readFileSync(new URL('./perf/approved-areas.json',import.meta.url),'utf8'));
  loadDomEntries(a.dom,approvedStrings(path.join('/workspace/avalon-cad-artifacts',a.baseline||'-none-')));}
+
+// 4. Strings removals (approved-dom-areas a): a missing baseline string passes only when listed in "removals".
+{const base=['Keep me.','Old text.','Gone too.'],now=['Keep me.','New text.'],approved=new Set(['New text.']);
+ let c=compareStrings(base,now,approved,[]);assert.deepEqual(c.removed,['Old text.','Gone too.']);assert.equal(c.errors.length,2);assert.match(c.errors[0],/^string missing vs baseline: "Old text."/);
+ c=compareStrings(base,now,approved,[{string:'Old text.',approval:'ruling X'}]);assert.deepEqual([c.removed,c.removedApproved,c.errors.length],[['Gone too.'],['Old text.'],1],'listed passes, unlisted fails');
+ c=compareStrings(base,now,approved,[{string:'Old text.',approval:'ruling X'},{string:'Gone too.',approval:'ruling Y'}]);assert.deepEqual(c.errors,[]);
+ c=compareStrings(base,now,new Set(),[{string:'Old text.',approval:'ruling X'},{string:'Gone too.',approval:'ruling Y'}]);assert.deepEqual(c.errors,['new/changed user-visible string: "New text."'],'removals do not approve additions');
+ c=compareStrings(base,now,approved,[{string:'Old text.'}]);assert.ok(c.errors.some(e=>/removals\[0\].*needs a non-empty "string" and "approval"/.test(e)));
+ c=compareStrings(base,now,approved,[{string:'Keep me.',approval:'x'},{string:'Old text.',approval:'x'},{string:'Gone too.',approval:'x'}]);assert.deepEqual([c.errors,c.stale],[[],['Keep me.']],'a listed string still present is only noted');
+ assert.ok(compareStrings(base,now,approved,{}).errors.some(e=>/must be a list/.test(e)));}
+
+// 5. The extractor skips // and /* */ comments (approved-dom-areas b) and leaves literals alone.
+{const src=["const a='Kept string.'; // 'Comment string.'","/* 'Block comment.' */ const b=\"Also kept.\";","const u='http://x.y/z'; const r=/\\/\\/ not a comment/g; const d=x/2/3; // 'After division.'","const t=`Tpl // not a comment ${a+'Inner kept.'} done`; /** 'Doc comment.' */","const s='a /* not a comment */ b';"].join('\n');
+ const out=stripComments(src);assert.equal(out.split('\n').length,src.split('\n').length,'line numbers kept');
+ for(const k of ["'Kept string.'",'"Also kept."',"'http://x.y/z'","/\\/\\/ not a comment/g","x/2/3","`Tpl // not a comment ${a+'Inner kept.'} done`","'a /* not a comment */ b'"])assert.ok(out.includes(k),'kept: '+k);
+ for(const k of ['Comment string.','Block comment.','After division.','Doc comment.'])assert.ok(!out.includes(k),'stripped: '+k);
+ assert.equal(stripComments("a{color:red} /* 'x y.' */ b{content:'// kept'}",{line:false}),'a{color:red} '+' '.repeat("/* 'x y.' */".length)+" b{content:'// kept'}");
+ // at this tree: the comment-only string is gone from the extracted set, the UI error text is still there
+ const S=new Set(extractStrings());assert.ok(!S.has('The modeling engine could not start'));assert.ok(S.has('The modeling engine could not start. Close and reopen the app.'));}
 
 // 3. Matching in a page, and per-capture counts.
 const browser=await chromium.launch({executablePath:process.env.AVALON_CHROMIUM,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
@@ -71,4 +90,4 @@ try{const page=await browser.newPage();
  // whitespace-only text change is still a change
  r=await run('<button id="projectMenu" aria-label="Project menu">P </button><button data-mode="round">Edge ▾</button><span id="busy">Ready</span>',[]);assert.equal(r.unmatched.length,1);
 }finally{await browser.close();}
-console.log('PASS approved-dom-areas: selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts');
+console.log('PASS approved-dom-areas: selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor');

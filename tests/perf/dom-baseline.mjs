@@ -15,8 +15,30 @@ export const STATIC_FILES=['style.css','index.html'];
 // web/glyphs.mjs is generated font outline data (ADR new-primitives-polyhedra-text §2.2), not UI text.
 const GENERATED_DATA=new Set(['glyphs.mjs']);
 const STRING_SOURCES=()=>[...fs.readdirSync(path.join(REPO,'web')).filter(f=>/\.(mjs|html|css)$/.test(f)&&!GENERATED_DATA.has(f)).map(f=>'web/'+f),'engine/python/model_jobs.py','desktop/main.cjs'].filter(f=>fs.existsSync(path.join(REPO,f)));
+// Blanks out // line and /* */ block comments (newlines kept, so line numbers stay) while leaving string, template and
+// regular-expression literals untouched. A '/' starts a regex literal where an expression may start (after one of
+// ( , = : [ ! & | ? { } ; + - * % < > ~ ^, at the start, or after return/typeof/case/in/of/void/delete/new/throw/yield/await).
+// line:false (CSS) strips only block comments.
+export function stripComments(src,{line=true}={}){let out='',i=0;const n=src.length,stack=[];let prev='';// last significant token char/word
+ const blank=s=>s.replace(/[^\n]/g,' ');const regexOk=()=>prev===''||/[(,=:[!&|?{};+\-*%<>~^]$/.test(prev)||/(?:^|[^\w$])(?:return|typeof|case|in|of|void|delete|new|throw|yield|await|else|do)$/.test(prev);
+ while(i<n){const c=src[i],d=src[i+1];
+  if(c==='/'&&d==='*'){const j=src.indexOf('*/',i+2),e=j<0?n:j+2;out+=blank(src.slice(i,e));i=e;continue;}
+  if(line&&c==='/'&&d==='/'){let e=src.indexOf('\n',i);if(e<0)e=n;out+=blank(src.slice(i,e));i=e;continue;}
+  if(!line){out+=c;i++;continue;}// CSS: nothing else to track except strings
+  if(c==="'"||c==='"'){let j=i+1;while(j<n&&src[j]!==c&&src[j]!=='\n'){if(src[j]==='\\')j++;j++;}out+=src.slice(i,j+1);i=j+1;prev='a';continue;}
+  if(c==='`'||(c==='}'&&stack.length&&stack.at(-1)===0)){// template literal body (start, or resume after ${ … })
+   if(c==='}')stack.pop();let j=i+1,interp=false;while(j<n&&src[j]!=='`'){if(src[j]==='\\'){j+=2;continue;}if(src[j]==='$'&&src[j+1]==='{'){j+=2;stack.push(0);interp=true;break;}j++;}
+   if(interp){out+=src.slice(i,j);i=j;prev='{';}else{out+=src.slice(i,j+1);i=j+1;prev='a';}continue;}
+  if(c==='{'&&stack.length){stack[stack.length-1]++;}else if(c==='}'&&stack.length){stack[stack.length-1]--;}
+  if(c==='/'&&regexOk()){let j=i+1,cls=false;while(j<n&&src[j]!=='\n'){if(src[j]==='\\'){j+=2;continue;}if(src[j]==='[')cls=true;else if(src[j]===']')cls=false;else if(src[j]==='/'&&!cls)break;j++;}
+   if(src[j]==='/'){j++;while(j<n&&/[a-z]/.test(src[j]))j++;out+=src.slice(i,j);i=j;prev='a';continue;}}
+  out+=c;i++;if(!/\s/.test(c))prev=/[\w$]/.test(c)?(/[\w$]$/.test(prev)?prev+c:c).slice(-8):c;}
+ return out;}
 export function extractStrings(){const set=new Set();
- for(const f of STRING_SOURCES()){const src=fs.readFileSync(path.join(REPO,f),'utf8');
+ for(const f of STRING_SOURCES()){const raw=fs.readFileSync(path.join(REPO,f),'utf8');
+  // ADR-0001 approved-dom-areas (b): // and /* */ comments are not UI text. JS sources (.mjs/.cjs) lose both, CSS loses
+  // /* */; Python and HTML are read as before (// is floor division in Python).
+  const src=/\.(mjs|cjs|js)$/.test(f)?stripComments(raw):f.endsWith('.css')?stripComments(raw,{line:false}):raw;
   if(f.endsWith('.html')){for(const m of src.matchAll(/>([^<>]*[A-Za-z][^<>]*)</g))set.add(m[1].trim());for(const m of src.matchAll(/(?:title|aria-label|placeholder)="([^"]+)"/g))set.add(m[1]);continue;}
   for(const m of src.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)){const s=(m[1]??m[2]??m[3]);if(s.length>1&&!/[=(){};<>\[\]`$\\]/.test(s)&&!/^\.{0,2}\/|\.(m?js|cjs|wasm|py)$/.test(s)&&/[A-Za-z]/.test(s)&&/[ .!?…:·]|^[A-Z][a-z]+$/.test(s))set.add(s);}}
  return [...set].filter(Boolean).sort();}
@@ -24,6 +46,19 @@ export function extractStrings(){const set=new Set();
 // in tests/perf/strings-additions.json (each one approved with the feature); a baseline string may never be removed
 // or edited, and any other new string still fails.
 export const APPROVED_ADDITIONS=()=>{const f=path.join(HERE,'strings-additions.json');return fs.existsSync(f)?new Set(JSON.parse(fs.readFileSync(f,'utf8')).strings):new Set();};
+// ADR-0001 approved-dom-areas (a): strings-additions.json may also list approved removals, "removals": [{string, approval}].
+// A baseline string missing from the build passes only if it is listed there (exact string); unlisted removals fail.
+// Like additions, an entry is dropped when the baseline rolls forward without that string.
+export const APPROVED_REMOVALS=(f=path.join(HERE,'strings-additions.json'))=>fs.existsSync(f)?JSON.parse(fs.readFileSync(f,'utf8')).removals||[]:[];
+// Pure comparison of a baseline string list with the extracted one (testable): returns the failures and the counts.
+export function compareStrings(baseline,strings,approved,removals){const bt=new Set(baseline),now=new Set(strings),errors=[];
+ if(!Array.isArray(removals))errors.push('strings-additions.json "removals" must be a list');
+ const ok=new Map();for(const [i,r] of (Array.isArray(removals)?removals:[]).entries()){if(!r||typeof r.string!=='string'||!r.string||typeof r.approval!=='string'||!r.approval)errors.push(`removals[${i}] ${JSON.stringify(r)}: needs a non-empty "string" and "approval"`);else ok.set(r.string,r.approval);}
+ const added=strings.filter(s=>!bt.has(s)&&!approved.has(s)),missing=[...bt].filter(s=>!now.has(s)),removed=missing.filter(s=>!ok.has(s)),removedApproved=missing.filter(s=>ok.has(s));
+ const stale=[...ok.keys()].filter(s=>!bt.has(s)||now.has(s));
+ for(const s of added)errors.push('new/changed user-visible string: '+JSON.stringify(s));
+ for(const s of removed)errors.push('string missing vs baseline: '+JSON.stringify(s));
+ return {errors,added,removed,removedApproved,stale,approvedSeen:strings.filter(s=>!bt.has(s)&&approved.has(s)).length};}
 export function staticState(){return Object.fromEntries(STATIC_FILES.map(f=>[f,sha(fs.readFileSync(path.join(ASSETS,f)))]));}
 // Runs in the page: outerHTML of body (id/class/style/text and all other attributes) with the #scene canvas size
 // attributes dropped and random object ids normalised; computed styles hashed per element.
@@ -47,8 +82,8 @@ function main(){const update=process.argv.includes('--update');fs.mkdirSync(BASE
  if(update){fs.writeFileSync(fS,JSON.stringify(st,null,1)+'\n');fs.writeFileSync(fT,JSON.stringify(strings,null,1)+'\n');console.log('wrote',fS,'and',fT,strings.length,'strings');return;}
  const bs=JSON.parse(fs.readFileSync(fS,'utf8')),bt=new Set(JSON.parse(fs.readFileSync(fT,'utf8'))),now=new Set(strings);let bad=0;
  for(const f of STATIC_FILES)if(bs[f]!==st[f]){bad++;console.error(`FAIL ${f} is not byte-identical to the baseline (${bs[f]} → ${st[f]})`);}
- const approved=APPROVED_ADDITIONS(),added=strings.filter(s=>!bt.has(s)&&!approved.has(s)),removed=[...bt].filter(s=>!now.has(s)),approvedSeen=strings.filter(s=>!bt.has(s)&&approved.has(s)).length;
- for(const s of added){bad++;console.error('FAIL new/changed user-visible string:',JSON.stringify(s));}
- for(const s of removed){bad++;console.error('FAIL string missing vs baseline:',JSON.stringify(s));}
- if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length-approvedSeen} baseline strings identical${approvedSeen?`, ${approvedSeen} approved addition(s)`:''}`);}
+ const c=compareStrings([...bt],strings,APPROVED_ADDITIONS(),APPROVED_REMOVALS()),approvedSeen=c.approvedSeen;
+ for(const e of c.errors){bad++;console.error('FAIL '+e);}
+ for(const s of c.stale)console.log('note: listed removal not needed (string still present, or not in this baseline):',JSON.stringify(s));
+ if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length-approvedSeen} baseline strings identical${approvedSeen?`, ${approvedSeen} approved addition(s)`:''}${c.removedApproved.length?`, ${c.removedApproved.length} approved removal(s)`:''}`);}
 if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname)main();
