@@ -205,7 +205,8 @@ let importChunks=[],importName='';window.nativeImportStart=name=>{importName=nam
 // Help is a lazy chunk (web/help-sheet.mjs); the sheet opens once it has loaded (a local file, so within a frame or two).
 async function help(){const {HELP_TITLE,helpHTML}=await import('./help-sheet.mjs');openSheet(HELP_TITLE,helpHTML());$('loadExample').onclick=()=>guardReplace(()=>{change(()=>{project=plate();selected=project.objects[0].id;});refresh(true);closeSheet();});}
 $('helpBtn').onclick=help;
-window.handleBack=()=>{if(touch?.isCommitting()||panelBusy)return true;if(!$('sheet').hidden){closeSheet();return true;}if(objectsPanel?.isOpen()){objectsPanel.toggle(false);return true;}return false;};
+window.handleBack=()=>{if(touch?.isCommitting()||panelBusy)return true;if(touch?.closeEdgeMenu())return true;// F6: Android Back closes the Edge ▾ dropdown (no mode change)
+ if(!$('sheet').hidden){closeSheet();return true;}if(objectsPanel?.isOpen()){objectsPanel.toggle(false);return true;}return false;};
 touch=installTouch({canvas,scene,camera,controls,project:()=>project,current,selected:()=>selected,parts:()=>pickMeshes,select,refresh,request,change,autosave,dragVisual:()=>disposeGroup(overlay),record:before=>{pushHistory(before,selection());autosave();refreshLabels();},snapshot:snap,toast,openSheet,closeSheet,escape});
 prefabs=installPrefabs({project:()=>project,current,selection,parts:()=>pickMeshes,commit:(p,id)=>replaceProject(()=>{project=p;selected=id;}),editDraft:editMenu,place:o=>touch.placeNew(o),request,openSheet,closeSheet,escape,toast,saveFile,importDialog,lock:lockPanel});
 objectsPanel=installObjectsPanel({project:()=>project,selected:()=>selected,selection,select,toggleMulti:id=>touch.toggleMulti(id),deselect:()=>touch.deselect(),change,escape,editMenu:()=>editMenu(),addMenu,mergeMenu:ids=>touch.mergeMenu(ids),createPrefab:()=>prefabs.form({source:'selection'})});
@@ -238,7 +239,9 @@ if(window.AvalonDesktop){
   const id={add:'addBtn',edit:'editBtn',clear:'deselectBtn',fit:'fit',export:'exportBtn',undo:'undo',redo:'redo',help:'helpBtn'}[command];if(id)$(id).click();
  };
  AvalonDesktop.onAction(action);AvalonDesktop.onFile(file=>importDesktopFile(file).catch(e=>toast(e.message,true)));AvalonDesktop.onNotice(message=>toast(message,true));
- document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('sheet').hidden)closeSheet();else touch.deselect();e.preventDefault();return;}if(document.activeElement?.matches('input,textarea,select,[contenteditable=true]')||e.metaKey||e.ctrlKey||e.altKey)return;const command={a:'add',f:'fit',v:'clear'}[e.key.toLowerCase()];if(command){e.preventDefault();action(command);}});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('sheet').hidden)closeSheet();else touch.deselect();e.preventDefault();return;}if(document.activeElement?.matches('input,textarea,select,[contenteditable=true]')||e.metaKey||e.ctrlKey||e.altKey)return;
+  // ADR-0001 F6 (Master Chief, 18:35 CT): F opens the Edge ▾ dropdown (touch-tools, every platform); Fit moves to 0 / Home (F1a's approved keys).
+  const command={a:'add',0:'fit',home:'fit',v:'clear'}[e.key.toLowerCase()];if(command){e.preventDefault();action(command);}});
  const updateHint=()=>{const label={select:'Click a face · double-click for the whole shape · click an edge to round · Ctrl/Shift-click to multi-select',move:'Drag the object or X/Y/Z handles · centers snap',stretch:'Click a face to pull · double-click for the whole shape',round:'Edge clicks: 1 edge · 2 face perimeter · 3 all edges · drag to round'}[touch.getState().mode];if($('touchHint').textContent!==label)$('touchHint').textContent=label;};
  const hintObserver=new MutationObserver(updateHint);hintObserver.observe($('touchHint'),{childList:true});window.addEventListener('beforeunload',()=>{if(keepV1){try{localStorage.setItem(BACKUP,localStorage.getItem('tristancad.autosave'));keepV1=false;}catch{return;}}try{writeAutosave(localStorage,JSON.parse(touch.snapshotForSave()),undefined,keepV3Backup);}catch{}});
  new MutationObserver(updateHint).observe($('touchModes'),{attributes:true,subtree:true});updateHint();
