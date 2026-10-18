@@ -1,6 +1,7 @@
 import {mergeResult,connectingBridges} from './operations.mjs';
 import {object,uid} from './templates.mjs';
 import {validateProject} from './kernel-ui.mjs';
+import {getUnit,fieldLen,readLen,byUnit,unitMessage} from './units.mjs';
 import {layerOf,layerName,assertSameLayer} from './layers.mjs';
 
 // Why a selection cannot be merged, or '' when it can.
@@ -20,9 +21,9 @@ export function installMergeTools(S,B){
   if(problem){S.toast(problem,true);return false;}
   const layer=layerOf(selected[0]),layerObjects=()=>S.project().objects.filter(o=>layerOf(o)===layer);
   const selectedIds=new Set(selected.map(o=>o.id)),cuts=layerObjects().filter(o=>o.enabled&&o.mode==='cut'&&!selectedIds.has(o.id)&&selected.some(s=>!bounds(s.id)||!bounds(o.id)||overlap(bounds(s.id),bounds(o.id))));
-  S.openSheet('Merge shapes',`<p class="subtle"><b>${S.escape(layerName(p,layer))}</b> · Merge these ${selected.length} selected shapes into one physically connected solid. Other layers are protected.</p><div class="metrics">${selected.map((o,i)=>`${i+1}. ${S.escape(o.name)}`).join('<br>')}</div><p class="inlinehelp">Merged shapes fill overlapping holes and cutouts in the first shape. Holes outside the merged material remain.</p>${cuts.length?`<label class="toggle"><input type="checkbox" id="preserveCuts">Keep existing holes from overlapping Cutout shapes</label><p class="inlinehelp">Leave this off to fill cutout overlaps. Turn it on to preserve those holes.</p>`:''}<label class="toggle"><input type="checkbox" id="addBridge">Add connecting bars if pieces are separated</label><div class="field"><label for="bridgeDiameter">Connecting bar diameter · mm</label><input id="bridgeDiameter" type="number" step="0.5" value="5" min="0.5"></div><div class="modalerror" id="mergeError"></div><button id="confirmMerge" class="full primary">Merge ${selected.length} shapes</button>`,'MERGE');
+  S.openSheet('Merge shapes',`<p class="subtle"><b>${S.escape(layerName(p,layer))}</b> · Merge these ${selected.length} selected shapes into one physically connected solid. Other layers are protected.</p><div class="metrics">${selected.map((o,i)=>`${i+1}. ${S.escape(o.name)}`).join('<br>')}</div><p class="inlinehelp">Merged shapes fill overlapping holes and cutouts in the first shape. Holes outside the merged material remain.</p>${cuts.length?`<label class="toggle"><input type="checkbox" id="preserveCuts">Keep existing holes from overlapping Cutout shapes</label><p class="inlinehelp">Leave this off to fill cutout overlaps. Turn it on to preserve those holes.</p>`:''}<label class="toggle"><input type="checkbox" id="addBridge">Add connecting bars if pieces are separated</label><div class="field"><label for="bridgeDiameter">${byUnit('Connecting bar diameter · mm','Connecting bar diameter · in')}</label><input id="bridgeDiameter" type="number" step="${byUnit('0.5','0.01')}" value="${fieldLen(5)}" min="${byUnit('0.5','0.02')}"></div><div class="modalerror" id="mergeError"></div><button id="confirmMerge" class="full primary">Merge ${selected.length} shapes</button>`,'MERGE');
   $('confirmMerge').onclick=async()=>{
-   const keepHoles=!!$('preserveCuts')?.checked,appliedCuts=!keepHoles?cuts.filter(c=>!selected[0].excludedCutouts?.includes(c.id)):cuts,fillOverlaps=!keepHoles,bridge=$('addBridge').checked,diameter=Number($('bridgeDiameter').value),button=$('confirmMerge'),error=$('mergeError');
+   const keepHoles=!!$('preserveCuts')?.checked,appliedCuts=!keepHoles?cuts.filter(c=>!selected[0].excludedCutouts?.includes(c.id)):cuts,fillOverlaps=!keepHoles,bridge=$('addBridge').checked,diameter=readLen($('bridgeDiameter').value,fieldLen(5),5),button=$('confirmMerge'),error=$('mergeError');
    button.disabled=true;button.textContent='Checking solid…';error.textContent='';B.busy(true);
    try{
     let pieces=structuredClone(selected),info=await S.request('boolean',{operation:'add',objects:pieces,cutouts:structuredClone(appliedCuts),fillOverlaps,tolerance:.03});
@@ -37,7 +38,7 @@ export function installMergeTools(S,B){
     const next=structuredClone(S.project()),at=next.objects.findIndex(o=>selectedIds.has(o.id));next.objects=next.objects.filter(o=>!selectedIds.has(o.id)&&!removedCuts.has(o.id));next.objects.splice(Math.min(at,next.objects.length),0,result);
     validateProject(next);B.busy(false);S.change(()=>{S.project().objects=next.objects;});B.setIds([result.id]);S.closeSheet();
     S.toast('Shapes merged into one connected solid on '+layerName(S.project(),layer)+'.');
-   }catch(e){error.textContent=e.message;button.disabled=false;button.textContent=`Merge ${selected.length} shapes`;}
+   }catch(e){error.textContent=unitMessage(e.message);button.disabled=false;button.textContent=`Merge ${selected.length} shapes`;}
    finally{B.busy(false);S.autosave();}
   };
   return true;
