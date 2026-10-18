@@ -67,9 +67,24 @@ function baseShape(o) {
 }
 function applyFillets(base,fillets,edges) {
  if(!fillets?.some(f=>f.radius>0))return base.clone();
+ if(fillets.some(f=>f.kind==='chamfer'&&f.radius>0))return edgeFinish(base,fillets,edges);
  const radii=new Map();for(const f of fillets)for(const index of f.edges)if(edges[index])radii.set(edges[index].hashCode,f.radius);
  try{return base.fillet(e=>radii.get(e.hashCode)||0);}catch{throw Error('That roundover is too large or conflicts with another edge. Reduce the radius.');}
 }
+// ADR-0001 F6: chamfers (symmetric BRepFilletAPI_MakeChamfer) and rounds on one shape. Chamfers are cut first and the
+// round edges are found again through MakeChamfer.Modified() (an edge the chamfers left alone keeps its identity), then
+// the rounds use the same MakeFillet as replicad's fillet(). Rounding first would let a later chamfer propagate along the
+// round's tangent seam onto edges nobody picked (and gave an invalid solid when the chamfer exceeds the round; measured
+// in tests/round-chamfer.mjs). The result must pass BRepCheck. Shapes without a chamfer never get here.
+function edgeFinish(base,fillets,edges){const oc=R.getOC(),by=new Map(),own=[],keep=x=>own[own.length]=x;
+ for(const f of fillets)if(f.radius>0)for(const i of f.edges)if(edges[i])by.set(i,f);
+ const pass=c=>[...by].filter(([,f])=>(f.kind==='chamfer')===c).sort((a,b)=>a[0]-b[0]),rounds=pass(false);let step=0;
+ try{const cb=keep(new oc.BRepFilletAPI_MakeChamfer(base.wrapped));for(const [i,f] of pass(true))cb.Add(f.radius,edges[i].wrapped);let out=keep(cb.Shape());
+  if(rounds.length){step=1;const fb=keep(new oc.BRepFilletAPI_MakeFillet(out,oc.ChFi3d_FilletShape.ChFi3d_Rational));
+   for(const [i,f] of rounds){let e=edges[i].wrapped;const l=keep(cb.Modified(e));if(l.Size())e=keep(oc.TopoDS.Edge(l.First()));fb.Add(f.radius,e);}out=keep(fb.Shape());}
+  if(!keep(new oc.BRepCheck_Analyzer(out,true,false)).IsValid())throw 0;const r=R.cast(out);if(!R.isShape3D(r)){dispose(r);throw 0;}return r;}
+ catch{throw Error(step?'That roundover is too large or conflicts with another edge. Reduce the radius.':'That chamfer is too large or conflicts with another edge. Reduce the distance.');}
+ finally{own.reverse().forEach(dispose);}}
 function fullShape(o) {
  if(o.scale?.some(v=>Math.abs(v-1)>1e-8))throw Error('A scaled compound uses mesh editing. Round its component shapes before conjoining.');
  const s=baseShape(o),edges=s.edges;let r;
@@ -249,6 +264,8 @@ export function disposeSolidCache(){meshes.clear();meshBytes=0;for(const entry o
 export function topologyVariant(o,scoped){const base=baseShape(o),edges=base.edges;try{return scoped?scopedTopology(base,edges,o):legacyTopology(base,edges);}finally{edges.forEach(dispose);if(scoped){try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}}dispose(base);}}
 // Test hook (new-primitives ADR §5.4, exact STEP): the exact base B-rep of o, outside the cache; the caller deletes it.
 export function baseShapeForTest(o){return baseShape(o);}
+// Test hook (ADR-0001 F6 acceptance): the exact finished B-rep (base + chamfers/rounds) of o, outside the cache; the caller deletes it.
+export function finishedShapeForTest(o){const base=baseShape(o),edges=explore(base,'edge');try{return applyFillets(base,o.fillets,edges);}finally{edges.forEach(dispose);dispose(base);}}
 // Amendment A2.5: warm the torus / glyph topology code paths once (JIT and wasm tier-up) on a tiny shape, outside the
 // caches, so the first real Add does not pay that cost. Returns ms. The worker calls it only when it is idle.
 export function warmShape(o){const t=performance.now(),base=baseShape(o),edges=explore(base,'edge');
