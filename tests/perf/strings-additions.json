@@ -143,6 +143,18 @@
    "runtime": true,
    "source": "web/tooltips.mjs:19",
    "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Bottom-center placement · millimeters",
+   "runtime": true,
+   "source": "web/main.mjs:170",
+   "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
+  },
+  {
+   "text": "Object center position · millimeters",
+   "runtime": true,
+   "source": "web/main.mjs:170",
+   "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   }
  ],
  "removals": [
