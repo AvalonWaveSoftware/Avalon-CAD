@@ -25,8 +25,8 @@ export function extractStrings(){const set=new Set();
 // or edited, and any other new string still fails.
 // Branch-specific approved diffs against a READ-ONLY baseline (never --update'd for them):
 //  - approved string removals: strings-additions.json "approvedRemovals" [{string, approval}];
-//  - approved pixel areas: tests/perf/approved-pixel-diffs.json {baseline, allowBoxes: {scene id: {box, strip, approval}}},
-//    applied only when the baseline in use is the one it names (AVALON_APPROVED_DIFFS=<json> selects another file).
+//  - approved pixel areas live in tests/perf/approved-areas.json (pixels.mjs; pixels only, DOM differences always fail).
+//    allowBoxes stays {} unless AVALON_APPROVED_DIFFS=<json> names a legacy {baseline, allowBoxes} file.
 export function approvedDiffs(){
  const sa=path.join(HERE,'strings-additions.json'),removedStrings=fs.existsSync(sa)?JSON.parse(fs.readFileSync(sa,'utf8')).approvedRemovals||[]:[];
  const f=process.env.AVALON_APPROVED_DIFFS?path.resolve(process.env.AVALON_APPROVED_DIFFS):path.join(HERE,'approved-pixel-diffs.json');

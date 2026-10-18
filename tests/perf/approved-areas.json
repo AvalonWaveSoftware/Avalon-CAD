@@ -1,0 +1,11 @@
+{
+ "note": "Approved pixel areas for in-flight, unmerged changes only (ADR-0001 ruling, 2026-10-17): boxes approve PIXELS only, every DOM/string difference fails. An entry is removed once its change is in a baseline. F6 (round-chamfer-dropdown: [data-mode=round], #edgeToolMenu, sheet-radius-menu #sheet p.subtle) was removed when perf-baseline-release-3.0-6892eb7 (a full render of 6892eb7) became the baseline. Format: {baseline: <baseline folder name>, box: <selector>, overlay: <selector|null>, scenes: {<scene>: [<selector>...]}}; pixels.mjs applies it only when basename(AVALON_PIXEL_BASELINE) equals baseline. export-3mf (ADR-0001 F2a, NOT merged into release-3.0; HELD): the Export sheet's new File format field (c60c94c; Architect ruling 2, 19:55 CT) reflows the sheet below it, so the approved area is the sheet panel (#sheet) in the sheet-export scenes only (box null = no global box; every other scene is strict). Pixels only: the sheet-export DOM still differs (the new field) and fails as ruled; QA re-captures sheet-export@phone/desktop (Master Chief approval). Remove this entry when F2a is in a baseline.",
+ "baseline": "perf-baseline-release-3.0-6892eb7",
+ "box": null,
+ "overlay": null,
+ "scenes": {
+  "sheet-export": [
+   "#sheet"
+  ]
+ }
+}

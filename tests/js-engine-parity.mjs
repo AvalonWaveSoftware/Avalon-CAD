@@ -49,4 +49,10 @@ for(let n=0;n<N;n++){const p=blank();p.layers.push({id:'layer-2',name:'Layer 2'}
  const solids=p.objects.filter(o=>o.mode!=='cut'&&o.layerId==='layer-1'),cuts=p.objects.filter(o=>o.mode==='cut'&&o.layerId==='layer-1');
  if(solids.length)same({type:'boolean',objects:solids,cutouts:cuts,operation:'add',fillOverlaps:rnd()<.5,tolerance:tol},'random boolean '+n);
 }
+// ADR-0001 F6: chamfer and mixed round + chamfer objects (format v3) through every job kind, and the chamfer error verbatim.
+{const b=object('box',{w:30,d:20,h:10},[0,0,5]),c=object('cylinder',structuredClone(defaults.cylinder),[25,0,10]),h=object('cylinder',{diameter:6,h:40},[0,0,0]);h.mode='cut';
+ b.fillets=[{edges:[0],radius:2},{edges:[1,2],radius:1,kind:'chamfer'}];c.fillets=[{edges:[0],radius:1.5,kind:'chamfer'}];const p={...P([b,c,h]),version:3};
+ for(const type of ['preview','check','export'])for(const plane of [false,true])same({type,project:{...p,buildPlaneEnabled:plane},tolerance:.15,ground:plane},'chamfer '+type);
+ same({type:'boolean',objects:[b,c],cutouts:[h],operation:'add',tolerance:.15},'chamfer boolean');same({type:'place',object:b,position:[5,6,7],floor:true},'chamfer place');
+ const bad={...P([{...b,fillets:[{edges:[0,1],radius:40,kind:'chamfer'}]}]),version:3},r=same({type:'check',project:bad,tolerance:.15},'impossible chamfer');assert.match(r.error,/That chamfer is too large/);}
 console.log(`JS engine parity: ${jobs} jobs identical to the Python oracle (${errors} verbatim error messages)`);js.destroy();py.destroy();

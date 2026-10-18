@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build:web": "node build-web.mjs",
-    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/history.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs && node tests/migration.mjs && node tests/save-format-v3.mjs && node tests/w0-foundation.mjs && node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs && node tests/occt-scope.mjs && node tests/topology-service.mjs && node tests/render-resources.mjs && node tests/render-scheduler.mjs && node tests/engine-parity.mjs && node tests/js-engine-parity.mjs && node tests/export-3mf.mjs && node tests/export-3mf-ui.mjs && node tests/engine-cache-accounting.mjs && node tests/notices.mjs && node tests/parallel-init.mjs && node tests/startup-split.mjs && node tests/lazy-chunks.mjs && node tests/autosave-v3.mjs && node tests/mode-bar-reserved.mjs && node tests/occt-sidecar.mjs && node tests/polyhedra-tables.mjs && node tests/glyph-data.mjs && node tests/new-shapes.mjs && node tests/glyph-topology-parity.mjs && node tests/new-shapes-interaction.mjs && node tests/platform-parity.mjs",
+    "test": "node tests/geometry.mjs && node tests/touch-geometry.mjs && node tests/resolution.mjs && node tests/boolean.mjs && node tests/smooth.mjs && node tests/local-runtime.mjs && node tests/threads.mjs && node tests/interaction.mjs && node tests/history.mjs && node tests/layers.mjs && node tests/layers-interaction.mjs && node tests/primitives-prefabs.mjs && node tests/prefabs-interaction.mjs && node tests/overlap-display.mjs && node tests/build-plane.mjs && node tests/migration.mjs && node tests/save-format-v3.mjs && node tests/w0-foundation.mjs && node tests/objects-panel.mjs && node tests/create-prefab.mjs && node tests/storage-recovery.mjs && node tests/occt-scope.mjs && node tests/topology-service.mjs && node tests/render-resources.mjs && node tests/render-scheduler.mjs && node tests/engine-parity.mjs && node tests/js-engine-parity.mjs && node tests/export-3mf.mjs && node tests/export-3mf-ui.mjs && node tests/engine-cache-accounting.mjs && node tests/notices.mjs && node tests/parallel-init.mjs && node tests/startup-split.mjs && node tests/lazy-chunks.mjs && node tests/autosave-v3.mjs && node tests/mode-bar-reserved.mjs && node tests/round-chamfer.mjs && node tests/worker-budget.mjs && node tests/round-chamfer-ui.mjs && node tests/occt-sidecar.mjs && node tests/polyhedra-tables.mjs && node tests/glyph-data.mjs && node tests/new-shapes.mjs && node tests/glyph-topology-parity.mjs && node tests/new-shapes-interaction.mjs && node tests/empty-project-preview.mjs && node tests/platform-parity.mjs",
     "build:rust": "./build-rust.sh",
     "test:local": "node tests/local-runtime.mjs",
     "test:3mf": "node tests/export-3mf.mjs && node tests/export-3mf-small.mjs && node tests/export-3mf-pool.mjs && node tests/export-3mf-ui.mjs",
@@ -20,7 +20,7 @@
     "test:plane": "node tests/build-plane.mjs",
     "build:mac": "npm run build:web && node desktop/build-mac.mjs",
     "stage:desktop": "node desktop/stage.mjs",
-    "test:desktop": "node tests/desktop-files.mjs && node desktop/stage.mjs && node tests/desktop-shell.mjs && node tests/platform-parity.mjs --staged && node tests/electron-runtime.mjs && node tests/desktop-runtime.mjs",
+    "test:desktop": "node tests/desktop-files.mjs && node tests/rpm-assets.mjs && node desktop/stage.mjs && node tests/desktop-shell.mjs && node tests/platform-parity.mjs --staged && node tests/electron-runtime.mjs && node tests/desktop-runtime.mjs",
     "test:parity": "node tests/platform-parity.mjs",
     "test:desktop-browser": "node tests/desktop-runtime.mjs",
     "test:migration": "node tests/migration.mjs",
@@ -45,7 +45,9 @@
     "test:ws13": "node tests/perf/wasm-opt-parity.mjs",
     "test:ws14": "node tests/perf/ws14-run.mjs",
     "test:new-shapes": "node tests/polyhedra-tables.mjs && node tests/glyph-data.mjs && node tests/new-shapes.mjs && node tests/glyph-topology-parity.mjs && node tests/new-shapes-interaction.mjs",
-    "test:new-shapes-perf": "node tests/perf/new-shapes-bench.mjs --check"
+    "test:new-shapes-perf": "node tests/perf/new-shapes-bench.mjs --check",
+    "test:round-chamfer-perf": "node tests/perf/round-chamfer-bench.mjs --check",
+    "test:round-chamfer-stl": "node tests/round-chamfer-stl.mjs"
   },
   "keywords": [],
   "author": "",

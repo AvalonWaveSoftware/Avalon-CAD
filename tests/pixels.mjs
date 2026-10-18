@@ -4,11 +4,17 @@
 // Baselines are artifacts (ADR §5.5), never committed: they live in AVALON_PIXEL_BASELINE
 // (default /workspace/avalon-cad-artifacts/perf-baseline).
 //   node tests/pixels.mjs [--out DIR] [scene-name-substring ...]
+//   node tests/pixels.mjs --allow-box SELECTOR [...]   ADR-0001 F6 ruling 5 check (compare only, never with --update):
+//        differing pixels are allowed only inside SELECTOR's box (e.g. '[data-mode=round]'), measured in the page at
+//        capture time; any differing pixel outside it fails. Approved boxes cover pixels only: every DOM/style
+//        difference against the baseline FAILS in this mode too (ADR-0001 ruling, blank-scene-flake follow-up).
+//   --allow-overlay SELECTOR (with --allow-box): also allows SELECTOR's box, only in captures where that element is
+//        present (e.g. '#edgeToolMenu', the Edge ▾ dropdown, only while it is open).
 // Env: AVALON_PLAYWRIGHT (playwright module path), AVALON_CHROMIUM (browser executable), AVALON_ASSETS (served build),
 //      PIXEL_JOBS (parallel browser contexts in the one shared browser, default 4), AVALON_PIXEL_BASELINE (baseline dir).
 // Same setup as tools/readme-shots/harness.mjs (served app, open(), tap()); one shared browser, PIXEL_JOBS contexts; toasts and #busy are hidden as capture.mjs does.
 import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import {createRequire} from 'node:module';
-import {diffPixels,decodePNG} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE,approvedDiffs} from './perf/dom-baseline.mjs';import {execSync} from 'node:child_process';
+import {diffPixels,diffOutside,decodePNG} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {execSync} from 'node:child_process';
 
 const require=createRequire(import.meta.url);const {chromium}=require(process.env.AVALON_PLAYWRIGHT||'playwright');
 // open()/tap() mirror tools/readme-shots/harness.mjs exactly (inlined since before harness.mjs honoured
@@ -33,18 +39,20 @@ const H={
   return page;},
  tap:(page,mode,points,times=1)=>page.evaluate(([mode,points,times])=>{const t=window.__cad.touch;if(mode)t.setMode(mode);const c=document.querySelector('#scene');for(const p of points){const at=t.pointScreen(p);for(let i=0;i<times;i++)for(const type of ['pointerdown','pointerup'])c.dispatchEvent(new PointerEvent(type,{clientX:at[0],clientY:at[1],pointerId:1,pointerType:'touch',bubbles:true}));}},[mode,points,times]),
 };
-const args=process.argv.slice(2),update=args.includes('--update'),outI=args.indexOf('--out');
-const OUT=outI>=0?path.resolve(args[outI+1]):path.join(process.env.TMPDIR||'/tmp','avalon-pixel-run');const only=args.filter((a,i)=>!a.startsWith('--')&&i!==outI+1&&!process.argv.slice(2).some((x,j)=>(x==='--allow-box'||x==='--approved')&&j+1===i));
+// Approved diff areas (committed, tests/perf/approved-areas.json): when the baseline in use is the one named there and no
+// --allow-box is given, its button box / overlay / per-scene areas apply exactly as the flags would (compare-only; never
+// with --update; AVALON_PIXEL_APPROVED=0 turns it off for a strict run). Per-scene areas are extra allowed boxes.
+// They are for in-flight, unmerged changes only and approve PIXELS only: DOM/style differences always fail. Any other
+// baseline (e.g. AVALON_PIXEL_BASELINE=.../perf-baseline-release-3.0-6892eb7) is compared strictly, with no areas.
+// export-3mf: box may be null when only per-scene areas are approved (scene-scoped; every other scene stays strict).
+const args=process.argv.slice(2),update=args.includes('--update'),outI=args.indexOf('--out'),boxI=args.indexOf('--allow-box'),ovI=args.indexOf('--allow-overlay');
+const APPROVED=(()=>{const f=path.join(path.dirname(new URL(import.meta.url).pathname),'perf/approved-areas.json');if(update||boxI>=0||process.env.AVALON_PIXEL_APPROVED==='0'||!fs.existsSync(f))return null;
+ const a=JSON.parse(fs.readFileSync(f,'utf8'));return path.basename(BASE)===a.baseline?a:null;})();
+const ALLOW_BOX=boxI>=0?args[boxI+1]:APPROVED?.box??null,ALLOW_OVERLAY=ovI>=0?args[ovI+1]:APPROVED?.overlay??null,SCENE_AREAS=APPROVED?.scenes||{};
+if(APPROVED)console.log(`approved areas (${APPROVED.baseline}): ${APPROVED.box}${APPROVED.overlay?' + overlay '+APPROVED.overlay:''}; scenes: ${Object.keys(SCENE_AREAS).join(', ')||'none'}`);
+if(ALLOW_BOX&&update)throw Error('--allow-box is a compare-only check; it never writes baselines');
+const OUT=outI>=0?path.resolve(args[outI+1]):path.join(process.env.TMPDIR||'/tmp','avalon-pixel-run');const only=args.filter((a,i)=>!a.startsWith('--')&&i!==outI+1&&i!==boxI+1&&i!==ovI+1);
 const JOBS=Number(process.env.PIXEL_JOBS||4);
-// Branch-specific approved diffs against a read-only baseline (approvedDiffs in dom-baseline.mjs): a scene with an
-// allow box may differ ONLY inside that box ([left,top,right,bottom] in CSS px, exact, no margin); every pixel outside
-// must be identical, and the DOM must be identical once the box's element (allowBoxes[id].strip, an exact outerHTML
-// string) is removed. --allow-box <scene id>=<left>,<top>,<right>,<bottom> adds a box from the command line.
-const APPROVED=approvedDiffs(),ALLOW={...APPROVED.allowBoxes};
-args.forEach((a,i)=>{if(a==='--allow-box'){const [id,b]=args[i+1].split('=');ALLOW[id]={...(ALLOW[id]||{}),box:b.split(',').map(Number)};}});
-function outsideExact(basePng,png,[l,t,r,b],dpr){const A=decodePNG(basePng),B=decodePNG(png);if(A.width!==B.width||A.height!==B.height)return A.width*A.height;
- const [x0,y0,x1,y1]=[Math.floor(l*dpr),Math.floor(t*dpr),Math.ceil(r*dpr),Math.ceil(b*dpr)];let n=0;
- for(let y=0;y<A.height;y++)for(let x=0;x<A.width;x++){if(x>=x0&&x<x1&&y>=y0&&y<y1)continue;const i=(y*A.width+x)*4;if(A.data.readUInt32BE(i)!==B.data.readUInt32BE(i))n++;}return n;}
 // Same server as the harness (harness.start() launches its own bundled browser; we need AVALON_CHROMIUM, so we start our own).
 async function start(){const server=http.createServer((req,res)=>{const name=new URL(req.url,'http://localhost').pathname.slice(1)||'index.html';const file=path.resolve(ASSETS,name);
   if(!file.startsWith(ASSETS+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}
@@ -70,10 +78,21 @@ async function settle(page){await idle(page);await page.waitForFunction(()=>!win
 // worker job running, camera stable, and then two consecutive captures (screenshot + DOM snapshot) taken ≥250 ms and
 // several frames apart are identical. A frame that is still changing is retried, never compared; the app is untouched.
 async function frames(page,n){await page.evaluate(n=>new Promise(r=>{const f=k=>k?requestAnimationFrame(()=>f(k-1)):r();f(n);}),n);}
+// blank@desktop flake (ADR-0001 blank-scene-flake): Chromium can leave a root-layer tile holding a raster from an earlier
+// paint-invalidation state. That raster differs from a fresh full raster of the same page by 1 LSB at one gradient pixel
+// ((1162,241) in #viewport's radial-gradient, blue 50 instead of 51). Nothing invalidates it later, so two identical
+// captures do not prove the frame is the page's settled raster. The WebGL canvas is transparent there in every frame.
+// Before EVERY screenshot of the still-shot loop (the only capture path: every scene, step and viewport goes through
+// stillShot, including its retries), the root layer is fully re-rasterized: the base background colour is overridden
+// over CDP and then cleared, so each capture comes from a full raster of the final state. DOM and app are untouched,
+// and no pixel is allowed.
+async function fullRaster(page){const c=await page.context().newCDPSession(page);
+ try{await c.send('Emulation.setDefaultBackgroundColorOverride',{color:{r:255,g:0,b:255,a:1}});await frames(page,2);
+  await c.send('Emulation.setDefaultBackgroundColorOverride',{});await frames(page,2);}finally{await c.detach().catch(()=>{});}}
 async function stillShot(page){
  await page.evaluate(()=>document.fonts.ready.then(()=>{}));await settle(page);
  let prev=null,prevDom=null;
- for(let i=0;i<40;i++){await frames(page,3);await page.waitForTimeout(250);await idle(page);
+ for(let i=0;i<40;i++){await frames(page,3);await page.waitForTimeout(250);await idle(page);await fullRaster(page);
   const png=await page.screenshot({animations:'disabled',caret:'hide'}),dom=JSON.stringify(await domSnapshot(page));
   if(prev&&png.equals(prev)&&dom===prevDom&&await page.evaluate(()=>document.fonts.status==='loaded'))return {png,dom:JSON.parse(dom),tries:i+1};
   prev=png;prevDom=dom;}
@@ -90,10 +109,11 @@ const D={box:{w:30,d:30,h:15},cylinder:{diameter:20,h:20},sphere:{diameter:25},t
 const distinct=n=>{const types=['box','cylinder','sphere','tube','cone'],o=[];for(let i=0;i<n;i++){const t=types[i%5],q={...D[t]};q.h=(q.h||10)+i*.1;if(t==='sphere')q.diameter+=i*.1;o.push(ob('o'+i,t,q,[(i%10)*35,Math.floor(i/10)*35,0],{name:t+i}));}return proj(`${n} distinct`,o,{buildPlaneEnabled:true});};
 const filletBox=q=>proj('Filleted box '+q,[ob('fb','cylinder',{diameter:30,h:15},[0,0,7.5],{fillets:[{edges:[0,2],radius:2}],resolution:{mode:'tolerance',tolerance:q}})]);
 // An empty project (parts 0) has no model change to wait for, so record that this load's preview started and
-// then wait for it to settle; otherwise the capture can land before the preview runs (blank@* status flake).
+// then wait for its settled 'Ready · millimeters' (empty-project-preview stage); otherwise the capture can land before
+// the preview runs (blank@* status flake).
 async function load(page,p,parts){if(parts===0)await page.evaluate(()=>{window.__previewSeen=false;const b=document.querySelector('#busy');const o=new MutationObserver(()=>{if(b.textContent.trim()==='Building solid…'){window.__previewSeen=true;o.disconnect();}});o.observe(b,{subtree:true,childList:true,characterData:true});});
  await page.evaluate(p=>window.__cad.load(p),typeof p==='string'?JSON.parse(p):p);
- if(parts===0){await page.waitForFunction(()=>window.__previewSeen,{},{timeout:180000});await idle(page);}
+ if(parts===0){await page.waitForFunction(()=>window.__previewSeen&&document.querySelector('#busy').textContent.trim()==='Ready · millimeters',{},{timeout:180000});await idle(page);}
  await page.waitForFunction(n=>window.__cad.model&&(n===0||window.__cad.model.parts?.length>=n),parts??1,{timeout:180000});await deselect(page);await fit(page);}
 const loadTemplate=async(page,t)=>{await page.evaluate(t=>window.__cad.load(window.__cad.templates[t]()),t);await page.waitForFunction(()=>window.__cad.model?.volume>0);await deselect(page);await fit(page);};
 const fit=async page=>{await page.locator('#fit').click();await settle(page);};
@@ -185,14 +205,23 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
     const help5=[...document.querySelectorAll('#sheet:not([hidden]) .helpitem')].find(e=>/^5\. Export for printing/.test(e.textContent));
     return {dpr:devicePixelRatio,modebar:box(document.getElementById('touchModes')),dock:box(document.querySelector('.dock')),toolbar:box(document.querySelector('.toolbar')),help5:box(help5),pill:box(document.getElementById('desktopHelp')),formatField:box(document.getElementById('exportFormat')?.closest('.field'))};})));
    caps.push(id);if(!update){const bp=path.join(PX,id+'.png'),bd=path.join(DOM,id+'.json');const r={id,errors:[]};
-    if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;const allow=ALLOW[id];if(allow&&d.differing&&!d.sizeMismatch){r.outsideBox=outsideExact(fs.readFileSync(bp),png,allow.box,desktop?1:2);if(r.outsideBox)r.errors.push(`${r.outsideBox} px differ outside the approved box [${allow.box}]`);else{r.accepted=d.differing;console.log(`approved ${id}: ${d.differing} px, all inside [${allow.box}] (${APPROVED.file||'--allow-box'})`);}}
-     else if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
-    const strip=ALLOW[id]?.strip,dom2=strip?{...dom,html:dom.html.replace(strip,'')}:dom;if(strip&&dom2.html===dom.html)r.errors.push('approved element to strip not found');
-    if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom2));else r.errors.push('no DOM baseline');
+    if((ALLOW_BOX||SCENE_AREAS[name]?.length)&&fs.existsSync(bp)){// An overlay's box includes its box-shadow, which is part of the overlay as drawn: offset ± (1.5·blur + spread)
+     // (Skia draws a CSS blur radius b as a Gaussian with σ = b/2, out to 3σ).
+     const boxOf=(sel,shadow=false)=>page.evaluate(([sel,shadow])=>{const e=sel&&document.querySelector(sel);if(!e)return null;const q=e.getBoundingClientRect(),k=devicePixelRatio;let [l,t,r,b]=[q.left,q.top,q.right,q.bottom];
+      if(shadow)for(const m of getComputedStyle(e).boxShadow.matchAll(/(-?[\d.]+)px (-?[\d.]+)px ([\d.]+)px(?: (-?[\d.]+)px)?/g)){const [x,y,blur,spread=0]=m.slice(1).map(Number),ext=1.5*blur+spread;l=Math.min(l,q.left+x-ext);t=Math.min(t,q.top+y-ext);r=Math.max(r,q.right+x+ext);b=Math.max(b,q.bottom+y+ext);}
+      return [Math.floor(l*k),Math.floor(t*k),Math.ceil(r*k),Math.ceil(b*k)];},[sel,shadow]);
+     const box=await boxOf(ALLOW_BOX),overlay=await boxOf(ALLOW_OVERLAY,true),areaSel=SCENE_AREAS[name]||[],areas=[];
+     for(const sel of areaSel){const a=await boxOf(sel);if(a)areas.push(a);else r.errors.push(`no element ${sel} (approved area of ${name})`);}
+     const zones=[...(box?[box]:[]),...(overlay?[overlay]:[]),...areas],d=zones.length?diffOutside(fs.readFileSync(bp),png,zones):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
+     if(ALLOW_BOX&&!box)r.errors.push(`no element ${ALLOW_BOX}`);else if(d.outside)r.errors.push(`${d.outside} differing pixels outside ${ALLOW_BOX||'approved areas'} box ${box}${overlay?' or overlay '+overlay:''} (outside diffs span ${d.outsideBox})${d.sizeMismatch?' (size mismatch)':''}`);
+     // Approved areas are pixel boxes only: no DOM allowance inside them (ADR-0001 ruling); every DOM/style difference fails.
+     if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');results.push(r);}
+    else{if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
+    if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');
     if(MASK_BASE){const help=await page.evaluate(()=>{const e=document.getElementById('desktopHelp');if(!e||getComputedStyle(e).display==='none'||getComputedStyle(e).visibility==='hidden')return null;const b=e.getBoundingClientRect();return {left:b.left,top:b.top,right:b.right,bottom:b.bottom};});
      const mp=path.join(MASK_BASE,'pixels',id+'.png'),md=path.join(MASK_BASE,'dom',id+'.json');if(!fs.existsSync(mp))r.errors.push('no mask baseline');else{r.helpBox=help;r.outsideHelp=outsideBox(fs.readFileSync(mp),png,help,desktop?1:2);if(r.outsideHelp)r.errors.push(`${r.outsideHelp} px differ outside the help line vs ${path.basename(MASK_BASE)}`);if(!desktop&&help)r.errors.push('help line visible on phone');}
      if(fs.existsSync(md))r.errors.push(...compareDom(stripHelp(JSON.parse(fs.readFileSync(md,'utf8'))),stripHelp(dom)).map(e=>'vs '+path.basename(MASK_BASE)+' without #desktopHelp: '+e));}
-    results.push(r);}
+    results.push(r);}}
    console.log(update?'baseline '+id:`checked ${id}: ${results.at(-1).differing??'n/a'} differing px${MASK_BASE?` (outside help line vs mask base: ${results.at(-1).outsideHelp??'n/a'})`:''}${results.at(-1).errors.length?' FAIL: '+results.at(-1).errors.join('; '):''}`);});
   if(!caps.length)throw Error('scene captured nothing');}
  catch(e){results.push({id:`${name}@${vp}`,errors:['scene failed: '+e.message.split('\n')[0]]});console.error('FAIL',name,vp,e.message.split('\n')[0]);}
@@ -208,4 +237,4 @@ if(!only.length){const m=JSON.parse(fs.readFileSync(path.join(BASE,'manifest.jso
 const bad=results.filter(r=>r.errors.length);fs.writeFileSync(path.join(OUT,'report.json'),JSON.stringify({secs,results},null,1));
 for(const r of bad)console.error('FAIL',r.id,'—',r.errors.join(' | '));
 const accs=results.filter(r=>r.accepted&&!r.errors.length),acc=accs.length,total=results.reduce((n,r)=>n+(r.differing||0),0);
-console.log(`test:pixels: ${results.length-bad.length-acc}/${results.length} captures at 0 px, ${acc} accepted exception(s)${acc?' ('+accs.map(r=>r.id+' '+r.accepted+' px').join(', ')+')':''}, ${bad.length} failed; ${total} differing px in total; DOM/styles ${results.some(r=>r.errors.some(e=>!/pixels|baseline/.test(e)))?'DIFFER':'equal'} in ${secs}s`);process.exit(bad.length?1:0);
+console.log(`test:pixels: ${results.length-bad.length-acc}/${results.length} captures at 0 px, ${acc} accepted exception(s)${acc?' ('+accs.map(r=>r.id+' '+r.accepted+' px').join(', ')+')':''}, ${bad.length} failed; ${total} differing px in total; DOM/styles ${results.some(r=>r.errors.some(e=>/^(outerHTML differs|computed style|…\d+ elements|vs )/.test(e)))?'DIFFER':'equal'} in ${secs}s`);process.exit(bad.length?1:0);
