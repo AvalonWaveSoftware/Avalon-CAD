@@ -38,11 +38,13 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
  assert.deepEqual(await tip(page,'#helpBtn'),want('help','Help','Help'));assert.deepEqual(await tip(page,'[data-view="iso"]'),want('view:3d','3D'));assert.deepEqual(await tip(page,'#quickEdit'),['Edit dimensions →',null]);
  for(const s of ['#rotateMode','#mirrorMode','#measureBtn'])assert.deepEqual(await tip(page,s),[null,null],s+' stays untouched');
  // Follow-up ruling: the tooltip follows the rendered label minus a trailing ▾ ("Edge ▾" → "Edge (F)" once the geometry
- // lane renames Round); data-tip-label overrides one button; icon glyphs drop out; today Round reads "Round (F)".
+ // lane renames Round); data-tip-label overrides one button; icon glyphs drop out. Since F6 (release-3.0 7faa154) the
+ // button is labelled "Edge ▾" at startup, so it reads "Edge (F)"; a plain "Round" label would read "Round (F)".
  {const R='[data-mode="round"]',set=v=>page.evaluate(([r,v])=>{document.querySelector(r).firstChild.nodeValue=v;},[R,v]).then(()=>page.waitForTimeout(80));
-  assert.deepEqual(await tip(page,R),want('mode:round','Round'));await set('Edge ▾');assert.deepEqual(await tip(page,R),want('mode:round','Edge'),'a button labelled "X ▾" gets "X (key)"');
+  assert.equal(await page.textContent(R),'Edge ▾','F6 labels the Round button Edge ▾');
+  assert.deepEqual(await tip(page,R),want('mode:round','Edge'),'a button labelled "X ▾" gets "X (key)"');await set('Round');assert.deepEqual(await tip(page,R),want('mode:round','Round'));await set('Edge ▾');assert.deepEqual(await tip(page,R),want('mode:round','Edge'),'a button labelled "X ▾" gets "X (key)"');
   await page.evaluate(r=>{const b=document.querySelector(r);b.dataset.tipLabel='Fillet';b.firstChild.nodeValue='Edge';},R);await page.waitForTimeout(80);assert.deepEqual(await tip(page,R),want('mode:round','Fillet'),'data-tip-label overrides');
-  await page.evaluate(r=>{delete document.querySelector(r).dataset.tipLabel;},R);await set('Round');assert.deepEqual(await tip(page,R),want('mode:round','Round'));}
+  await page.evaluate(r=>{delete document.querySelector(r).dataset.tipLabel;},R);await set('Edge ▾');assert.deepEqual(await tip(page,R),want('mode:round','Edge'));}
  // Every sheet and panel.
  for(const [btn,what] of [['#addBtn','add'],['#projectMenu','projects'],['#layersBtn','layers'],['#exportBtn','export'],['#helpBtn','help']]){await page.click(btn);await page.waitForFunction(()=>!document.querySelector('#sheet').hidden&&document.querySelector('#sheetContent button'));await check(what+' sheet');await closeSheet(page);}
  await page.click('#helpBtn');await page.waitForSelector('#loadExample');await page.click('#loadExample');await page.waitForFunction(()=>window.__cad.project.objects.length>0&&window.__cad.selected);await page.waitForTimeout(500);await check('example loaded');

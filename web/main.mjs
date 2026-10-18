@@ -236,7 +236,8 @@ let importChunks=[],importName='';window.nativeImportStart=name=>{importName=nam
 const onWeb=()=>!window.AvalonDesktop&&!window.Android;
 async function help(){const {HELP_TITLE,helpHTML}=await import('./help-sheet.mjs');openSheet(HELP_TITLE,helpHTML(id=>!!commands.get(id)?.shortcut&&!(id==='new'&&onWeb())));$('loadExample').onclick=()=>guardReplace(()=>{change(()=>{project=plate();selected=project.objects[0].id;});refresh(true);closeSheet();});}
 $('helpBtn').onclick=help;
-window.handleBack=()=>{if(touch?.isCommitting()||panelBusy)return true;if(!$('sheet').hidden){closeSheet();return true;}if(objectsPanel?.isOpen()){objectsPanel.toggle(false);return true;}return false;};
+window.handleBack=()=>{if(touch?.isCommitting()||panelBusy)return true;if(touch?.closeEdgeMenu())return true;// F6: Android Back closes the Edge ▾ dropdown (no mode change)
+ if(!$('sheet').hidden){closeSheet();return true;}if(objectsPanel?.isOpen()){objectsPanel.toggle(false);return true;}return false;};
 touch=installTouch({canvas,scene,camera,controls,project:()=>project,current,selected:()=>selected,parts:()=>pickMeshes,select,refresh,request,change,autosave,dragVisual:()=>disposeGroup(overlay),record:before=>{pushHistory(before,selection());autosave();refreshLabels();},snapshot:snap,toast,openSheet,closeSheet,escape});
 prefabs=installPrefabs({project:()=>project,current,selection,parts:()=>pickMeshes,commit:(p,id)=>replaceProject(()=>{project=p;selected=id;}),editDraft:editMenu,place:o=>touch.placeNew(o),request,openSheet,closeSheet,escape,toast,saveFile,importDialog,lock:lockPanel});
 objectsPanel=installObjectsPanel({project:()=>project,selected:()=>selected,selection,select,toggleMulti:id=>touch.toggleMulti(id),deselect:()=>touch.deselect(),change,escape,editMenu:()=>editMenu(),addMenu,mergeMenu:ids=>touch.mergeMenu(ids),createPrefab:()=>prefabs.form({source:'selection'})});

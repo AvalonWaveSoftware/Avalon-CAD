@@ -52,11 +52,17 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
  const items=await page.evaluate(()=>[...document.querySelectorAll('#sheet .helpitem')].map(e=>[e.querySelector('b').textContent,e.querySelector('p').textContent]));
  assert.equal(items[3][0],'Keyboard shortcuts');assert.match(items[2][0],/^3\. /);assert.match(items[4][0],/^4\. /);assert.equal(items[3][1],PARAGRAPH);
  await page.click('#loadExample');await page.waitForFunction(()=>window.__cad.project.objects.length>0&&window.__cad.selected&&document.querySelector('#sheet').hidden);await page.waitForTimeout(300);
- // Modes. F reaches Round only through the registry entry mode:round, which clicks the Round button (F6 hook).
+ // Modes. Since F6 (release-3.0 7faa154, Master Chief 18:35 CT) F opens the Edge ▾ dropdown on every platform (F6's own
+ // touch-tools listener, which runs first and marks the event handled, so the registry entry mode:round does not also
+ // fire: the dropdown opens exactly once instead of opening and closing). Enter picks the focused Round item.
  await page.evaluate(()=>{window.roundClicks=0;document.querySelector('[data-mode="round"]').addEventListener('click',()=>window.roundClicks++,true);});
- for(const [k2,m] of [['m','move'],['s','stretch'],['f','round'],['v','select'],['M','move'],['V','select']])assert.equal((await key(k2),await mode()),m,k2+' → '+m);
+ const menu=()=>page.evaluate(()=>({n:document.querySelectorAll('#edgeToolMenu').length,expanded:document.querySelector('[data-mode="round"]').getAttribute('aria-expanded')}));
+ for(const [k2,m] of [['m','move'],['s','stretch']])assert.equal((await key(k2),await mode()),m,k2+' → '+m);
+ await key('f');await page.waitForSelector('#edgeToolMenu');assert.deepEqual(await menu(),{n:1,expanded:'true'},'F opens the Edge ▾ dropdown once');assert.equal(await mode(),'stretch','F alone changes no mode');
+ assert.equal((await key('Enter'),await mode()),'round','F then Enter → Round');assert.deepEqual(await menu(),{n:0,expanded:'false'});
+ for(const [k2,m] of [['v','select'],['M','move'],['V','select']])assert.equal((await key(k2),await mode()),m,k2+' → '+m);
  assert.equal((await key('Shift+V'),await mode()),'select','Shift+V is not a shortcut');
- assert.equal(await page.evaluate(()=>window.roundClicks),1,'F clicked the Round button once');assert.deepEqual(c.get('mode:round').shortcut,['F']);
+ assert.equal(await page.evaluate(()=>window.roundClicks),0,'F is handled once, by F6 (no extra Round-button click from the registry)');assert.deepEqual(c.get('mode:round').shortcut,['F']);
  // W wireframe, 0/Home fit (and Cmd/Ctrl+0 kept from the Electron menu).
  await key('w');await key('w');await key('0');await key('Home');await key('Control+0');
  let cl=await clicks();assert.equal(cl.wire,2);assert.equal(cl.fit,3);
