@@ -58,5 +58,13 @@ for(let n=0;n<SEQUENCES;n++){const p=blank();const count=1+Math.floor(rnd()*4);f
 // Errors: an impossible fillet must fail with the same message through the sidecar, every time it is asked.
 {const p=blank(),o=object('box',{w:4,d:4,h:4},[0,0,2]);o.fillets=[{edges:[0,1,2,3,4,5,6,7,8,9,10,11],radius:3}];p.objects.push(o);
  for(let k=0;k<2;k++)for(const type of ['preview','export']){const job={id:++id,type,project:p,tolerance:.15,ground:true},a=await client.run(A,job),b=B.process(structuredClone(job));assert.ok(b.error,'impossible fillet fails');same(a,b,'impossible fillet '+type);errors++;jobs++;}}
+// ADR-0001 F6: chamfers and mixed round + chamfer go through the same remote solidMesh/topology path (geometryKey carries
+// kind): identical previews, checks, exports and errors; a first-time chamfer offers the stand-in preview like a fillet.
+{const p=blank(),o=object('box',{w:30,d:20,h:10},[0,0,5]),q=object('cylinder',structuredClone(defaults.cylinder),[40,0,10]);o.fillets=[{edges:[0],radius:2},{edges:[1,2],radius:1,kind:'chamfer'}];q.fillets=[{edges:[0],radius:1.5,kind:'chamfer'}];p.objects.push(o,q);p.version=3;
+ let offered=0;const a=await client.run(A,{id:++id,type:'preview',project:p,tolerance:.15},{onInterim:()=>offered++});same(a,B.process({id,type:'preview',project:p,tolerance:.15}),'first-time chamfer');assert.equal(offered,1,'interim for a first-time chamfer');jobs++;interims++;
+ await check(p,.15,'round + chamfer');o.fillets[1].radius=1.25;await check(p,.05,'chamfer resized');
+ const r=structuredClone(p);r.objects[0].fillets=[{edges:[0],radius:2},{edges:[1,2],radius:1}];await check(r,.15,'same edges rounded, not chamfered');
+ const bad=blank(),x=object('box',{w:4,d:4,h:4},[0,0,2]);x.fillets=[{edges:[0,1,2,3,4,5,6,7,8,9,10,11],radius:3,kind:'chamfer'}];bad.objects.push(x);
+ for(const type of ['preview','export']){const job={id:++id,type,project:bad,tolerance:.15,ground:true},a=await client.run(A,job),b=B.process(structuredClone(job));assert.match(b.error,/That chamfer is too large/);same(a,b,'impossible chamfer '+type);errors++;jobs++;}}
 console.log(`OCCT sidecar parity: ${jobs} jobs identical to the in-process engine (previews, displays, parts, topology, checks, STL exports; ${errors} identical errors); ${interims} interim previews offered, all for pending fillet meshes; ${client.stats.requests} sidecar requests; ${faceIdOnly} topology bodies differed only in OCCT faceId hash codes`,JSON.stringify(client.remote.stats()));
 client.close();A.destroy();B.destroy();
