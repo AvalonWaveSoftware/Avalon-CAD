@@ -7,7 +7,7 @@
 # waydroid session, and either adb or sudo NOPASSWD for /usr/bin/waydroid (for `sudo -n waydroid shell`).
 #
 # Usage: ./waydroid-measure.sh [--waydroid-shell|--adb] [--sample FILE] [--apk FILE]
-#                              [--setup-only] [--non-interactive]
+#                              [--setup-only] [--non-interactive] [--no-install] [--force-install]
 #   --waydroid-shell  run device commands through `sudo -n waydroid shell` (the default when adb is not installed);
 #                     install with `waydroid app install`, push through the Waydroid data path, logcat through the shell.
 #   --adb             force the adb path (adb connect to the Waydroid IP), as before.
@@ -15,17 +15,26 @@
 #   --apk FILE        APK to install (default AvalonCad-export-3mf-3ad225b-debugtest.apk).
 #   --setup-only      install, push, start logcat, launch once; one Enter when QA finishes all taps; then summarize.
 #   --non-interactive skip read prompts (auto-continue). For stub/stand-in testing; not a substitute for real taps.
+#   --no-install      never uninstall/install; keep app data. Fails if the package is missing.
+#   --force-install   always uninstall+install (wipes app data). Default is safer: install only when missing or
+#                     the installed base.apk sha256 differs from the host APK.
 # Overrides (for testing): ADB, WAYDROID (default /usr/bin/waydroid), SUDO, WAYDROID_DATA (default ~/.local/share/waydroid/data).
 set -euo pipefail
 PKG=com.tristan.cad APK=AvalonCad-export-3mf-3ad225b-debugtest.apk SAMPLE=samples/sphere-524k.tcad MODE=
 SETUP_ONLY=
 NONINTERACTIVE=
+NO_INSTALL=
+FORCE_INSTALL=
 while [ $# -gt 0 ]; do case "$1" in
   --waydroid-shell) MODE=shell;; --adb) MODE=adb;;
   --sample) SAMPLE=$2; shift;; --apk) APK=$2; shift;;
   --setup-only) SETUP_ONLY=1;; --non-interactive) NONINTERACTIVE=1;;
-  -h|--help) sed -n '2,20p' "$0"; exit 0;;
+  --no-install) NO_INSTALL=1;; --force-install) FORCE_INSTALL=1;;
+  -h|--help) sed -n '2,24p' "$0"; exit 0;;
   *) echo "unknown option: $1" >&2; exit 2;; esac; shift; done
+if [ -n "$NO_INSTALL" ] && [ -n "$FORCE_INSTALL" ]; then
+  echo "use only one of --no-install and --force-install" >&2; exit 2
+fi
 ADB=${ADB:-adb}
 # Prefer the absolute path sudoers typically allows (NOPASSWD: /usr/bin/waydroid).
 WAYDROID=${WAYDROID:-/usr/bin/waydroid}
@@ -35,6 +44,7 @@ if [ -z "$MODE" ]; then if command -v "$ADB" >/dev/null 2>&1; then MODE=adb; els
 NAME=$(basename "$SAMPLE") OUT=avalon-export-logcat-$(date +%Y%m%d-%H%M).txt
 sha256sum -c "$APK.sha256"
 [ -f "$SAMPLE" ] || { echo "sample not found: $SAMPLE" >&2; exit 1; }
+HOST_SHA=$(sha256sum "$APK" | awk '{print $1}')
 
 ask() {
   if [ -n "$NONINTERACTIVE" ]; then
@@ -50,7 +60,7 @@ ask() {
 if [ "$MODE" = adb ]; then
   IP=$("$WAYDROID" status | awk '/IP/{print $NF}'); "$ADB" connect "$IP:5555" >/dev/null; "$ADB" wait-for-device
   dev(){ "$ADB" shell "$*"; }
-  install_apk(){ "$ADB" uninstall "$PKG" >/dev/null 2>&1 || true; "$ADB" install "$APK"; }
+  do_install(){ "$ADB" uninstall "$PKG" >/dev/null 2>&1 || true; "$ADB" install "$APK"; }
   push(){ "$ADB" push "$1" "$2"; }
   logcat_start(){ "$ADB" logcat -c; "$ADB" logcat -v time -s AvalonExport:I | cat > "$OUT" & LOGCAT=$!; }
   logcat_stop(){ kill "${LOGCAT:-}" 2>/dev/null || true; }
@@ -58,7 +68,7 @@ else
   # No `sudo -v`: host sudoers grants NOPASSWD only for /usr/bin/waydroid. Use sudo -n only.
   wshell(){ "$SUDO" -n "$WAYDROID" shell -- "$@"; }
   dev(){ wshell sh -c "$*"; }
-  install_apk(){ dev "pm uninstall $PKG" >/dev/null 2>&1 || true; "$WAYDROID" app install "$(readlink -f "$APK")"; sleep 2
+  do_install(){ dev "pm uninstall $PKG" >/dev/null 2>&1 || true; "$WAYDROID" app install "$(readlink -f "$APK")"; sleep 2
     dev "pm path $PKG" | grep -q package: || { echo "install failed: $PKG not listed by pm" >&2; exit 1; }; }
   # Data-path check without sudo (sudo test -d needs a password). sudo -n install only if NOPASSWD covers it;
   # otherwise stream through waydroid shell (the NOPASSWD path).
@@ -76,8 +86,34 @@ else
   # shellcheck disable=SC2016  # $p must expand on the device, not the host
   logcat_stop(){ dev 'p=$(cat /data/local/tmp/avalon-logcat.pid 2>/dev/null) && kill $p; rm -f /data/local/tmp/avalon-logcat.pid' 2>/dev/null || true; kill "${LOGCAT:-}" 2>/dev/null || true; }
 fi
+
+# Default: reinstall only when missing or sha256 differs (avoids ~5 s wipe of an identical install).
+# --force-install always reinstalls; --no-install never does (keeps imported projects).
+ensure_apk(){
+  local path inst_sha
+  # pm path exits non-zero when the package is missing; tolerate that under pipefail.
+  path=$(dev "pm path $PKG" 2>/dev/null | sed -n 's/^package://p' | head -n1 | tr -d '\r' || true)
+  if [ -n "$NO_INSTALL" ]; then
+    if [ -z "$path" ]; then echo "package $PKG not installed (--no-install)" >&2; exit 1; fi
+    echo "APK install skipped (--no-install); keeping $path"
+    return 0
+  fi
+  if [ -n "$FORCE_INSTALL" ] || [ -z "$path" ]; then
+    echo "installing $APK (force=${FORCE_INSTALL:-0}, missing=$([ -z "$path" ] && echo 1 || echo 0))"
+    do_install
+    return 0
+  fi
+  inst_sha=$(dev "sha256sum '$path'" 2>/dev/null | awk '{print $1}' | tr -d '\r' || true)
+  if [ -n "$inst_sha" ] && [ "$inst_sha" = "$HOST_SHA" ]; then
+    echo "APK already installed (sha256 match), skipping reinstall"
+    return 0
+  fi
+  echo "installing $APK (installed sha ${inst_sha:-unknown} != host $HOST_SHA)"
+  do_install
+}
+
 echo "device path: $MODE"
-install_apk                                    # the throwaway test key differs from any installed build
+ensure_apk
 push "$SAMPLE" "/sdcard/Download/$NAME"
 dev "getprop ro.product.cpu.abi; getprop ro.product.cpu.abilist; nproc"
 logcat_start
@@ -103,18 +139,30 @@ else
   done
 fi
 sleep 2; logcat_stop
-echo "Raw lines: $OUT"; grep -c '\[Avalon export\] ' "$OUT" || true
-# Medians per format. The line's own "cold" field is true on the first export of a format since the app started
-# (each cold run here restarts the app first); "poolWarm" says whether the 3MF pool was ready at the tap.
+NLINES=$(grep -c '\[Avalon export\] ' "$OUT" 2>/dev/null || true)
+echo "Raw lines: $OUT ($NLINES)"
+# Medians per format, split by cold and poolWarm so an STL after a 3MF (cold:true, poolWarm:true)
+# does not drag the true first-in-session cold+poolCold median.
 python3 - "$OUT" <<'PY'
 import json,re,statistics,sys
 L=[json.loads(m.group(1)) for m in (re.search(r'\[Avalon export\] (\{.*\})',l) for l in open(sys.argv[1])) if m]
+buckets=(
+    ('cold+poolCold', lambda l: l.get('cold') and not l.get('poolWarm')),
+    ('cold+poolWarm', lambda l: l.get('cold') and l.get('poolWarm')),
+    ('warm+poolCold', lambda l: (not l.get('cold')) and not l.get('poolWarm')),
+    ('warm+poolWarm', lambda l: (not l.get('cold')) and l.get('poolWarm')),
+)
 for f in ('stl','3mf'):
     xs=[l for l in L if l['fmt']==f and not l.get('canceled') and not l.get('error')]
-    for name,part in (('cold',[l for l in xs if l.get('cold')]),('warm',[l for l in xs if not l.get('cold')])):
+    for name,pred in buckets:
+        part=[l for l in xs if pred(l)]
         if not part: continue
         med=lambda k:statistics.median([p.get(k) or 0 for p in part])
-        print(f,name,'n=%d'%len(part),'totalMs',med('totalMs'),'encodeMs',med('encodeMs'),'saveMs',med('saveMs'),'handoffMs',med('handoffMs'),'stageMs',med('stageMs'),'writeMs',med('writeMs'),'pickerMs(excluded)',med('pickerMs'),'poolWarm',sum(1 for p in part if p.get('poolWarm')),'/',len(part))
+        print(f,name,'n=%d'%len(part),'totalMs',med('totalMs'),'encodeMs',med('encodeMs'),'saveMs',med('saveMs'),'handoffMs',med('handoffMs'),'stageMs',med('stageMs'),'writeMs',med('writeMs'),'pickerMs(excluded)',med('pickerMs'))
     if xs: print(' path line example:',json.dumps(xs[-1]))
 PY
 echo "Gate (option B): median 3MF totalMs <= 3 x median STL totalMs, cold and warm. Send $OUT with the summary."
+if [ "${NLINES:-0}" -eq 0 ]; then
+  echo "WARNING: 0 export lines captured" >&2
+  exit 1
+fi
