@@ -19,7 +19,7 @@
     "test:plane": "node tests/build-plane.mjs",
     "build:mac": "npm run build:web && node desktop/build-mac.mjs",
     "stage:desktop": "node desktop/stage.mjs",
-    "test:desktop": "node tests/desktop-files.mjs && node desktop/stage.mjs && node tests/desktop-shell.mjs && node tests/platform-parity.mjs --staged && node tests/electron-runtime.mjs && node tests/desktop-runtime.mjs",
+    "test:desktop": "node tests/desktop-files.mjs && node tests/rpm-assets.mjs && node desktop/stage.mjs && node tests/desktop-shell.mjs && node tests/platform-parity.mjs --staged && node tests/electron-runtime.mjs && node tests/desktop-runtime.mjs",
     "test:parity": "node tests/platform-parity.mjs",
     "test:desktop-browser": "node tests/desktop-runtime.mjs",
     "test:migration": "node tests/migration.mjs",
