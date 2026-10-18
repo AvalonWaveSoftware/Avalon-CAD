@@ -13,7 +13,11 @@ try {
  assert.equal(page.url(),'app://avalon-cad/index.html');assert.equal(await page.evaluate(()=>window.AvalonDesktop.platform),process.platform==='darwin'?'mac':process.platform);assert.equal(await page.evaluate(()=>self.crossOriginIsolated),true);
  assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:3,local:true});
  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');assert.equal(await page.evaluate(()=>typeof window.process),'undefined');
- assert.equal(await page.locator('body').getAttribute('class'),'desktop');
+ // Unified desktop layout: the window runs the shared web layout (plain <body>, the one shared style.css, no desktop-only stylesheet).
+ assert.equal(await page.locator('body').getAttribute('class'),null);
+ assert.deepEqual(await page.evaluate(()=>[...document.styleSheets].map(s=>s.href&&new URL(s.href).pathname)),['/style.css']);
+ assert.equal(await page.evaluate(()=>[...document.querySelectorAll('link[rel=stylesheet],style')].some(e=>/desktop/i.test(e.getAttribute('href')||e.id||e.textContent.slice(0,200)))),false);
+ assert.equal(await page.evaluate(async()=>(await fetch('app://avalon-cad/desktop.css').then(r=>r.status,()=>'blocked'))!==200),true);
  await page.locator('#addBtn').click();await page.locator('[data-shape="box"]').click();for(const axis of [0,1,2])assert.equal(await page.locator('#pos'+axis).inputValue(),'0');await page.locator('#p_w').fill('40');await page.locator('#p_d').fill('30');await page.locator('#p_h').fill('10');await page.locator('#applyObject').click();await page.waitForFunction(()=>window.__cad.model.volume===12000);
  assert.equal(await page.locator('#buildPlane').isChecked(),true);await page.waitForFunction(()=>document.querySelector('#sheet').hidden);
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.send('avalon:action','backup'));
