@@ -126,7 +126,7 @@ try{const page=await browser.newPage();
  await page.setContent('<div id="area" style="position:absolute;left:100px;top:100px;width:200px;height:100px"></div>');
  const P='div#app:0>',S=(o)=>({html:`<body><div id="app">${o.body}</div></body>`,styles:o.styles,split:o.split});
  const st=(h,box)=>({style:h,box,layout:'L'});
- const mk=(body,els)=>S({body,styles:Object.fromEntries(Object.entries(els).map(([k,v])=>[P+k,v.comb])),split:{style:Object.fromEntries(Object.entries(els).map(([k,v])=>[P+k,v.style])),box:Object.fromEntries(Object.entries(els).map(([k,v])=>[P+k,v.box])),layout:{}}});
+ const mk=(body,els)=>S({body,styles:Object.fromEntries(Object.entries(els).map(([k,v])=>[P+k,v.comb])),split:{style:Object.fromEntries(Object.entries(els).map(([k,v])=>[P+k,v.style])),box:Object.fromEntries(Object.entries(els).map(([k,v])=>[P+k,v.box])),layout:Object.fromEntries(Object.entries(els).map(([k,v])=>[P+k,v.layout??'L']))}});
  const IN1=[110,110,50,20],IN2=[110,110,80,20],OUT1=[10,10,50,20],OUT2=[10,10,80,20];
  const chk=(b,n,entries,areas=['#area'])=>checkCapture(page,{name:'s',id:'s@desktop',base:b,now:n,entries,areas,compareDom});
  const pill=E({selector:'#pill',kind:'text',expected:'Ready · millimeters'});
@@ -143,9 +143,21 @@ try{const page=await browser.newPage();
  r=await chk(b6,n6,[],[]);assert.equal(r.unmatched.length,1,'no areas: the same box change fails');
  n6=mk('<div id="pill">Ready</div><div id="other">x</div>',{'div#pill:0':{comb:'c2',style:'s',box:[110,110,250,20]},'div#other:1':{comb:'o1',style:'s',box:OUT1}});
  r=await chk(b6,n6,[]);assert.equal(r.unmatched.length,1,'box partly outside the area fails');
- // a style change on a matched element fails, inside an area too
+ // Style ruling: a style change passes ONLY on a matched element inside an approved area (old and new boxes)
  b6=mk('<div id="pill">Ready</div>',{'div#pill:0':{comb:'c1',style:'s1',box:IN1}});n6=mk('<div id="pill">Ready · millimeters</div>',{'div#pill:0':{comb:'c2',style:'s2',box:IN1}});
- r=await chk(b6,n6,[pill]);assert.deepEqual([r.matched.map(c=>c.kind),r.unmatched.map(c=>c.kind),r.errors],[['text'],['computed style'],['computed style/box differs: div#app:0>div#pill:0']],'style change on a matched element fails');
+ r=await chk(b6,n6,[pill]);assert.deepEqual([r.matched.map(c=>c.kind),r.unmatched.length,r.errors],[['text','computed style'],0,[]],'style change on a matched element inside an area passes');
+ r=await chk(b6,n6,[pill],[]);assert.deepEqual([r.matched.map(c=>c.kind),r.unmatched.map(c=>c.kind+': '+c.why),r.errors],[['text'],['computed style: style change outside the approved areas'],['computed style/box differs: div#app:0>div#pill:0']],'style change on a matched element outside every area fails');
+ {const bo=mk('<div id="pill">Ready</div>',{'div#pill:0':{comb:'c1',style:'s1',box:IN1}}),no=mk('<div id="pill">Ready · millimeters</div>',{'div#pill:0':{comb:'c2',style:'s2',box:[110,110,250,20]}});
+  r=await chk(bo,no,[pill]);assert.deepEqual(r.unmatched.map(c=>c.kind),['computed style'],'style change on a matched element whose new box leaves the area fails');}
+ b6=mk('<div id="pill">Ready</div>',{'div#pill:0':{comb:'c1',style:'s1',box:IN1}});n6=mk('<div id="pill">Ready</div>',{'div#pill:0':{comb:'c2',style:'s2',box:IN1}});
+ r=await chk(b6,n6,[pill]);assert.deepEqual([r.matched.length,r.unmatched.map(c=>c.kind)],[0,['computed style']],'style change on an unmatched element fails, inside an area too');
+ // the inline style attribute is a style change under the same rule (never an approvable kind)
+ {const bo=mk('<div id="pill">Ready</div>',{'div#pill:0':{comb:'c1',style:'s1',box:IN1}}),no=mk('<div id="pill" style="display:flex">Ready · millimeters</div>',{'div#pill:0':{comb:'c2',style:'s2',box:IN1}});
+  r=await chk(bo,no,[pill]);assert.deepEqual([r.matched.map(c=>c.kind),r.unmatched.length],[['text','style','computed style'],0],'style attribute on a matched element inside an area passes');
+  r=await chk(bo,no,[pill],[]);assert.deepEqual(r.unmatched.map(c=>c.kind).sort(),['computed style','style'],'style attribute outside every area fails');
+  const nu=mk('<div id="pill" style="display:flex">Ready</div>',{'div#pill:0':{comb:'c2',style:'s2',box:IN1}});
+  r=await chk(bo,nu,[pill]);assert.deepEqual(r.unmatched.map(c=>c.kind+': '+(c.why||'')).sort(),['computed style: ','style: style change on an element no approved entry matched'],'style attribute on an unmatched element fails');
+  assert.throws(()=>loadDomEntries([E({selector:'#pill',kind:'style',expected:'Edge'})],STR),/not approvable/);}
  // no split data: every combined-hash change fails as before
  r=await chk({...b6,split:undefined},{...n6,split:undefined},[pill]);assert.equal(r.unmatched[0].why,'no style/box split data');
  // added element: inside an area with an "added" entry passes; outside fails; wrong text fails; no entry fails
@@ -164,5 +176,48 @@ try{const page=await browser.newPage();
  assert.equal(loadDomEntries([{scene:'*',selector:'#unitSwitch',kind:'added',approval:'x'}],STR).length,1);
  assert.throws(()=>loadDomEntries([{scene:'*',selector:'div',kind:'added',approval:'x'}],STR),/bare tag/);
  assert.throws(()=>loadDomEntries([{scene:'*',selector:'#u',kind:'added',expected:'nope',approval:'x'}],STR),/not in strings-baseline/);
+ // 8. Replaced (ADR-0001 replaced ruling): a removed element passes only when paired with the named new element
+ {const old=mk('<div id="sc"><div class="sectionlabel">Pos</div><div id="f">x</div></div>',{'div#sc:0':{comb:'a',style:'s',box:IN1}}),
+   rep=mk('<div id="sc"><div class="sectionlabel" id="posTitle">Pos</div><div id="f">x</div></div>',{'div#sc:0':{comb:'a',style:'s',box:IN1},'div#sc:0>div#posTitle:0':{comb:'p',style:'s',box:IN1}});
+  const R1={scene:'*',kind:'replaced',oldSelector:'#sc>div.sectionlabel',newSelector:'#posTitle',approval:'test'},addP=E({selector:'#posTitle',kind:'added',expected:undefined});
+  r=await chk(old,rep,[R1,addP]);assert.deepEqual([r.matched.map(c=>c.kind).sort(),r.unmatched.length,r.errors.length],[['element added','element removed'],0,0],'replaced: paired removal passes');
+  r=await chk(old,rep,[addP]);assert.deepEqual(r.unmatched.map(c=>c.kind),['element removed'],'removal without a replaced entry fails');
+  r=await chk(old,rep,[R1]);assert.deepEqual(r.unmatched.map(c=>c.kind),['element added'],'the new element still needs its own added entry');
+  const gone=mk('<div id="sc"><div id="f">x</div></div>',{'div#sc:0':{comb:'a',style:'s',box:IN1}});
+  r=await chk(old,gone,[R1,addP]);assert.deepEqual(r.unmatched.map(c=>c.kind+': '+c.why),['element removed: no paired new element (newSelector) added under the same parent'],'replaced without its paired new element fails');
+  const wrong=mk('<div id="sc"><div class="sectionlabel" id="other">Pos</div><div id="f">x</div></div>',{'div#sc:0':{comb:'a',style:'s',box:IN1},'div#sc:0>div#other:0':{comb:'p',style:'s',box:IN1}});
+  r=await chk(old,wrong,[R1,E({selector:'#other',kind:'added',expected:undefined})]);assert.deepEqual(r.unmatched.map(c=>c.kind),['element removed'],'replaced with a different new element fails');
+  const elsewhere=mk('<div id="sc"><div id="f">x</div></div><div class="sectionlabel" id="posTitle">Pos</div>',{'div#sc:0':{comb:'a',style:'s',box:IN1},'div#posTitle:1':{comb:'p',style:'s',box:IN1}});
+  r=await chk(old,elsewhere,[R1,addP]);assert.deepEqual(r.unmatched.map(c=>c.kind),['element removed'],'replaced: the new element must be under the same parent');
+  r=await chk(old,rep,[{...R1,scene:'other'},addP]);assert.equal(r.unmatched.length,1,'replaced in the wrong scene fails');
+  r=await chk(old,rep,[{...R1,oldSelector:'#sc>div.nope'},addP]);assert.equal(r.unmatched.length,1,'oldSelector not matching fails');
+  assert.equal(loadDomEntries([R1],STR).length,1);
+  for(const [bad,re] of [[{...R1,oldSelector:undefined},/"oldSelector" must be a non-empty string/],[{...R1,newSelector:'div'},/invalid newSelector: .*bare tag/],[{...R1,approval:''},/"approval" must be/],[{...R1,selector:'#x'},/not "selector"/],[{...R1,expected:'Pos'},/not "expected"/],[{...R1,oldSelector:'*'},/invalid oldSelector/]])
+   assert.throws(()=>loadDomEntries([bad],STR),re,JSON.stringify(bad));}
+ // 9. Empty text (ADR-0001): a text entry may expect "" with an approval; still exact
+ {const bo=mk('<div id="hd">Dimensions · millimeters<span id="t">x</span></div>',{'div#hd:0':{comb:'a',style:'s',box:IN1}}),no=mk('<div id="hd"><span id="t">x</span></div>',{'div#hd:0':{comb:'a',style:'s',box:IN1}});
+  const ET=E({selector:'#hd',kind:'text',expected:''});assert.equal(loadDomEntries([ET],STR).length,1);
+  assert.throws(()=>loadDomEntries([{...ET,approval:''}],STR),/"approval" must be/);assert.throws(()=>loadDomEntries([E({selector:'#hd',kind:'title',expected:''})],STR),/not in strings-baseline/);
+  r=await chk(bo,no,[ET]);assert.deepEqual([r.matched.map(c=>c.kind),r.unmatched.length],[['text'],0],'empty text with an entry passes');
+  r=await chk(bo,no,[]);assert.equal(r.unmatched.length,1,'empty text without an entry fails');
+  const nx=mk('<div id="hd">D<span id="t">x</span></div>',{'div#hd:0':{comb:'a',style:'s',box:IN1}});r=await chk(bo,nx,[ET]);assert.equal(r.unmatched.length,1,'an "" entry does not cover other text');}
+ // 10. Uniform offset (ADR-0001 offset ruling): same size, style and layout, same (dx,dy), in the container of a matched element
+ {const fld=(y,h=20,lay='L',sty='s')=>({comb:'f'+y+h+lay+sty,style:sty,box:[10,y,50,h],layout:lay});
+  const body='<div id="sc"><div id="hd">Dims</div><div id="f1"><b>x</b></div><div id="f2">y</div></div><div id="out">z</div>';
+  const base=mk(body,{'div#sc:0':{comb:'c',style:'s',box:IN1},'div#sc:0>div#hd:0':{comb:'h',style:'s',box:IN1},'div#sc:0>div#f1:1':fld(900),'div#sc:0>div#f1:1>b:0':fld(905,10),'div#sc:0>div#f2:2':fld(1300),'div#out:1':fld(50)});
+  const moved=(o={})=>mk(body.replace('>Dims<','>Dims · millimeters<'),{'div#sc:0':{comb:'c',style:'s',box:IN1},'div#sc:0>div#hd:0':{comb:'h2',style:'s',box:IN1},'div#sc:0>div#f1:1':o.f1??fld(912),'div#sc:0>div#f1:1>b:0':o.b??fld(917,10),'div#sc:0>div#f2:2':o.f2??fld(1312),'div#out:1':o.out??fld(50)});
+  const HD=E({selector:'#hd',kind:'text',expected:'Dims · millimeters'});
+  r=await chk(base,moved(),[HD],[]);assert.deepEqual([r.unmatched.length,r.matched.filter(c=>/uniform offset \(0, 12\)/.test(c.approval)).length],[0,3],'uniform offset (offscreen, no area) in the matched container passes');
+  r=await chk(base,moved(),[],[]);assert.ok(r.unmatched.length>=3,'offset without a matched element in the container fails');
+  r=await chk(base,moved({f2:fld(1312,24)}),[HD],[]);assert.deepEqual(r.unmatched.map(c=>c.path+': '+c.why),['div#app:0>div#sc:0>div#f2:2: size changed (an offset must keep the size)'],'offset with a size change fails');
+  r=await chk(base,moved({f2:fld(1312,20,'L',  's2')}),[HD],[]);assert.deepEqual(r.unmatched.map(c=>c.kind),['computed style'],'offset with a style change fails');
+  r=await chk(base,moved({f2:fld(1312,20,'L2')}),[HD],[]);assert.deepEqual(r.unmatched.map(c=>c.why),['layout values changed (an offset must keep them)'],'offset with a layout change fails');
+  r=await chk(base,moved({f2:fld(1320)}),[HD],[]);assert.deepEqual([r.unmatched.length,r.unmatched.every(c=>c.why==='offset not uniform within the container')],[3,true],'non-uniform offset fails');
+  r=await chk(base,moved({out:fld(62)}),[HD],[]);assert.deepEqual(r.unmatched.map(c=>c.path),['div#app:0>div#out:1'],'an element outside the container does not get the offset');
+  // a matched element directly under body does not make body a container
+  const tb='<div id="hd">Dims</div><div id="f1">x</div>',tB=mk(tb,{'div#hd:0':{comb:'h',style:'s',box:IN1},'div#f1:1':fld(900)}),tN=mk(tb.replace('>Dims<','>Dims · millimeters<'),{'div#hd:0':{comb:'h2',style:'s',box:IN1},'div#f1:1':fld(912)});
+  r=await chk(tB,tN,[HD],[]);assert.deepEqual(r.unmatched.map(c=>c.kind),[],'#app is the container here');
+  const raw=(h,y)=>({html:`<body><div id="hd">${h}</div><div id="f1">x</div></body>`,styles:{'div#hd:0':h,'div#f1:1':'f'+y},split:{style:{'div#hd:0':'s','div#f1:1':'s'},box:{'div#hd:0':IN1,'div#f1:1':[10,y,50,20]},layout:{'div#hd:0':'L','div#f1:1':'L'}}});
+  r=await chk(raw('Dims',900),raw('Dims · millimeters',912),[HD],[]);assert.deepEqual(r.unmatched.map(c=>c.path),['div#f1:1'],'body is never an offset container');}
 }finally{await browser.close();}
 console.log('PASS approved-dom-areas: selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor; box on matched element / inside area pass, outside fails, style change fails, added inside passes / outside / wrong text fail, removed fails; runtime texts and extractor corrections validated');
