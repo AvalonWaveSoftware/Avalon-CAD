@@ -5,6 +5,7 @@ import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtC
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const STR=new Set(['Edge (F)','Move (M)','Project menu','Ready · millimeters','Fit model (0)']);
 const E=(o)=>({scene:'*',kind:'title',approval:'test',...o});
+const ZW='zero-size (0×0) element: never inside a visible area; only a hidden entry can approve it';
 
 // 1. Selector validity rule.
 for(const ok of ['#projectMenu','button#projectMenu','[data-mode=round]','[data-mode="round"]','.toolbar button.icon','#touchModes > [data-mode=move]','div#app button[aria-label="Project menu"]','main#viewport>div#desktopHelp'])
@@ -211,7 +212,7 @@ try{const page=await browser.newPage();
  {await page.evaluate(()=>{const z=document.createElement('div');z.id='zero';z.style.cssText='position:absolute;left:0;top:0;width:0;height:0';document.body.appendChild(z);});
   const Z=[0,0,0,0],bz=mk('<div id="hdr">D</div>',{'div#hdr:0':{comb:'h',style:'s',box:Z}});
   const nz=mk('<div id="hdr">D</div><div id="unitSwitch"><b>Ready · millimeters</b></div>',{'div#hdr:0':{comb:'h',style:'s',box:Z},'div#unitSwitch:1':{comb:'u',style:'s',box:Z},'div#unitSwitch:1>b:0':{comb:'k',style:'s',box:Z}});
-  r=await chk(bz,nz,[add],['#zero']);assert.deepEqual(r.unmatched.map(c=>c.why),['box not entirely inside an approved pixel area'],'zero-size area approves nothing');
+  r=await chk(bz,nz,[add],['#zero']);assert.deepEqual(r.unmatched.map(c=>c.why),[ZW],'zero-size area approves nothing');
   await page.evaluate(()=>document.getElementById('zero').remove());}
  // 8. Replaced (ADR-0001 replaced ruling): a removed element passes only when paired with the named new element
  {const old=mk('<div id="sc"><div class="sectionlabel">Pos</div><div id="f">x</div></div>',{'div#sc:0':{comb:'a',style:'s',box:IN1}}),
@@ -321,5 +322,45 @@ try{const page=await browser.newPage();
   r=await chkH(snapH(false),snapH(true),HE,{pxIn:()=>({differing:100,uncovered:50})});
   assert.ok(!r.matched.some(c=>c.hidden)&&r.errors.some(e=>/^hidden entry: 50 differing px in the region of div#app:0>div#sheet:0 outside every approved area of this capture \(50 more covered\)/.test(e)),'hidden: a mix of covered and uncovered fails');
   r=await chkH(snapH(false),snapH(true),HE,{pxIn:()=>({differing:7,uncovered:7})});assert.ok(!r.matched.some(c=>c.hidden),'hidden: uncovered px fail');}
+
+ // 12. Zero-size ruling (ADR-0001, QA N1/N2 #qaAdd): a 0×0 element box never counts as inside a visible approved area,
+ // in every containment check; only a hidden entry (hidden rule) can approve it.
+ {await page.setContent('<div id="area" style="position:absolute;left:100px;top:100px;width:200px;height:100px"></div>');// §11 replaced the page
+  await page.evaluate(()=>{const h=document.createElement('div');h.id='hdrA';h.style.cssText='position:absolute;left:0;top:0;width:300px;height:50px';document.body.appendChild(h);});
+  const Z=[0,0,0,0],PT=[150,150,0,0],QA=E({selector:'#qaAdd',kind:'added',expected:undefined});
+  // QA's #qaAdd repro: an element added in .sheethead of the closed #sheet (all 0,0,0,0), area = the visible header at 0,0
+  const sb=mk('<div id="sheet"><div class="sheethead">H</div></div>',{'div#sheet:0':{comb:'s',style:'s',box:Z},'div#sheet:0>div:0':{comb:'h',style:'s',box:Z}});
+  const sn=box=>mk('<div id="sheet"><div class="sheethead">H<b id="qaAdd">QA</b></div></div>',{'div#sheet:0':{comb:'s',style:'s',box:Z},'div#sheet:0>div:0':{comb:'h',style:'s',box:Z},'div#sheet:0>div:0>b#qaAdd:0':{comb:'q',style:'s',box}});
+  r=await chk(sb,sn(Z),[QA],['#hdrA']);assert.deepEqual([r.matched.length,r.unmatched.map(c=>c.kind+': '+c.why)],[0,['element added: '+ZW]],'#qaAdd (0×0 under the closed sheet, visible header area) fails');assert.match(r.errors[0],/^outerHTML differs/);
+  r=await chk(sb,sn([10,10,20,10]),[QA],['#hdrA']);assert.equal(r.unmatched.length,0,'control: the same element drawn inside the header area passes');
+  // only a hidden entry can approve it, under the hidden rule (0×0 ancestor in both captures, 0 px in the region)
+  const hq={...QA,scene:'s@desktop',hidden:true,regionFrom:'v@desktop'},hreg=()=>({rect:[0,0,10,10]});
+  r=await checkCapture(page,{name:'s',id:'s@desktop',base:sb,now:sn(Z),entries:[hq],areas:['#hdrA'],compareDom,regionOf:hreg,pxIn:()=>0});
+  assert.deepEqual([r.unmatched.length,r.matched.map(c=>c.hidden?.container)],[0,['div#app:0>div#sheet:0']],'#qaAdd with a hidden entry passes under the hidden rule');
+  r=await checkCapture(page,{name:'s',id:'s@desktop',base:sb,now:sn(Z),entries:[hq],areas:['#hdrA'],compareDom,regionOf:hreg,pxIn:()=>3});assert.equal(r.unmatched.length,1,'… and still needs 0 uncovered px');
+  // added: a 0×0 point inside an area fails; so does an added element with a 0×0 descendant
+  r=await chk(b6,withAdd(PT,'Ready · millimeters',PT),[add]);assert.deepEqual(r.unmatched.map(c=>c.why),[ZW],'added 0×0 at a point inside the area fails');
+  r=await chk(b6,withAdd(IN2,'Ready · millimeters',PT),[add]);assert.deepEqual(r.unmatched.map(c=>c.why),[ZW],'added with a 0×0 descendant fails');
+  // replaced: the pairing still holds, but a 0×0 new element fails its "added" check
+  {const old=mk('<div id="sc"><div class="sectionlabel">Pos</div></div>',{'div#sc:0':{comb:'a',style:'s',box:IN1}}),
+     nw=box=>mk('<div id="sc"><div class="sectionlabel" id="posTitle">Pos</div></div>',{'div#sc:0':{comb:'a',style:'s',box:IN1},'div#sc:0>div#posTitle:0':{comb:'p',style:'s',box}});
+   const R1={scene:'*',kind:'replaced',oldSelector:'#sc>div.sectionlabel',newSelector:'#posTitle',approval:'test'},addP=E({selector:'#posTitle',kind:'added',expected:undefined});
+   r=await chk(old,nw(IN2),[R1,addP]);assert.equal(r.unmatched.length,0,'control: replaced with a drawn new element passes');
+   r=await chk(old,nw(PT),[R1,addP]);assert.deepEqual(r.unmatched.map(c=>c.kind+': '+c.why),['element added: '+ZW],'replaced new element 0×0 inside the area fails');}
+  // box change on an unmatched element: to 0×0, or 0×0 moved, inside the area fails
+  {const bb=box=>mk('<div id="other">x</div>',{'div#other:0':{comb:'o'+box,style:'s',box}});
+   r=await chk(bb(IN1),bb(IN2),[]);assert.equal(r.unmatched.length,0,'control: drawn box change inside the area passes');
+   r=await chk(bb(IN1),bb(PT),[]);assert.deepEqual(r.unmatched.map(c=>c.why),[ZW],'box change to 0×0 inside the area fails');
+   r=await chk(bb([120,120,0,0]),bb(PT),[]);assert.deepEqual(r.unmatched.map(c=>c.why),[ZW],'0×0 box moved inside the area fails');}
+  // style change on a matched element whose box is 0×0 inside the area fails
+  {const so=mk('<div id="pill">Ready</div>',{'div#pill:0':{comb:'c1',style:'s1',box:PT}}),sw=mk('<div id="pill">Ready · millimeters</div>',{'div#pill:0':{comb:'c2',style:'s2',box:PT}});
+   r=await chk(so,sw,[pill]);assert.deepEqual([r.matched.map(c=>c.kind),r.unmatched.map(c=>c.kind+': '+c.why)],[['text'],['computed style: '+ZW]],'style on a matched 0×0 element inside the area fails');}
+  // uniform offset: a 0×0 element moving with the others fails; the drawn ones still pass
+  {const f=(y,w=50)=>({comb:'f'+y+w,style:'s',box:[10,y,w,w?20:0],layout:'L'}),bd='<div id="sc"><div id="hd">Dims</div><div id="f1">x</div><div id="f2"></div></div>';
+   const ob=mk(bd,{'div#sc:0':{comb:'c',style:'s',box:IN1},'div#sc:0>div#hd:0':{comb:'h',style:'s',box:IN1},'div#sc:0>div#f1:1':f(900),'div#sc:0>div#f2:2':f(940,0)});
+   const nb=mk(bd.replace('>Dims<','>Dims · millimeters<'),{'div#sc:0':{comb:'c',style:'s',box:IN1},'div#sc:0>div#hd:0':{comb:'h2',style:'s',box:IN1},'div#sc:0>div#f1:1':f(912),'div#sc:0>div#f2:2':f(952,0)});
+   r=await chk(ob,nb,[E({selector:'#hd',kind:'text',expected:'Dims · millimeters'})],['#area']);
+   assert.deepEqual([r.unmatched.map(c=>c.path+': '+c.why),r.matched.filter(c=>/uniform offset/.test(c.approval)).map(c=>c.path)],[['div#app:0>div#sc:0>div#f2:2: '+ZW],['div#app:0>div#sc:0>div#f1:1']],'a 0×0 element never passes as a uniform offset');}
+  await page.evaluate(()=>document.getElementById('hdrA').remove());}
 }finally{await browser.close();}
 console.log('PASS approved-dom-areas: selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor; box on matched element / inside area pass, outside fails, style change fails, added inside passes / outside / wrong text fail, removed fails; runtime texts and extractor corrections validated');

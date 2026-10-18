@@ -53,6 +53,12 @@
 // regionFrom; when that cannot be determined the matches fail with an error. At load (loadDomEntries) a hidden entry must
 // have a visible twin (same kind, selector/expected or oldSelector/newSelector) with the SAME approval whose scene covers
 // regionFrom. No cross-scene inference: every capture needs its own entries.
+//
+// Zero-size ruling (ADR-0001, 3:46 AM Oct 18; QA N1/N2, #qaAdd): a zero-size (0×0) element box NEVER counts as inside a
+// visible approved area, whatever point it sits at. It applies to every containment check: box changes (old and new box),
+// added elements and all their descendants (so the new side of a replaced pair, which needs its own "added" entry), style
+// changes on matched elements (old and new box), and the uniform offset (a 0×0 element never passes as an offset, as it has
+// no visible area to move). Such an element passes only through a hidden:true entry under the hidden rule, or fails.
 import fs from 'node:fs';import path from 'node:path';import {readAdditions,additionTexts} from './dom-baseline.mjs';
 const IDENT='-?[_a-zA-Z][_a-zA-Z0-9-]*',VAL=`(?:"[^"\\\\]*"|'[^'\\\\]*'|${IDENT})`;
 const PART=new RegExp(`^(?:#${IDENT}|\\.${IDENT}|\\[${IDENT}=${VAL}\\])`),TAG=new RegExp(`^[a-z][a-z0-9-]*`);
@@ -145,7 +151,7 @@ export function domChanges([base,now,ctx]){
  // live-page boxes of the approved pixel areas (CSS px); an element box is inside when it lies entirely within one
  // an area with no size (hidden or display:none, e.g. a closed sheet) approves nothing
  const areas=(ctx.areas||[]).map(s=>{const e=document.querySelector(s);if(!e)return null;const r=e.getBoundingClientRect();return r.width>0&&r.height>0?[r.left,r.top,r.right,r.bottom]:null;}).filter(Boolean);
- const EPS=0.01,inside=b=>!!b&&areas.some(([l,t,r,bt])=>b[0]>=l-EPS&&b[1]>=t-EPS&&b[0]+b[2]<=r+EPS&&b[1]+b[3]<=bt+EPS);
+ const EPS=0.01,zero=b=>!!b&&Math.abs(b[2])<=EPS&&Math.abs(b[3])<=EPS,inside=b=>!!b&&!zero(b)&&areas.some(([l,t,r,bt])=>b[0]>=l-EPS&&b[1]>=t-EPS&&b[0]+b[2]<=r+EPS&&b[1]+b[3]<=bt+EPS);
  const out={matched:[],unmatched:[]},rec=(c,extra)=>({path:c.path,kind:c.kind,old:c.old,now:c.now,...extra});
  const ns=now.split,bs=base.split,boxA=x=>bs?.box?.[pathOf(x,A)],boxB=x=>ns?.box?.[pathOf(x,B)];
  const pairOf=new Map(pairs.map(([a,b])=>[b,a])),pairOfA=new Map(pairs.map(([a,b])=>[a,b]));
@@ -153,13 +159,13 @@ export function domChanges([base,now,ctx]){
  // captures; the container is the outermost such ancestor. The element itself (and, for added/removed elements, every
  // descendant) must be 0×0 as well, so nothing of it is drawn. Needs split data on both sides; returns the container's path
  // in the new capture, or null.
- const zero=b=>!!b&&Math.abs(b[2])<=EPS&&Math.abs(b[3])<=EPS;
- const rootB=b=>{let root=null;for(let x=b.parentElement;x&&x!==B;x=x.parentElement){const a=pairOf.get(x);if(a&&zero(boxB(x))&&zero(boxA(a)))root=x;}return root&&pathOf(root,B);};
+  const rootB=b=>{let root=null;for(let x=b.parentElement;x&&x!==B;x=x.parentElement){const a=pairOf.get(x);if(a&&zero(boxB(x))&&zero(boxA(a)))root=x;}return root&&pathOf(root,B);};
  const rootA=a=>{let root=null;for(let y=a.parentElement;y&&y!==A;y=y.parentElement){const x=pairOfA.get(y);if(x&&zero(boxA(y))&&zero(boxB(x)))root=x;}return root&&pathOf(root,B);};
  const subZeroB=el=>[el,...el.querySelectorAll('*')].every(x=>zero(boxB(x))),subZeroA=el=>[el,...el.querySelectorAll('*')].every(x=>zero(boxA(x)));
  const hidPaired=b=>{const a=pairOf.get(b);return a&&zero(boxB(b))&&zero(boxA(a))?rootB(b):null;};
  const hidRec=(e,container)=>({approval:e.approval,hidden:{container,regionFrom:e.regionFrom}});
- const HIDDEN_WHY='hidden entry, but the container is rendered (no ancestor is 0×0 in both captures, or the element itself is drawn)';
+ const ZERO_WHY='zero-size (0×0) element: never inside a visible area; only a hidden entry can approve it';
+const HIDDEN_WHY='hidden entry, but the container is rendered (no ancestor is 0×0 in both captures, or the element itself is drawn)';
  const matchedEls=new Set(),hiddenMatched=new Map(),styleAttr=[];
  for(const c of changes){if(c.kind==='style'){styleAttr.push(c);continue;}const v=c.kind==='text'&&typeof c.now==='string'?c.now.trim():c.now;
   const fits=e=>e.kind!=='added'&&e.kind!=='replaced'&&sceneOk(e)&&e.kind===c.kind&&e.expected===v&&c.el.matches(e.selector);
@@ -176,7 +182,7 @@ export function domChanges([base,now,ctx]){
  const styleHidden=b=>hiddenMatched.has(b)?hidPaired(b):null;
  const styleMatch=(c,b,extra)=>{if(styleOk(b)){out.matched.push(rec(c,{approval:'style of an element matched by an approved DOM entry, inside an approved pixel area'}));return true;}
   const h=styleHidden(b);if(h){const e=hiddenMatched.get(b);out.matched.push(rec(c,{approval:'style of an element matched by a hidden entry ('+e.approval+'), in a non-rendered container',hidden:{container:h,regionFrom:e.regionFrom}}));return true;}return false;};
- const styleWhy=b=>!matchedEls.has(b)?'style change on an element no approved entry matched':!(bs?.box&&ns?.box)?'no style/box split data':'style change outside the approved areas';
+ const styleWhy=b=>!matchedEls.has(b)?'style change on an element no approved entry matched':!(bs?.box&&ns?.box)?'no style/box split data':(zero(boxA(pairOf.get(b)))||zero(boxB(b)))?ZERO_WHY:'style change outside the approved areas';
  for(const c of styleAttr)if(!styleMatch(c,c.el))out.unmatched.push(rec(c,{why:styleWhy(c.el)}));
  // Replaced ruling: a removed element passes only when a "replaced" entry pairs it (old element matches oldSelector in the
  // baseline) with a new element matching newSelector that was added under the same parent in this capture. Each new
@@ -198,7 +204,7 @@ export function domChanges([base,now,ctx]){
   if(he&&hc){acceptedAdded.add(a.el);out.matched.push(rec(c,hidRec(he,hc)));continue;}
   const e=entries.find(e=>!e.hidden&&fits(e));
   if(e&&boxes.every(inside)){acceptedAdded.add(a.el);out.matched.push(rec(c,{approval:e.approval}));}
-  else out.unmatched.push(rec(c,{why:he?HIDDEN_WHY:!e?'no matching "added" entry':'box not entirely inside an approved pixel area'}));}
+  else out.unmatched.push(rec(c,{why:he?HIDDEN_WHY:!e?'no matching "added" entry':boxes.some(zero)?ZERO_WHY:'box not entirely inside an approved pixel area'}));}
  // computed style / box of every aligned element pair
  // Offset ruling: containers = parents (never body/html) of the elements approved entries matched (attribute/text matches,
  // accepted added elements, the new side of replaced pairs). An element inside such a container whose box moved with the
@@ -215,9 +221,9 @@ export function domChanges([base,now,ctx]){
   const ob=bs.box[pa],nb=ns.box[pb],cb={...c,kind:'box',old:ob,now:nb};
   if(matchedEls.has(b)){out.matched.push(rec(cb,{approval:'box of an element matched by an approved DOM entry'}));continue;}
   if(inside(ob)&&inside(nb)){out.matched.push(rec(cb,{approval:'box inside an approved pixel area'}));continue;}
-  const C=containerOf(b),same=ob&&nb&&Math.abs(ob[2]-nb[2])<=EPS&&Math.abs(ob[3]-nb[3])<=EPS&&bs.layout?.[pa]!=null&&bs.layout[pa]===ns.layout?.[pb];
+  const C=containerOf(b),same=ob&&nb&&!zero(ob)&&!zero(nb)&&Math.abs(ob[2]-nb[2])<=EPS&&Math.abs(ob[3]-nb[3])<=EPS&&bs.layout?.[pa]!=null&&bs.layout[pa]===ns.layout?.[pb];
   if(C&&same){if(!offsets.has(C))offsets.set(C,[]);offsets.get(C).push({cb,d:[nb[0]-ob[0],nb[1]-ob[1]]});continue;}
-  out.unmatched.push(rec(cb,{why:C&&ob&&nb&&(Math.abs(ob[2]-nb[2])>EPS||Math.abs(ob[3]-nb[3])>EPS)?'size changed (an offset must keep the size)':C?'layout values changed (an offset must keep them)':'box change outside the approved areas on an unmatched element'}));}
+  out.unmatched.push(rec(cb,{why:zero(ob)||zero(nb)?ZERO_WHY:C&&ob&&nb&&(Math.abs(ob[2]-nb[2])>EPS||Math.abs(ob[3]-nb[3])>EPS)?'size changed (an offset must keep the size)':C?'layout values changed (an offset must keep them)':'box change outside the approved areas on an unmatched element'}));}
  for(const [C,list] of offsets){const [dx,dy]=list[0].d,uni=list.every(({d})=>Math.abs(d[0]-dx)<=EPS&&Math.abs(d[1]-dy)<=EPS);
   for(const {cb} of list)if(uni)out.matched.push(rec(cb,{approval:`uniform offset (${+dx.toFixed(3)}, ${+dy.toFixed(3)}) in the container of an approved element`}));else out.unmatched.push(rec(cb,{why:'offset not uniform within the container'}));}
  return out;}
