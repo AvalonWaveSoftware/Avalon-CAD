@@ -28,7 +28,7 @@ async function compileOcct(options){
  if(globalThis.process?.versions?.node&&!options.locateFile){const fs=await import('node:fs');return WebAssembly.compile(fs.readFileSync(new URL('replicad_single.wasm',import.meta.resolve('replicad-opencascadejs'))));}
  if(!options.locateFile)return null;const url=options.locateFile('replicad_single.wasm','');
  if(globalThis.process?.versions?.node){const fs=await import('node:fs');return WebAssembly.compile(fs.readFileSync(url));}
- try{return await WebAssembly.compileStreaming(fetch(url,{credentials:'same-origin'}));}catch{const r=await fetch(url,{credentials:'same-origin'});if(!r.ok)throw Error('OCCT wasm');return WebAssembly.compile(await r.arrayBuffer());}
+ try{return await WebAssembly.compileStreaming(fetch(url,{credentials:'same-origin'}));}catch{const r=await fetch(url,{credentials:'same-origin'});return r.ok?WebAssembly.compile(await r.arrayBuffer()):null;}
 }
 export async function initSolid(options={}) {
  solidOptions=options;const {default:init}=await import('replicad-opencascadejs');
