@@ -18,22 +18,24 @@ assert.equal(tooltipText({tooltip:'Close panel',shortcut:['Escape']}),'Close pan
 assert.equal(tooltipText({tooltip:'Round',shortcut:['F']},'Edge'),'Edge (F)');assert.equal(keyText('Mod+Shift+S'),'Cmd/Ctrl+Shift+S');assert.equal(keyText('Shift+Delete'),'Shift+Delete');
 // Expected text: the visible label (registry label for icon-only buttons) plus the first shortcut, when there is one.
 const KEY=Object.fromEntries(createCommands().list.filter(c=>c.shortcut).map(c=>[c.id,keyText(c.shortcut[0])]));
-const say=(id,l)=>KEY[id]?`${l} (${KEY[id]})`:l,want=(id,l)=>[say(id,l),say(id,l)];
+// tip() → [title, aria-label]. The title is the tooltip; the aria-label is whatever the markup or app gave (UI round 2,
+// ruling 3: F1b never changes an existing accessible name), so want(id, label, aria) pins both.
+const say=(id,l)=>KEY[id]?`${l} (${KEY[id]})`:l,want=(id,l,aria=null)=>[say(id,l),aria];
 const env=await H.start();const out=[];
-const audit=page=>page.evaluate(()=>[...document.querySelectorAll('button')].filter(b=>!b.closest('.pending,[aria-hidden="true"]')).filter(b=>!b.getAttribute('title')?.trim()||!b.getAttribute('aria-label')?.trim()).map(b=>b.outerHTML.slice(0,120)));
+const audit=page=>page.evaluate(()=>[...document.querySelectorAll('button')].filter(b=>!b.closest('.pending,[aria-hidden="true"]')).filter(b=>!b.getAttribute('title')?.trim()||!(b.getAttribute('aria-label')||b.textContent).trim()).map(b=>b.outerHTML.slice(0,120)));
 const count=page=>page.evaluate(()=>[...document.querySelectorAll('button')].filter(b=>!b.closest('.pending,[aria-hidden="true"]')).length);
 const tip=(page,sel)=>page.evaluate(s=>{const b=document.querySelector(s);return [b.getAttribute('title'),b.getAttribute('aria-label')];},sel);
 const chunks=page=>page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name).filter(n=>/\/chunk-[^/]*\.js/.test(n)).map(n=>n.split('/').pop().replace(/-[A-Z0-9]+\.js$/,'')));
 const sheetOpen=page=>page.evaluate(()=>!document.querySelector('#sheet').hidden);
 async function closeSheet(page){if(await sheetOpen(page)){await page.click('#closeSheet');await page.waitForFunction(()=>document.querySelector('#sheet').hidden);}}
 try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),name=desktop?'desktop':'phone';let audited=0;
- const check=async what=>{await page.waitForTimeout(50);const bad=await audit(page);assert.deepEqual(bad,[],`${name} ${what}: buttons without title/aria-label`);audited+=await count(page);};
+ const check=async what=>{await page.waitForTimeout(50);const bad=await audit(page);assert.deepEqual(bad,[],`${name} ${what}: buttons without a tooltip or an accessible name`);audited+=await count(page);};
  await page.waitForTimeout(500);await check('startup');
- // Text sources: markup title, registry, markup aria-label, own text. Reserved slots are untouched.
- assert.deepEqual(await tip(page,'#undo'),want('undo','Undo'));assert.deepEqual(await tip(page,'#fit'),want('fit','Fit model'));
+ // Registry buttons: visible label (registry label if icon-only) + shortcut as the title; aria-labels unchanged.
+ assert.deepEqual(await tip(page,'#undo'),want('undo','Undo','Undo'));assert.deepEqual(await tip(page,'#fit'),want('fit','Fit model','Fit model'));
  assert.deepEqual(await tip(page,'[data-mode="move"]'),want('mode:move','Move'));assert.deepEqual(await tip(page,'#addBtn'),want('add','Add'));assert.deepEqual(await tip(page,'#exportBtn'),want('export','Export'));
- assert.deepEqual(await tip(page,'#deselectBtn'),want('clear','Clear'));{const [t,a]=await tip(page,'#layersBtn');assert.equal(t,a);assert.match(t,/^Layers · Layer 1$/,'the app-set aria-label wins over the button text');}
- assert.deepEqual(await tip(page,'#helpBtn'),want('help','Help'));assert.deepEqual(await tip(page,'[data-view="iso"]'),want('view:3d','3D'));assert.deepEqual(await tip(page,'#quickEdit'),['Edit dimensions →','Edit dimensions →']);
+ assert.deepEqual(await tip(page,'#deselectBtn'),want('clear','Clear','Deselect everything'),'Clear keeps its accessible name');assert.deepEqual(await tip(page,'#layersBtn'),['Layers · Layer 1','Layers · Layer 1'],'the app-set aria-label is kept and used as the tooltip');
+ assert.deepEqual(await tip(page,'#helpBtn'),want('help','Help','Help'));assert.deepEqual(await tip(page,'[data-view="iso"]'),want('view:3d','3D'));assert.deepEqual(await tip(page,'#quickEdit'),['Edit dimensions →',null]);
  for(const s of ['#rotateMode','#mirrorMode','#measureBtn'])assert.deepEqual(await tip(page,s),[null,null],s+' stays untouched');
  // Follow-up ruling: the tooltip follows the rendered label minus a trailing ▾ ("Edge ▾" → "Edge (F)" once the geometry
  // lane renames Round); data-tip-label overrides one button; icon glyphs drop out; today Round reads "Round (F)".
@@ -48,8 +50,8 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),na
  assert.deepEqual(await tip(page,'#closeSheet'),want('escape','Close panel'));assert.deepEqual(await tip(page,'#duplicateObject'),want('duplicate','Duplicate'));assert.deepEqual(await tip(page,'#deleteObject'),['Delete','Delete'],'Delete has no sheet shortcut (sheets take only Esc and Cmd/Ctrl)');await closeSheet(page);
  await page.click('#objectsToggle');await page.waitForFunction(()=>!document.querySelector('#objectsPanel').hidden&&document.querySelector('#objectsList button'));await check('objects panel');await page.click('#objectsToggle');
  // A button whose own text changes keeps a matching tooltip (Snap on → Snap off).
- await page.click('[data-mode="move"]');await check('move action bar');assert.deepEqual(await tip(page,'#snapStatus'),['Snap on','Snap on']);
- await page.click('#snapStatus');await page.waitForTimeout(50);assert.deepEqual(await tip(page,'#snapStatus'),['Snap off','Snap off'],'tooltip follows the button text');await page.click('#snapStatus');
+ await page.click('[data-mode="move"]');await check('move action bar');assert.deepEqual(await tip(page,'#snapStatus'),['Snap on',null]);
+ await page.click('#snapStatus');await page.waitForTimeout(50);assert.deepEqual(await tip(page,'#snapStatus'),['Snap off',null],'tooltip follows the button text');await page.click('#snapStatus');
  await page.click('[data-mode="select"]');
  const mode=()=>page.evaluate(()=>window.__cad.touch.getState().mode),bubble=()=>page.evaluate(()=>document.querySelector('#tipBubble')?.textContent??null);
  if(!desktop){
