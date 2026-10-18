@@ -5,6 +5,7 @@ import {installPrefabs} from './prefabs-ui.mjs';
 import {freshComponents} from './prefabs.mjs';
 import {installTouch} from './touch-tools.mjs';
 import {installObjectsPanel} from './objects-panel.mjs';
+import {installTooltips} from './tooltips.mjs';import {createCommands} from './commands.mjs';
 import {migrateProject,forWrite} from './migrate.mjs';import {readAutosave,autosaveEntry,writeAutosave,AUTOSAVE,AUTOSAVE_V3} from './autosave-store.mjs';
 import {resolutionPanel,bindResolution,readResolution,sameTopology,faceSummary,applySmoothPreset} from './resolution-ui.mjs';
 import {displayGeometry} from './display-geometry.mjs';
@@ -222,7 +223,9 @@ objectsPanel=installObjectsPanel({project:()=>project,selected:()=>selected,sele
 {const messages=pendingWarnings.splice(0);if(messages.length)toast(messages.join(' '),messages.length>1);}
 const layers=installLayerTools({project:()=>project,change,current,select,openSheet,closeSheet,escape,clear:()=>touch.deselect()});
 $('layersBtn').onclick=()=>{if(!touch.isDragging()&&!touch.isCommitting())layers.menu();};
-window.__cad={touch,get project(){return project;},get selected(){return selected;},get historyLength(){return history.length;},get model(){return model;},get display(){return resultMesh;},change:fn=>change(()=>fn(project)),get uploads(){return uploads.bytes;},get picks(){return pickMeshes;},get scene(){return scene;},request,objectsPanel,selection,load:p=>{project=loadProject(p);selected=project.objects.find(o=>layerOf(o)===project.activeLayer)?.id;refresh(true);},templates:{blank,plate,tray},exportMenu};
+// ADR-0001 F1b: title/aria-label on every button from the registry, and the touch long-press bubble.
+const tooltips=installTooltips({commands:createCommands()});
+window.__cad={touch,get project(){return project;},get selected(){return selected;},get historyLength(){return history.length;},get model(){return model;},get display(){return resultMesh;},change:fn=>change(()=>fn(project)),get uploads(){return uploads.bytes;},get picks(){return pickMeshes;},get scene(){return scene;},request,objectsPanel,tooltips,selection,load:p=>{project=loadProject(p);selected=project.objects.find(o=>layerOf(o)===project.activeLayer)?.id;refresh(true);},templates:{blank,plate,tray},exportMenu};
 refresh(true);
 
 // ADR unified-desktop-layout: the help line exists on every platform; CSS shows it only with a mouse or trackpad
