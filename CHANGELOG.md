@@ -17,6 +17,8 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 - Desktop app (Mac and Linux): sheets open instantly again, without the 180 ms slide-up animation, as in 2.7.2
   (ADR-0001 sidecar-apply-perf ruling 1). The unified layout had made the desktop app play the web animation, so every
   Add → Apply waited about 210 ms longer in QA's timing. Web and Android keep the animation.
+- Web at 700 px and wider: the sheet now slides up already centred. Before, it rose 270 px right of centre and jumped
+  into place at the end (since 2.4.0). Phone-width sheets animate exactly as before (approved by Master Chief).
 
 ## [2.7.2] - 2026-10-17
 

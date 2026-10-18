@@ -12,6 +12,8 @@
 //    right of the toggle (or panel) and vertically centred on the toggle.
 // 5. ADR-0001 sidecar-apply-perf: the desktop app (Mac/RPM stage + AvalonDesktop) opens sheets with no animation (2.7.2
 //    behaviour); web (mouse 1024x688 and phone 412x915) keeps the 180 ms rise animation.
+// 6. Sheet jump fix (approved by Master Chief): at 700 and 1440 px wide the web sheet stays horizontally centred (<= 1 px)
+//    through its slide-up (paused at 0..100 %); at phone width it keeps the full-width rise.
 import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import os from 'node:os';import {createRequire} from 'node:module';
 import {stageDesktop} from '../desktop/stage.mjs';import {diffPixels} from './perf/png.mjs';
 const ROOT=path.resolve(path.dirname(new URL(import.meta.url).pathname),'..'),ASSETS=path.join(ROOT,'app/assets');
@@ -67,8 +69,19 @@ try{const origins={mac:await serve(mac),rpm:await serve(rpm2),web:await serve(AS
    const a=await page.evaluate(()=>{const s=document.getElementById('sheet');document.getElementById('addBtn').click();const st=getComputedStyle(s);return {name:st.animationName,duration:st.animationDuration,running:s.getAnimations().map(x=>x.animationName)};});
    await ctx.close();anim.push(p+' '+a.name);
    if(p==='mac'||p==='rpm'){assert.equal(a.name,'none',p+': desktop app .sheet animation is none');assert.deepEqual(a.running,[],p+': no sheet animation runs');}
-   else{assert.equal(a.name,'rise',p+': web .sheet keeps the rise animation');assert.equal(a.duration,'0.18s',p+': rise lasts 180 ms');assert.deepEqual(a.running,['rise'],p+': rise runs when the sheet opens');}}
+   else{const k=p==='phone'?'rise':'rise-centred';assert.equal(a.name,k,p+': web .sheet keeps its slide-up animation ('+k+')');assert.equal(a.duration,'0.18s',p+': it lasts 180 ms');assert.deepEqual(a.running,[k],p+': it runs when the sheet opens');}}
   results.push('sheet animation: '+anim.join(', '));}
+ // 6. sheet jump fix: at >= 700 px the sheet slides up already centred (composed translate(-50%,y) keyframes); the
+ //    phone sheet (full width, no centring) keeps its rise. Sampled with the animation paused at 0..100 %.
+ {const out=[];for(const [w,h,touch] of [[700,800,false],[1440,900,false],[412,915,true]]){const {ctx,page}=await open(origins.web,{viewport:{width:w,height:h},touch});
+   const f=await page.evaluate(()=>{const s=document.getElementById('sheet');document.getElementById('addBtn').click();const a=s.getAnimations()[0];a.pause();const cw=document.documentElement.clientWidth;
+    return [0,.1,.25,.5,.75,.9,1].map(x=>{a.currentTime=Math.min(179.9,180*x);const b=s.getBoundingClientRect();return {x,left:b.left,top:b.top,width:b.width,offset:b.left+b.width/2-cw/2,cw};});});
+   await ctx.close();const end=f.at(-1);
+   for(const s of f){assert.ok(Math.abs(s.offset)<=1,`${w}x${h} sheet centred at ${s.x*100} % of the animation (offset ${s.offset.toFixed(1)} px)`);assert.ok(Math.abs(s.width-end.width)<=.5,`${w}x${h} sheet width constant`);}
+   if(touch)f.forEach(s=>assert.ok(Math.abs(s.left)<=.5&&Math.abs(s.width-s.cw)<=.5,`phone sheet stays full width at ${s.x*100} %`));else assert.ok(Math.abs(end.width-540)<=.5,`${w}: 540 px sheet`);
+   assert.ok(f[0].top-end.top>=49&&f[0].top-end.top<=51,`${w}x${h}: slides up 50 px (${(f[0].top-end.top).toFixed(1)})`);for(let i=1;i<f.length;i++)assert.ok(f[i].top<=f[i-1].top+.01,`${w}x${h}: moves up monotonically`);
+   out.push(`${w}: max offset ${Math.max(...f.map(s=>Math.abs(s.offset))).toFixed(2)} px`);}
+  results.push('sheet slide centred: '+out.join(', '));}
  // 4. sweep
  let shown=0,hidden=0;const CONTROLS='#objectsToggle,#objectsPanel:not([hidden]),.views,.axis,#bounds,#liveMeasure:not([hidden]),#empty:not([hidden])>*';
  for(const height of [480,688,900]){const {ctx,page}=await open(origins.web,{viewport:{width:1024,height}});await scene(page,'selected');
