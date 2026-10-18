@@ -75,8 +75,18 @@ async function settle(page){await idle(page);await page.waitForFunction(()=>!win
 // worker job running, camera stable, and then two consecutive captures (screenshot + DOM snapshot) taken ≥250 ms and
 // several frames apart are identical. A frame that is still changing is retried, never compared; the app is untouched.
 async function frames(page,n){await page.evaluate(n=>new Promise(r=>{const f=k=>k?requestAnimationFrame(()=>f(k-1)):r();f(n);}),n);}
+// blank@desktop flake (ADR-0001 blank-scene-flake): Chromium can leave a root-layer tile holding a raster from an earlier
+// paint-invalidation state. That raster differs from a fresh full raster of the same page by 1 LSB at one gradient pixel
+// ((1162,241) in #viewport's radial-gradient, blue 50 instead of 51). Nothing invalidates it later, so two identical
+// captures do not prove the frame is the page's settled raster. The WebGL canvas is transparent there in every frame.
+// Before the still-shot loop, the root layer is fully re-rasterized: the base background colour is overridden over CDP
+// and then cleared, so the capture comes from a full raster of the final state. DOM and app are untouched, and no
+// pixel is allowed.
+async function fullRaster(page){const c=await page.context().newCDPSession(page);
+ try{await c.send('Emulation.setDefaultBackgroundColorOverride',{color:{r:255,g:0,b:255,a:1}});await frames(page,2);
+  await c.send('Emulation.setDefaultBackgroundColorOverride',{});await frames(page,2);}finally{await c.detach().catch(()=>{});}}
 async function stillShot(page){
- await page.evaluate(()=>document.fonts.ready.then(()=>{}));await settle(page);
+ await page.evaluate(()=>document.fonts.ready.then(()=>{}));await settle(page);await fullRaster(page);
  let prev=null,prevDom=null;
  for(let i=0;i<40;i++){await frames(page,3);await page.waitForTimeout(250);await idle(page);
   const png=await page.screenshot({animations:'disabled',caret:'hide'}),dom=JSON.stringify(await domSnapshot(page));
