@@ -1,9 +1,13 @@
 {
- "note": "Approved pixel areas for in-flight, unmerged changes only (ADR-0001 ruling, 2026-10-17): boxes approve PIXELS only, every DOM/string difference fails. An entry is removed once its change is in a baseline. F6 (round-chamfer-dropdown: [data-mode=round], #edgeToolMenu, sheet-radius-menu #sheet p.subtle) was removed when perf-baseline-release-3.0-6892eb7 (a full render of 6892eb7) became the baseline. Format: {baseline: <baseline folder name>, box: <selector>, overlay: <selector|null>, scenes: {<scene>: [<selector>...]}}; pixels.mjs applies it only when basename(AVALON_PIXEL_BASELINE) equals baseline. DOM entries (ADR-0001 approved-dom-areas): \"dom\" is a list of {scene: scene name, capture id or \"*\", selector, kind: attribute name or \"text\", expected: the exact new value, approval: commit or ruling}. A DOM change in a capture passes only when an entry matches it exactly (scene, element matches selector, same kind, new value === expected); every other DOM change, every aria-label/role change without its own entry and every computed-style/box change fails. Selectors: one complex selector of tag/#id/.class/[attr=value] compounds joined by \" \" or \">\", whose last compound has an #id, .class or [attr=value]; no \"*\", lists, pseudo-classes, \"+\"/\"~\", presence or partial attribute matches, or bare tags (tests/perf/approved-dom.mjs). expected must be a string in the baseline's strings-baseline.json or tests/perf/strings-additions.json (checked at load). Like the boxes, entries are for in-flight, unmerged changes only: an entry is removed when its change merges and the baseline rolls forward.",
+ "note": "Approved pixel areas for in-flight, unmerged changes only (ADR-0001 ruling, 2026-10-17): boxes approve PIXELS only, every DOM/string difference fails. An entry is removed once its change is in a baseline. F6 (round-chamfer-dropdown: [data-mode=round], #edgeToolMenu, sheet-radius-menu #sheet p.subtle) was removed when perf-baseline-release-3.0-6892eb7 (a full render of 6892eb7) became the baseline. Format: {baseline: <baseline folder name>, box: <selector>, overlay: <selector|null>, scenes: {<scene>: [<selector>...]}}; pixels.mjs applies it only when basename(AVALON_PIXEL_BASELINE) equals baseline. DOM entries (ADR-0001 approved-dom-areas): \"dom\" is a list of {scene: scene name, capture id or \"*\", selector, kind: attribute name or \"text\", expected: the exact new value, approval: commit or ruling}. A DOM change in a capture passes only when an entry matches it exactly (scene, element matches selector, same kind, new value === expected); every other DOM change, every aria-label/role change without its own entry and every computed-style/box change fails. Selectors: one complex selector of tag/#id/.class/[attr=value] compounds joined by \" \" or \">\", whose last compound has an #id, .class or [attr=value]; no \"*\", lists, pseudo-classes, \"+\"/\"~\", presence or partial attribute matches, or bare tags (tests/perf/approved-dom.mjs). expected must be a string in the baseline's strings-baseline.json or tests/perf/strings-additions.json (checked at load). Like the boxes, entries are for in-flight, unmerged changes only: an entry is removed when its change merges and the baseline rolls forward. ADR-0001 F7 (glyph-emboss-bevel), Architect ruling R3 (Oct 18): edit-glyph@desktop/@phone only: the added #glyphFinish block (Edit-glyph finish fields), the #shapeSize text of the Q11 pre-filled glyph, and the sheet content beneath it shifting down (box changes inside the per-scene area #sheetContent). Approval 'F7 batch (pending Master Chief)'; remove when F7 merges and the baseline rolls forward.",
  "baseline": "perf-baseline-release-3.0-6892eb7",
  "box": "#desktopHelp",
  "overlay": null,
- "scenes": {},
+ "scenes": {
+  "edit-glyph": [
+   "#sheetContent"
+  ]
+ },
  "dom": [
   {
    "scene": "*",
@@ -109,6 +113,32 @@
    "kind": "title",
    "expected": "Duplicate (Cmd/Ctrl+D)",
    "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "edit-glyph@desktop",
+   "selector": "#glyphFinish",
+   "kind": "added",
+   "approval": "F7 batch (pending Master Chief)"
+  },
+  {
+   "scene": "edit-glyph@desktop",
+   "selector": "#shapeSize",
+   "kind": "text",
+   "expected": "Overall size 17.59 × 24.99 × 7.00 mm (X × Y × Z).",
+   "approval": "F7 batch (pending Master Chief)"
+  },
+  {
+   "scene": "edit-glyph@phone",
+   "selector": "#glyphFinish",
+   "kind": "added",
+   "approval": "F7 batch (pending Master Chief)"
+  },
+  {
+   "scene": "edit-glyph@phone",
+   "selector": "#shapeSize",
+   "kind": "text",
+   "expected": "Overall size 17.59 × 24.99 × 7.00 mm (X × Y × Z).",
+   "approval": "F7 batch (pending Master Chief)"
   }
  ]
 }
