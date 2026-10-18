@@ -19,7 +19,7 @@
 //      PIXEL_JOBS (parallel browser contexts in the one shared browser, default 4), AVALON_PIXEL_BASELINE (baseline dir).
 // Same setup as tools/readme-shots/harness.mjs (served app, open(), tap()); one shared browser, PIXEL_JOBS contexts; toasts and #busy are hidden as capture.mjs does.
 import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import {createRequire} from 'node:module';
-import {diffPixels,diffOutside,decodePNG} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {execSync} from 'node:child_process';
+import {diffPixels,diffOutside,decodePNG,diffIn} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {execSync} from 'node:child_process';
 
 const require=createRequire(import.meta.url);const {chromium}=require(process.env.AVALON_PLAYWRIGHT||'playwright');
 // open()/tap() mirror tools/readme-shots/harness.mjs exactly (inlined since before harness.mjs honoured
@@ -67,10 +67,20 @@ if(APPROVED)console.log(`approved DOM entries (${APPROVED.baseline}): ${DOM_ENTR
 // Compares a capture's DOM with its baseline snapshot. Every DOM change is listed as matched (by an approved DOM
 // entry) or unmatched; any unmatched change fails with the same messages as before (compareDom), and with no entries
 // the pass/fail result is exactly the old one. Computed-style/box changes are never matched.
-async function checkDom(page,name,id,bd,dom,r){if(!fs.existsSync(bd)){r.errors.push('no DOM baseline');return;}
+// Hidden entries (ADR-0001 hidden ruling): the region of a non-rendered container is its box (same path) in the BASELINE
+// snapshot of the entry's regionFrom capture (its own split data, or the split reference's when that is the same state);
+// the capture must show 0 differing px there against its baseline png. Either missing fails loudly.
+function regionOf(rf,container){const f=path.join(DOM,rf+'.json');if(!fs.existsSync(f))return {error:`no DOM baseline for ${rf}`};
+ const j=JSON.parse(fs.readFileSync(f,'utf8'));let split=j.split;
+ if(!split&&SPLIT_REF){const sr=path.join(SPLIT_REF,rf+'.json');if(fs.existsSync(sr)){const x=JSON.parse(fs.readFileSync(sr,'utf8'));if(x.split&&x.html===j.html&&JSON.stringify(x.styles)===JSON.stringify(j.styles))split=x.split;}}
+ if(!split)return {error:`the baseline snapshot of ${rf} has no style/box split data (set AVALON_PIXEL_SPLIT_REF)`};
+ const b=split.box?.[container];if(!b)return {error:`no element ${container} in ${rf}`};if(!(b[2]>0&&b[3]>0))return {error:`${container} is not rendered in ${rf} either (${JSON.stringify(b)})`};
+ return {rect:b};}
+async function checkDom(page,name,id,bd,dom,r,px={}){if(!fs.existsSync(bd)){r.errors.push('no DOM baseline');return;}
+ const pxIn=rect=>{if(!px.bp||!fs.existsSync(px.bp)||!px.png)return {error:'no baseline png'};const k=px.dpr||1,n=diffIn(fs.readFileSync(px.bp),px.png,[Math.floor(rect[0]*k),Math.floor(rect[1]*k),Math.ceil((rect[0]+rect[2])*k),Math.ceil((rect[1]+rect[3])*k)]);return n==null?{error:'image size mismatch'}:n;};
  const sr=SPLIT_REF&&path.join(SPLIT_REF,id+'.json'),splitRef=sr&&fs.existsSync(sr)?JSON.parse(fs.readFileSync(sr,'utf8')):null;
  const areas=[ALLOW_BOX,ALLOW_OVERLAY,...(SCENE_AREAS[name]||[])].filter(Boolean);
- const c=await checkCapture(page,{name,id,base:JSON.parse(fs.readFileSync(bd,'utf8')),now:dom,entries:DOM_ENTRIES,areas,splitRef,compareDom});
+ const c=await checkCapture(page,{name,id,base:JSON.parse(fs.readFileSync(bd,'utf8')),now:dom,entries:DOM_ENTRIES,areas,splitRef,compareDom,regionOf,pxIn});
  r.dom={matched:c.matched.length,unmatched:c.unmatched.length};r.errors.push(...c.errors);
  if(c.matched.length||c.unmatched.length){r.domMatched=c.matched;r.domUnmatched=c.unmatched.map(fmtChange);
   console.log(`  ${id} DOM changes: ${c.matched.length} matched, ${c.unmatched.length} unmatched${c.unmatched.length?':\n    '+r.domUnmatched.slice(0,20).join('\n    ')+(c.unmatched.length>20?`\n    …${c.unmatched.length-20} more (report.json)`:''):''}`);}}
@@ -238,9 +248,9 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
      const d=box?diffOutside(fs.readFileSync(bp),png,[box,...(overlay?[overlay]:[]),...areas]):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
      if(!box)r.errors.push(`no element ${ALLOW_BOX}`);else if(d.outside)r.errors.push(`${d.outside} differing pixels outside ${ALLOW_BOX} box ${box}${overlay?' or overlay '+overlay:''} (outside diffs span ${d.outsideBox})${d.sizeMismatch?' (size mismatch)':''}`);
      // Approved areas are pixel boxes only: no DOM allowance inside them (ADR-0001 ruling); every DOM/style difference fails.
-     await checkDom(page,name,id,bd,dom,r);results.push(r);}
+     await checkDom(page,name,id,bd,dom,r,{bp,png,dpr:desktop?1:2});results.push(r);}
     else{if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
-    await checkDom(page,name,id,bd,dom,r);
+    await checkDom(page,name,id,bd,dom,r,{bp,png,dpr:desktop?1:2});
     if(MASK_BASE){const help=await page.evaluate(()=>{const e=document.getElementById('desktopHelp');if(!e||getComputedStyle(e).display==='none'||getComputedStyle(e).visibility==='hidden')return null;const b=e.getBoundingClientRect();return {left:b.left,top:b.top,right:b.right,bottom:b.bottom};});
      const mp=path.join(MASK_BASE,'pixels',id+'.png'),md=path.join(MASK_BASE,'dom',id+'.json');if(!fs.existsSync(mp))r.errors.push('no mask baseline');else{r.helpBox=help;r.outsideHelp=outsideBox(fs.readFileSync(mp),png,help,desktop?1:2);if(r.outsideHelp)r.errors.push(`${r.outsideHelp} px differ outside the help line vs ${path.basename(MASK_BASE)}`);if(!desktop&&help)r.errors.push('help line visible on phone');}
      if(fs.existsSync(md))r.errors.push(...compareDom(stripHelp(JSON.parse(fs.readFileSync(md,'utf8'))),stripHelp(dom)).map(e=>'vs '+path.basename(MASK_BASE)+' without #desktopHelp: '+e));}

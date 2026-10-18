@@ -42,6 +42,17 @@
 //   added elements, the new side of replaced pairs), an element whose box moved with the same width/height, the same
 //   computed style and the same layout values passes when every moved element in that container moved by the same
 //   (dx, dy), whether on screen or scrolled off. Any size, style or layout change, or a non-uniform offset, fails.
+//
+// Hidden ruling (ADR-0001, 3:02 AM Oct 18, option b): non-rendered containers. An entry with hidden:true and regionFrom
+// applies to ONE capture (scene = capture id) and only when the changed element's container renders nothing there: an
+// ancestor is 0×0 (display:none gives 0×0) in BOTH captures (the container is the outermost such ancestor), and the element
+// itself (for added/removed elements, its whole subtree) is 0×0 too. Kinds: as visible entries (attribute, text, added,
+// replaced); an added element needs no area under this rule. Style: a style change passes under the hidden rule only on
+// an element a HIDDEN attribute/text entry matched in that capture. Each hidden match then needs 0 differing px (not
+// excused by any approved area) in the container's region = the container's box (same path) in the BASELINE snapshot of
+// regionFrom; when that cannot be determined the matches fail with an error. At load (loadDomEntries) a hidden entry must
+// have a visible twin (same kind, selector/expected or oldSelector/newSelector) with the SAME approval whose scene covers
+// regionFrom. No cross-scene inference: every capture needs its own entries.
 import fs from 'node:fs';import path from 'node:path';import {readAdditions,additionTexts} from './dom-baseline.mjs';
 const IDENT='-?[_a-zA-Z][_a-zA-Z0-9-]*',VAL=`(?:"[^"\\\\]*"|'[^'\\\\]*'|${IDENT})`;
 const PART=new RegExp(`^(?:#${IDENT}|\\.${IDENT}|\\[${IDENT}=${VAL}\\])`),TAG=new RegExp(`^[a-z][a-z0-9-]*`);
@@ -86,8 +97,27 @@ export function loadDomEntries(list,strings){
   const k=validKind(e.kind);if(k)bad.push(`${at}: ${k}`);
   // ADR-0001 empty-text ruling: a text entry may expect "" (the element's own text emptied); approval is required above.
   if(typeof e.expected==='string'&&!(e.kind==='text'&&e.expected==='')&&!strings.has(e.expected))bad.push(`${at}: expected ${JSON.stringify(e.expected)} is not in strings-baseline.json or tests/perf/strings-additions.json`);});
+ // Hidden ruling (ADR-0001 3:02 AM, option b): {…, hidden:true, regionFrom:<capture id>} is an explicit entry for ONE
+ // capture whose changed element sits in a container that renders nothing there. scene must be a capture id
+ // (name@desktop|name@phone), never '*' or a bare scene; regionFrom a different capture id on the same device; and a
+ // visible entry (no hidden) must exist with the same kind, the same selector/expected (or oldSelector/newSelector),
+ // the SAME approval, and a scene covering regionFrom (the visible scene the region is taken from).
+ const twinKey=e=>e.kind==='replaced'?JSON.stringify(['replaced',e.oldSelector,e.newSelector]):JSON.stringify([e.kind,e.selector,e.expected??null]);
+ const capId=/^[a-z0-9][a-z0-9.-]*@(desktop|phone)$/;
+ list.forEach((e,i)=>{if(!e||typeof e!=='object')return;const at=`dom[${i}] ${JSON.stringify(e)}`;
+  if('hidden' in e&&e.hidden!==true)bad.push(`${at}: "hidden" must be true when present`);
+  if('regionFrom' in e&&e.hidden!==true)bad.push(`${at}: "regionFrom" is only for hidden entries`);
+  if(e.hidden!==true)return;
+  if(typeof e.scene!=='string'||!capId.test(e.scene)){bad.push(`${at}: a hidden entry's scene must be one capture id (name@desktop or name@phone), not "*" or a bare scene`);return;}
+  if(typeof e.regionFrom!=='string'||!capId.test(e.regionFrom)){bad.push(`${at}: a hidden entry needs "regionFrom", the capture id of a visible scene to take the container region from`);return;}
+  if(e.regionFrom===e.scene||e.regionFrom.split('@')[1]!==e.scene.split('@')[1])bad.push(`${at}: regionFrom must be another capture on the same device (${e.scene.split('@')[1]})`);
+  const covers=v=>v.scene==='*'||v.scene===e.regionFrom||v.scene===e.regionFrom.split('@')[0];
+  const twins=list.filter(v=>v&&v!==e&&v.hidden!==true&&twinKey(v)===twinKey(e)&&covers(v));
+  if(!twins.length)bad.push(`${at}: no visible entry with the same kind and selector${e.kind==='replaced'?'s':'/expected'} whose scene covers regionFrom ${e.regionFrom}`);
+  else if(!twins.some(v=>v.approval===e.approval))bad.push(`${at}: approval must equal the visible entry's approval (${twins.map(v=>JSON.stringify(v.approval)).join(' or ')})`);});
  if(bad.length)throw Error('approved-areas.json dom entries rejected:\n  '+bad.join('\n  '));
- return list.map(e=>e.kind==='replaced'?{scene:e.scene,kind:'replaced',oldSelector:e.oldSelector,newSelector:e.newSelector,approval:e.approval}:({scene:e.scene,selector:e.selector,kind:e.kind,expected:e.expected??null,approval:e.approval}));}
+ const hid=e=>e.hidden===true?{hidden:true,regionFrom:e.regionFrom}:{};
+ return list.map(e=>e.kind==='replaced'?{scene:e.scene,kind:'replaced',oldSelector:e.oldSelector,newSelector:e.newSelector,approval:e.approval,...hid(e)}:({scene:e.scene,selector:e.selector,kind:e.kind,expected:e.expected??null,approval:e.approval,...hid(e)}));}
 // Runs IN THE PAGE: page.evaluate(domChanges,[base,now,ctx]); base/now = {html,styles,split?} snapshots, ctx = {entries,
 // scene, id, areas: [selector...]} (areas are measured in the live page). Parses both bodies, aligns elements (children by
 // tag#id, LCS) and lists every change as matched or unmatched.
@@ -117,33 +147,58 @@ export function domChanges([base,now,ctx]){
  const areas=(ctx.areas||[]).map(s=>{const e=document.querySelector(s);if(!e)return null;const r=e.getBoundingClientRect();return r.width>0&&r.height>0?[r.left,r.top,r.right,r.bottom]:null;}).filter(Boolean);
  const EPS=0.01,inside=b=>!!b&&areas.some(([l,t,r,bt])=>b[0]>=l-EPS&&b[1]>=t-EPS&&b[0]+b[2]<=r+EPS&&b[1]+b[3]<=bt+EPS);
  const out={matched:[],unmatched:[]},rec=(c,extra)=>({path:c.path,kind:c.kind,old:c.old,now:c.now,...extra});
- const matchedEls=new Set(),styleAttr=[];
+ const ns=now.split,bs=base.split,boxA=x=>bs?.box?.[pathOf(x,A)],boxB=x=>ns?.box?.[pathOf(x,B)];
+ const pairOf=new Map(pairs.map(([a,b])=>[b,a])),pairOfA=new Map(pairs.map(([a,b])=>[a,b]));
+ // Hidden ruling: an element is in a non-rendered container when an ANCESTOR is 0×0 (display:none gives 0×0 too) in BOTH
+ // captures; the container is the outermost such ancestor. The element itself (and, for added/removed elements, every
+ // descendant) must be 0×0 as well, so nothing of it is drawn. Needs split data on both sides; returns the container's path
+ // in the new capture, or null.
+ const zero=b=>!!b&&Math.abs(b[2])<=EPS&&Math.abs(b[3])<=EPS;
+ const rootB=b=>{let root=null;for(let x=b.parentElement;x&&x!==B;x=x.parentElement){const a=pairOf.get(x);if(a&&zero(boxB(x))&&zero(boxA(a)))root=x;}return root&&pathOf(root,B);};
+ const rootA=a=>{let root=null;for(let y=a.parentElement;y&&y!==A;y=y.parentElement){const x=pairOfA.get(y);if(x&&zero(boxA(y))&&zero(boxB(x)))root=x;}return root&&pathOf(root,B);};
+ const subZeroB=el=>[el,...el.querySelectorAll('*')].every(x=>zero(boxB(x))),subZeroA=el=>[el,...el.querySelectorAll('*')].every(x=>zero(boxA(x)));
+ const hidPaired=b=>{const a=pairOf.get(b);return a&&zero(boxB(b))&&zero(boxA(a))?rootB(b):null;};
+ const hidRec=(e,container)=>({approval:e.approval,hidden:{container,regionFrom:e.regionFrom}});
+ const HIDDEN_WHY='hidden entry, but the container is rendered (no ancestor is 0×0 in both captures, or the element itself is drawn)';
+ const matchedEls=new Set(),hiddenMatched=new Map(),styleAttr=[];
  for(const c of changes){if(c.kind==='style'){styleAttr.push(c);continue;}const v=c.kind==='text'&&typeof c.now==='string'?c.now.trim():c.now;
-  const e=c.el&&typeof c.now==='string'?entries.find(e=>e.kind!=='added'&&e.kind!=='replaced'&&sceneOk(e)&&e.kind===c.kind&&e.expected===v&&c.el.matches(e.selector)):null;
-  if(e){matchedEls.add(c.el);out.matched.push(rec(c,{approval:e.approval}));}else out.unmatched.push(rec(c));}
- const ns=now.split,bs=base.split,pathA=new Map(),boxA=x=>bs?.box?.[pathOf(x,A)],boxB=x=>ns?.box?.[pathOf(x,B)];
- const pairOf=new Map(pairs.map(([a,b])=>[b,a]));
+  const fits=e=>e.kind!=='added'&&e.kind!=='replaced'&&sceneOk(e)&&e.kind===c.kind&&e.expected===v&&c.el.matches(e.selector);
+  const he=c.el&&typeof c.now==='string'?entries.find(e=>e.hidden&&fits(e)):null,hc=he&&hidPaired(c.el);
+  if(he&&hc){matchedEls.add(c.el);hiddenMatched.set(c.el,he);out.matched.push(rec(c,hidRec(he,hc)));continue;}
+  const e=c.el&&typeof c.now==='string'?entries.find(e=>!e.hidden&&fits(e)):null;
+  if(e){matchedEls.add(c.el);out.matched.push(rec(c,{approval:e.approval}));}else out.unmatched.push(rec(c,he?{why:HIDDEN_WHY}:{}));}
  // Style ruling: a style change (computed, or the inline style attribute that causes it) passes ONLY on an element an
  // approved attribute/text entry matched whose old and new boxes both lie inside an approved pixel area.
- const styleOk=b=>{const a=pairOf.get(b);return matchedEls.has(b)&&!!a&&inside(boxA(a))&&inside(boxB(b));};
+ // Hidden style (kept tight): a style change on a hidden element passes only when THAT element was matched by a hidden
+ // attribute/text entry in this capture, and it and its container are 0×0 in both captures; the region pixel check then
+ // applies to it like to every hidden match. A visible entry's match never approves a style change in a hidden container.
+ const styleOk=b=>{const a=pairOf.get(b);return matchedEls.has(b)&&!hiddenMatched.has(b)&&!!a&&inside(boxA(a))&&inside(boxB(b));};
+ const styleHidden=b=>hiddenMatched.has(b)?hidPaired(b):null;
+ const styleMatch=(c,b,extra)=>{if(styleOk(b)){out.matched.push(rec(c,{approval:'style of an element matched by an approved DOM entry, inside an approved pixel area'}));return true;}
+  const h=styleHidden(b);if(h){const e=hiddenMatched.get(b);out.matched.push(rec(c,{approval:'style of an element matched by a hidden entry ('+e.approval+'), in a non-rendered container',hidden:{container:h,regionFrom:e.regionFrom}}));return true;}return false;};
  const styleWhy=b=>!matchedEls.has(b)?'style change on an element no approved entry matched':!(bs?.box&&ns?.box)?'no style/box split data':'style change outside the approved areas';
- for(const c of styleAttr)if(styleOk(c.el))out.matched.push(rec(c,{approval:'style of an element matched by an approved DOM entry, inside an approved pixel area'}));else out.unmatched.push(rec(c,{why:styleWhy(c.el)}));
+ for(const c of styleAttr)if(!styleMatch(c,c.el))out.unmatched.push(rec(c,{why:styleWhy(c.el)}));
  // Replaced ruling: a removed element passes only when a "replaced" entry pairs it (old element matches oldSelector in the
  // baseline) with a new element matching newSelector that was added under the same parent in this capture. Each new
  // element pairs once. The new element itself still needs its own "added" entry (below).
  const usedNew=new Set();
- for(const r of removedTop){let hit=null;
-  for(const e of entries)if(e.kind==='replaced'&&sceneOk(e)&&r.old.matches(e.oldSelector)){const n=r.siblings.find(x=>!usedNew.has(x)&&x.matches(e.newSelector));if(n){hit={e,n};break;}}
+ for(const r of removedTop){let hit=null,hidFail=false;
+  const find=hidden=>{for(const e of entries)if(e.kind==='replaced'&&!!e.hidden===hidden&&sceneOk(e)&&r.old.matches(e.oldSelector)){const n=r.siblings.find(x=>!usedNew.has(x)&&x.matches(e.newSelector));if(n)return {e,n};}return null;};
+  const hh=find(true);if(hh){const root=subZeroA(r.old)&&subZeroB(hh.n)?rootA(r.old):null;if(root)hit={...hh,hidden:root};else hidFail=true;}
+  if(!hit)hit=find(false);
   const c={path:r.path,kind:'element removed',old:label(r.old),now:hit?'replaced by '+label(hit.n):null};
-  if(hit){usedNew.add(hit.n);out.matched.push(rec(c,{approval:hit.e.approval}));}
-  else out.unmatched.push(rec(c,{why:entries.some(e=>e.kind==='replaced'&&sceneOk(e)&&r.old.matches(e.oldSelector))?'no paired new element (newSelector) added under the same parent':undefined}));}
+  if(hit){usedNew.add(hit.n);out.matched.push(rec(c,hit.hidden?hidRec(hit.e,hit.hidden):{approval:hit.e.approval}));}
+  else out.unmatched.push(rec(c,{why:hidFail?HIDDEN_WHY:entries.some(e=>e.kind==='replaced'&&sceneOk(e)&&r.old.matches(e.oldSelector))?'no paired new element (newSelector) added under the same parent':undefined}));}
  // added elements: an "added" entry, and the element's and all descendants' new boxes inside an approved area
  const acceptedAdded=new Set();
  for(const a of addedTop){const sub=[a.el,...a.el.querySelectorAll('*')],boxes=sub.map(x=>ns?.box?.[pathOf(x,B)]);
-  const txt=a.el.textContent.trim(),e=entries.find(e=>e.kind==='added'&&sceneOk(e)&&a.el.matches(e.selector)&&(e.expected==null||e.expected===txt));
+  const txt=a.el.textContent.trim(),fits=e=>e.kind==='added'&&sceneOk(e)&&a.el.matches(e.selector)&&(e.expected==null||e.expected===txt);
   const c={path:a.path,kind:'element added',old:null,now:label(a.el)+(txt?' "'+txt.slice(0,60)+'"':'')};
+  const he=entries.find(e=>e.hidden&&fits(e)),hc=he&&subZeroB(a.el)?rootB(a.el):null;
+  if(he&&hc){acceptedAdded.add(a.el);out.matched.push(rec(c,hidRec(he,hc)));continue;}
+  const e=entries.find(e=>!e.hidden&&fits(e));
   if(e&&boxes.every(inside)){acceptedAdded.add(a.el);out.matched.push(rec(c,{approval:e.approval}));}
-  else out.unmatched.push(rec(c,{why:!e?'no matching "added" entry':'box not entirely inside an approved pixel area'}));}
+  else out.unmatched.push(rec(c,{why:he?HIDDEN_WHY:!e?'no matching "added" entry':'box not entirely inside an approved pixel area'}));}
  // computed style / box of every aligned element pair
  // Offset ruling: containers = parents (never body/html) of the elements approved entries matched (attribute/text matches,
  // accepted added elements, the new side of replaced pairs). An element inside such a container whose box moved with the
@@ -156,8 +211,7 @@ export function domChanges([base,now,ctx]){
   const c={path:pb,kind:'computed style/box',old:x??null,now:y??null};
   if(!bs?.style||!ns?.style||bs.style[pa]==null||ns.style[pb]==null){out.unmatched.push(rec(c,{why:'no style/box split data'}));continue;}
   if(bs.style[pa]!==ns.style[pb]){const cs={...c,kind:'computed style'};
-   if(styleOk(b))out.matched.push(rec(cs,{approval:'style of an element matched by an approved DOM entry, inside an approved pixel area'}));
-   else out.unmatched.push(rec(cs,matchedEls.has(b)?{why:styleWhy(b)}:{}));continue;}
+   if(!styleMatch(cs,b))out.unmatched.push(rec(cs,matchedEls.has(b)?{why:styleWhy(b)}:{}));continue;}
   const ob=bs.box[pa],nb=ns.box[pb],cb={...c,kind:'box',old:ob,now:nb};
   if(matchedEls.has(b)){out.matched.push(rec(cb,{approval:'box of an element matched by an approved DOM entry'}));continue;}
   if(inside(ob)&&inside(nb)){out.matched.push(rec(cb,{approval:'box inside an approved pixel area'}));continue;}
@@ -167,19 +221,33 @@ export function domChanges([base,now,ctx]){
  for(const [C,list] of offsets){const [dx,dy]=list[0].d,uni=list.every(({d})=>Math.abs(d[0]-dx)<=EPS&&Math.abs(d[1]-dy)<=EPS);
   for(const {cb} of list)if(uni)out.matched.push(rec(cb,{approval:`uniform offset (${+dx.toFixed(3)}, ${+dy.toFixed(3)}) in the container of an approved element`}));else out.unmatched.push(rec(cb,{why:'offset not uniform within the container'}));}
  return out;}
-export const fmtChange=c=>`${c.kind} at ${c.path}: ${JSON.stringify(c.old)} → ${JSON.stringify(c.now)}${c.why?' ('+c.why+')':''}`.slice(0,300);
+export const fmtChange=c=>`${c.hidden?'[hidden] ':''}${c.kind} at ${c.path}: ${JSON.stringify(c.old)} → ${JSON.stringify(c.now)}${c.why?' ('+c.why+')':''}`.slice(0,300);
 // One capture. page = a Playwright page (domChanges runs in it); base/now = snapshots; splitRef = an optional capture of
 // the baseline's own build with split data, used only when the baseline snapshot has none and the reference's html and
 // combined styles are identical to the baseline's. Returns {matched, unmatched, errors}; errors are the old messages
 // (outerHTML line when an HTML-level change is unmatched; 'computed style/box differs: <path>' for unmatched style/box
 // changes, first 5 then a count), so with no entries and no areas the result is exactly the old one.
-export async function checkCapture(page,{name,id,base,now,entries,areas=[],splitRef=null,compareDom}){
+export async function checkCapture(page,{name,id,base,now,entries,areas=[],splitRef=null,compareDom,regionOf=null,pxIn=null}){
  if(base.html===now.html&&JSON.stringify(base.styles)===JSON.stringify(now.styles))return {matched:[],unmatched:[],errors:[]};
  if(!base.split&&splitRef&&splitRef.split&&splitRef.html===base.html&&JSON.stringify(splitRef.styles)===JSON.stringify(base.styles))base={...base,split:splitRef.split};
  const res=await page.evaluate(domChanges,[{html:base.html,styles:base.styles,split:base.split||null},{html:now.html,styles:now.styles,split:now.split||null},{entries,scene:name,id,areas}]);
+ // Hidden ruling, pixel side: every hidden match needs 0 differing px (vs the baseline png, NOT excused by any approved
+ // area) in its container's region, which is the container's box (same path) in the BASELINE snapshot of regionFrom
+ // (its split data, or the split reference's when that is the same state). If the region cannot be determined, or the
+ // pixels cannot be read, the matches fail and the capture gets an error naming why.
+ const hidErrors=[];
+ {const groups=new Map();for(const m of res.matched)if(m.hidden){const k=m.hidden.container+'|'+m.hidden.regionFrom;if(!groups.has(k))groups.set(k,[]);groups.get(k).push(m);}
+  for(const [k,ms] of groups){const [container,regionFrom]=k.split('|');let why=null;
+   const reg=regionOf?await regionOf(regionFrom,container):{error:'no region source (regionOf) for hidden entries'};
+   if(!reg||reg.error||!reg.rect)why=`hidden entry: cannot determine the region of ${container} from ${regionFrom}: ${reg?.error||'unknown'}`;
+   else{const px=pxIn?await pxIn(reg.rect):{error:'no pixel source (pxIn)'};
+    if(typeof px!=='number')why=`hidden entry: cannot count pixels in ${JSON.stringify(reg.rect)}: ${px?.error||'unknown'}`;
+    else if(px>0)why=`hidden entry: ${px} differing px in the region of ${container} (${JSON.stringify(reg.rect)} CSS px, from ${regionFrom})`;
+    else for(const m of ms)m.hidden.region=reg.rect;}
+   if(why){hidErrors.push(why);for(const m of ms){res.matched.splice(res.matched.indexOf(m),1);const {approval,hidden,...rest}=m;res.unmatched.push({...rest,why});}}}}
  const htmlUn=res.unmatched.filter(c=>!/^(computed style|box)/.test(c.kind)),styleUn=res.unmatched.filter(c=>/^(computed style|box)/.test(c.kind));
  if(base.html!==now.html&&!res.matched.length&&!htmlUn.length&&!res.unmatched.some(c=>c.kind==='element added'))htmlUn.push({path:'body',kind:'outerHTML',old:'(baseline)',now:'differs with no element-level change (attribute order or serialisation)'});
- const unmatched=[...htmlUn,...styleUn],errors=[];
+ const unmatched=[...htmlUn,...styleUn],errors=[...new Set(hidErrors)];
  if(htmlUn.length)errors.push(...compareDom(base,{html:now.html,styles:base.styles}));
  styleUn.slice(0,5).forEach(c=>errors.push('computed style/box differs: '+c.path));if(styleUn.length>5)errors.push(`…${styleUn.length} elements with style differences`);
  return {matched:res.matched,unmatched,errors};}

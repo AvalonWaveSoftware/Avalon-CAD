@@ -23,3 +23,8 @@ export function diffOutside(a,b,box){const A=decodePNG(a),B=decodePNG(b);if(A.wi
   if(!inside(x,y)){out++;bb=bb?[Math.min(bb[0],x),Math.min(bb[1],y),Math.max(bb[2],x+1),Math.max(bb[3],y+1)]:[x,y,x+1,y+1];}}return {differing:n,outside:out,outsideBox:bb};}
 export function diffPixels(a,b){const A=decodePNG(a),B=decodePNG(b);if(A.width!==B.width||A.height!==B.height)return {differing:Math.max(A.width*A.height,B.width*B.height),sizeMismatch:true};
  let n=0;for(let i=0;i<A.data.length;i+=4)if(A.data.readUInt32BE(i)!==B.data.readUInt32BE(i))n++;return {differing:n,total:A.width*A.height};}
+// ADR-0001 hidden ruling: differing pixels inside rect ([x0,y0,x1,y1] image px, x1/y1 exclusive, clipped to the image).
+// Different sizes: null (the caller fails loudly).
+export function diffIn(a,b,rect){const A=decodePNG(a),B=decodePNG(b);if(A.width!==B.width||A.height!==B.height)return null;
+ const [x0,y0,x1,y1]=[Math.max(0,rect[0]),Math.max(0,rect[1]),Math.min(A.width,rect[2]),Math.min(A.height,rect[3])];let n=0;
+ for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){const i=(y*A.width+x)*4;if(A.data.readUInt32BE(i)!==B.data.readUInt32BE(i))n++;}return n;}

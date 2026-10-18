@@ -1,7 +1,7 @@
 // ADR-0001 approved-dom-areas: unit tests for tests/perf/approved-dom.mjs (the "dom" entries of approved-areas.json
 // used by tests/pixels.mjs). Runs domChanges in a blank Chromium page; no app, no baseline folder is written.
 import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
-import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture} from './perf/approved-dom.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds} from './perf/dom-baseline.mjs';
+import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn} from './perf/png.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds} from './perf/dom-baseline.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const STR=new Set(['Edge (F)','Move (M)','Project menu','Ready · millimeters','Fit model (0)']);
 const E=(o)=>({scene:'*',kind:'title',approval:'test',...o});
@@ -256,5 +256,55 @@ try{const page=await browser.newPage();
   r=await chk(tB,tN,[HD],[]);assert.deepEqual(r.unmatched.map(c=>c.kind),[],'#app is the container here');
   const raw=(h,y)=>({html:`<body><div id="hd">${h}</div><div id="f1">x</div></body>`,styles:{'div#hd:0':h,'div#f1:1':'f'+y},split:{style:{'div#hd:0':'s','div#f1:1':'s'},box:{'div#hd:0':IN1,'div#f1:1':[10,y,50,20]},layout:{'div#hd:0':'L','div#f1:1':'L'}}});
   r=await chk(raw('Dims',900),raw('Dims · millimeters',912),[HD],[]);assert.deepEqual(r.unmatched.map(c=>c.path),['div#f1:1'],'body is never an offset container');}
+ // 11. Hidden entries (ADR-0001 hidden ruling, option b): non-rendered containers, explicit per-capture entries
+ {const Z=[0,0,0,0],V=[450,90,540,810],AP='inch F1c (test)';
+  const body=(now)=>now?'<div id="sheet"><div id="sc"><div class="sectionlabel" id="posTitle">Pos</div><div id="hd" style="display:flex"><span id="unitSwitch">mmin</span></div></div></div>'
+                       :'<div id="sheet"><div id="sc"><div class="sectionlabel">Pos</div><div id="hd">Dims</div></div></div>';
+  const snapH=(now,{sheet=Z,hd=sheet,kid=Z}={})=>mk(body(now),{'div#sheet:0':{comb:'s'+sheet,style:'s',box:sheet},'div#sheet:0>div#sc:0':{comb:'c'+sheet,style:'s',box:sheet},
+    ...(now?{'div#sheet:0>div#sc:0>div#posTitle:0':{comb:'p',style:'s',box:Z},'div#sheet:0>div#sc:0>div#hd:1':{comb:'h2'+hd,style:'s2',box:hd},'div#sheet:0>div#sc:0>div#hd:1>span#unitSwitch:0':{comb:'u',style:'s',box:kid}}
+          :{'div#sheet:0>div#sc:0>div:0':{comb:'p',style:'s',box:Z},'div#sheet:0>div#sc:0>div#hd:1':{comb:'h1'+hd,style:'s1',box:hd}})});
+  const H={scene:'s@desktop',hidden:true,regionFrom:'v@desktop',approval:AP};
+  const HE=[{...H,selector:'#hd',kind:'text',expected:''},{...H,kind:'replaced',oldSelector:'#sc>div.sectionlabel',newSelector:'#posTitle'},
+    {...H,selector:'#posTitle',kind:'added',expected:null},{...H,selector:'#unitSwitch',kind:'added',expected:null}];
+  const reg={rect:V};let px=0,asked=[];const regionOf=(rf,c)=>{asked.push([rf,c]);return reg;},pxIn=()=>px;
+  const chkH=(b,n,entries,o={})=>checkCapture(page,{name:'s',id:'s@desktop',base:b,now:n,entries,areas:[],compareDom,regionOf:o.regionOf??regionOf,pxIn:o.pxIn??pxIn});
+  r=await chkH(snapH(false),snapH(true),HE);
+  assert.deepEqual([r.unmatched.map(fmtChange),r.errors],[[],[]],'hidden: text "", replaced, added and the matched element\'s style pass');
+  assert.deepEqual(r.matched.map(c=>c.kind).sort(),['computed style','element added','element added','element removed','style','text']);
+  assert.ok(r.matched.every(c=>c.hidden?.container==='div#app:0>div#sheet:0'&&c.hidden.regionFrom==='v@desktop'),'container = outermost 0×0 ancestor');
+  assert.deepEqual(asked,[['v@desktop','div#app:0>div#sheet:0']],'one region lookup per container');
+  // negatives: an ancestor visible in the old or in the new capture; the scene's container visible in both
+  for(const [b,n,what] of [[snapH(false,{sheet:V}),snapH(true),'old'],[snapH(false),snapH(true,{sheet:V}),'new'],[snapH(false,{sheet:V}),snapH(true,{sheet:V}),'both (container visible in this scene)']]){
+   r=await chkH(b,n,HE);assert.equal(r.matched.filter(c=>c.hidden).length,0,'no hidden match: ancestor visible in '+what);
+   assert.ok(r.unmatched.some(c=>c.why&&/hidden entry, but the container is rendered/.test(c.why)),'reason given: '+what);}
+  // the element itself drawn (an added child with a size) fails even in a 0×0 container
+  r=await chkH(snapH(false),snapH(true,{kid:[10,10,5,5]}),HE);assert.deepEqual(r.unmatched.map(c=>c.kind),['element added'],'added element with a drawn descendant fails');
+  // nonzero px in the region: every hidden match of that container fails, loudly
+  px=3;r=await chkH(snapH(false),snapH(true),HE);px=0;
+  assert.equal(r.matched.length,0);assert.ok(r.unmatched.length>=6&&r.unmatched.every(c=>/3 differing px in the region of div#app:0>div#sheet:0/.test(c.why||'')),'nonzero px in the region fails');
+  assert.ok(r.errors.some(e=>/^hidden entry: 3 differing px in the region/.test(e)));
+  // region not determinable / pixels not readable: fail loudly
+  r=await chkH(snapH(false),snapH(true),HE,{regionOf:()=>({error:'the baseline snapshot of v@desktop has no style/box split data'})});
+  assert.ok(r.errors.some(e=>/cannot determine the region of div#app:0>div#sheet:0 from v@desktop: the baseline snapshot of v@desktop has no style\/box split data/.test(e))&&!r.matched.length);
+  r=await chkH(snapH(false),snapH(true),HE,{pxIn:()=>({error:'no baseline png'})});assert.ok(r.errors.some(e=>/cannot count pixels .*no baseline png/.test(e))&&!r.matched.length);
+  r=await checkCapture(page,{name:'s',id:'s@desktop',base:snapH(false),now:snapH(true),entries:HE,areas:[],compareDom});assert.ok(r.errors.some(e=>/no region source/.test(e)),'no region source fails');
+  // per capture: an entry for s@phone does not apply to s@desktop (no cross-scene inference)
+  r=await chkH(snapH(false),snapH(true),HE.map(e=>({...e,scene:'s@phone',regionFrom:'v@phone'})));assert.equal(r.matched.length,0,'another capture\'s hidden entry does not apply');
+  // style: a hidden element matched only by a VISIBLE entry does not get the hidden style approval
+  r=await chkH(snapH(false),snapH(true),[{scene:'*',selector:'#hd',kind:'text',expected:'',approval:AP},...HE.slice(1)]);
+  assert.deepEqual(r.unmatched.map(c=>c.kind).sort(),['computed style','style'],'style on a hidden element matched only by a visible entry fails');
+  // loader: per-capture scene, regionFrom, a visible twin with the same approval
+  const vis=[{scene:'*',selector:'#hd',kind:'text',expected:'',approval:AP},{scene:'v',kind:'replaced',oldSelector:'#sc>div.sectionlabel',newSelector:'#posTitle',approval:AP},{scene:'v@desktop',selector:'#posTitle',kind:'added',approval:AP},{scene:'*',selector:'#unitSwitch',kind:'added',approval:AP}];
+  const hidL=HE.map(({expected,...e})=>e.kind==='added'?e:{...e,...(expected!==undefined&&e.kind!=='replaced'?{expected}:{})});
+  assert.equal(loadDomEntries([...vis,...hidL],STR).length,8);
+  for(const [bad,re] of [[{...hidL[0],approval:'other ref'},/approval must equal the visible entry's approval \("inch F1c \(test\)"\)/],[{...hidL[0],scene:'*'},/must be one capture id/],[{...hidL[0],scene:'s'},/must be one capture id/],
+   [{...hidL[0],regionFrom:undefined},/needs "regionFrom"/],[{...hidL[0],regionFrom:'v@phone'},/same device/],[{...hidL[0],regionFrom:'s@desktop'},/another capture/],[{...hidL[0],hidden:'yes'},/"hidden" must be true/],
+   [{...hidL[0],selector:'#other'},/no visible entry with the same kind and selector\/expected/],[{...hidL[0],expected:'Dims'},/no visible entry|not in strings/],[{...hidL[2],regionFrom:'w@desktop'},/whose scene covers regionFrom w@desktop/]])
+   assert.throws(()=>loadDomEntries([...vis,bad],STR),re,JSON.stringify(bad));
+  assert.throws(()=>loadDomEntries([{...vis[0],regionFrom:'v@desktop'}],STR),/only for hidden entries/);
+  // diffIn (pixels.mjs region count) on real screenshots: a 10×10 change inside / outside the region
+  await page.setContent('<body style="margin:0;background:#fff"></body>');const p0=await page.screenshot();
+  await page.setContent('<body style="margin:0;background:#fff"><div style="position:absolute;left:20px;top:30px;width:10px;height:10px;background:#f00"></div></body>');const p1=await page.screenshot();
+  assert.deepEqual([diffIn(p0,p1,[0,0,100,100]),diffIn(p0,p1,[25,30,100,100]),diffIn(p0,p1,[40,0,100,100])],[100,50,0],'diffIn counts only inside the region');}
 }finally{await browser.close();}
 console.log('PASS approved-dom-areas: selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor; box on matched element / inside area pass, outside fails, style change fails, added inside passes / outside / wrong text fail, removed fails; runtime texts and extractor corrections validated');
