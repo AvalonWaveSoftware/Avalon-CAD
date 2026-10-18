@@ -36,9 +36,98 @@
   "mode:stretch",
   "mode:round",
   "view:3d",
-  "view:iso"
+  "view:iso",
+  {
+   "text": "Help (?)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Undo (Cmd/Ctrl+Z)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Redo (Cmd/Ctrl+Shift+Z)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Wireframe (W)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Fit model (0)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Select (V)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Move (M)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Stretch (S)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Edge (F)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Clear (Shift+Delete)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Add (A)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Export (Cmd/Ctrl+E)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Close panel (Esc)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Duplicate (Cmd/Ctrl+D)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  }
  ],
- "removals": [],
+ "removals": [
+  {
+   "string": "Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom",
+   "approval": "keyboard-shortcuts help pill gains '· ? for shortcuts' (QA'd at 40f3c6e)"
+  }
+ ],
  "extractorCorrections": [
   {
    "string": "The modeling engine could not start",
