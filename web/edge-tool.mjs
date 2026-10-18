@@ -8,9 +8,9 @@
 // F1c merge: the unit helpers are handed in by touch-tools (useUnits) instead of imported here. main.js also uses
 // units.mjs, so a shared import makes esbuild split it into a chunk that main.js imports statically (startup-split,
 // apk-package). Same texts, same units.
-let U=null;export function useUnits(units){U=units;}
-export const CHAMFER={hint:'Edge taps: 1 edge · 2 face perimeter · 3 all edges · drag to chamfer',set:'Distance',live:d=>`Chamfer ${U.fmtLen(d,2)} ${U.unitLabel()}`,applied:'Chamfer applied.',
- title:'Chamfer selected edges',intro:n=>`${n} selected edge(s). Drag up/down in Edge mode for live adjustment, or enter an exact distance.`,label:()=>'Chamfer distance · '+U.unitLabel(),
+let fmtLen,unitLabel;export function useUnits(f,l){fmtLen=f;unitLabel=l;}
+export const CHAMFER={hint:'Edge taps: 1 edge · 2 face perimeter · 3 all edges · drag to chamfer',set:'Distance',live:d=>`Chamfer ${fmtLen(d,2)} ${unitLabel()}`,applied:'Chamfer applied.',
+ title:'Chamfer selected edges',intro:n=>`${n} selected edge(s). Drag up/down in Edge mode for live adjustment, or enter an exact distance.`,label:()=>'Chamfer distance · '+unitLabel(),
  apply:'Apply chamfer',remove:'Remove selected chamfers',invalid:'Enter a non-negative distance.'};
 const ITEMS=[['round','Round'],['chamfer','Chamfer']];
 let menu=null,anchor=null;

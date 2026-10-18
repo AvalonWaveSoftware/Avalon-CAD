@@ -10,14 +10,14 @@ assert.equal(U.loadUnit({getItem(){throw Error('denied');}}),'mm');assert.equal(
 const W0={fmtLen:(mm,d=1)=>Number(mm).toFixed(d),parseLen:t=>{const v=Number(String(t).trim());return Number.isFinite(v)?v:NaN;}};
 const values=[0,0.05,0.1,1,2.5,12.345,25.4,50.8,99.999,-3.25,1000,1e-9,1/3];
 for(const v of values)for(const d of [0,1,2,3])assert.equal(U.fmtLen(v,d),W0.fmtLen(v,d));for(const t of ['4.5',' 4.5 ','x','','1e3','-2'])assert.ok(Object.is(U.parseLen(t),W0.parseLen(t)),t);
-assert.equal(U.unitLabel(),'mm');assert.deepEqual(U.stepOptions(),{input:0.1,drag:[0,0.1,1],snap:1,grid:10});
+assert.equal(U.unitLabel(),'mm');assert.deepEqual(U.stepOptions(),{input:0.1,drag:[0,0.1,1]});
 // mm: fields show the stored number as today (String), labels are today's, the sketch snap is today's Math.round.
 for(const v of values)assert.equal(U.fieldLen(v),String(v));assert.equal(U.byUnit('a','b'),'a');for(const v of [0.4,0.5,-2.5,7.49,13.2])assert.ok(Object.is(U.snapSketch(v),Math.round(v)),String(v));
 // Inches.
 const s=store();assert.equal(U.setUnit('in',s),'in');assert.equal(s.m.get('tristancad.units'),'in');assert.equal(U.unitLabel(),'in');
 assert.equal(U.fmtLen(25.4),'1.000');assert.equal(U.fmtLen(50.8,1),'2.000','inches always 3 decimals');assert.equal(U.fmtLen(1),'0.039');
-assert.deepEqual(U.stepOptions(),{input:0.001,drag:[0,0.254,2.54],snap:1.27,grid:12.7},'ruling 13: Free/0.01/0.1 in, snap 0.05 in, grid 0.5 in');
-for(const [i,v] of [[1,0.01],[2,0.1]])assert.equal(U.stepOptions().drag[i],v*25.4);assert.equal(U.stepOptions().snap,0.05*25.4);assert.equal(U.stepOptions().grid,0.5*25.4);
+assert.deepEqual(U.stepOptions(),{input:0.001,drag:[0,0.254,2.54]},'ruling 13: Free/0.01/0.1 in (snap 0.05 in: snapSketch below; grid 0.5 in: units-ui gridEdge)');
+for(const [i,v] of [[1,0.01],[2,0.1]])assert.equal(U.stepOptions().drag[i],v*25.4);assert.equal(U.snapSketch(0.05*25.4),0.05*25.4);
 assert.equal(U.fieldLen(70),'2.756');assert.equal(U.fieldLen(25.4),'1.000');assert.equal(U.byUnit('a','b'),'b');
 assert.equal(U.snapSketch(10),10.16);assert.equal(U.snapSketch(-3.9),-3.81);assert.equal(U.snapSketch(0.6),0);assert.equal(U.snapSketch(25.4),25.4);
 assert.equal(U.parseLen('1.000'),25.4,'1.000 in → 25.4 mm exactly');assert.equal(U.parseLen('2'),50.8);assert.equal(U.parseLen(' 0.5 '),12.7);assert.ok(Number.isNaN(U.parseLen('1/2')),'decimals only (ruling 15)');
