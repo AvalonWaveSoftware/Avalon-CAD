@@ -1,5 +1,5 @@
 import {primitiveFaces} from './polyhedra.mjs';
-import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid,hasGlyphFinish,glyphLayout,glyphHalfExtents} from './glyph-geometry.mjs';
+import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid,hasGlyphFinish,glyphLayout,glyphHalfExtents,glyphFinish,glyphRimTile,glyphBevelPart,ENGRAVE_DEPTH} from './glyph-geometry.mjs';
 import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
@@ -55,6 +55,7 @@ function baseShape(o) {
   // replicad 1.1.0 has no makeTorus; the OCCT builder is used directly (as makeSphere does) and deleted at once (WS1).
   case 'torus':{const maker=new (R.getOC()).BRepPrimAPI_MakeTorus((p.diameter-p.tube)/2,p.tube/2);try{s=new R.Solid(maker.Shape());}finally{maker.delete();}break;}
   case 'glyph':s=glyphShape(p);break;
+  case 'glyph-rim':s=glyphRim(p);break;
   case 'polygon':{const area=p.points.reduce((s,a,i)=>{const b=p.points[(i+1)%p.points.length];return s+a[0]*b[1]-a[1]*b[0];},0);const pts=area<0?[...p.points].reverse():p.points;const f=R.makePolygon(pts.map(a=>[a[0],a[1],-p.h/2])),v=new R.Vector([0,0,p.h]);try{s=R.basicFaceExtrusion(f,v);}finally{dispose(f);dispose(v);}break;}
   case 'prefab':{for(const group of materialGroups(p.children)){let merged;for(const child of [...group.solids,...group.cuts]){const a=fullShape(child);if(!merged)merged=a;else{const old=merged;try{merged=child.mode==='cut'?cut(old,a):fuse(old,a);}finally{dispose(old);dispose(a);}}}const fs=merged.faces,empty=!fs.length;fs.forEach(dispose);if(empty){dispose(merged);continue;}if(!s)s=merged;else{const old=s;try{s=fuse(old,merged);}finally{dispose(old);dispose(merged);}}}if(!s)throw Error('The prefab contains no solid material.');break;}
   case 'joined':{
@@ -99,17 +100,21 @@ function glyphShape(p){
   if(f.bevel&&f.engrave)s=glyphBevel(s,plate[1],f,p.char,[ox,oy]);}
  return s;
 }
+// F7 Engrave + bevel (glyph-geometry.mjs glyphBevelPart): the plate's top tile, the cavity cut 1 mm deep, its rim bevelled.
+function glyphRim(p){const f=glyphFinish({...p,engrave:true}),[z0,z1]=glyphRimTile(f),[hx,hy]=glyphHalfExtents(p.char,p.size),ox=hx+f.margin,oy=hy+f.margin;
+ const tile=R.makeBox([-ox,-oy,z0],[ox,oy,z1]),g=glyphSolid(R,p,z1-ENGRAVE_DEPTH,2*ENGRAVE_DEPTH);let s;try{s=cut(tile,g);}finally{dispose(tile);dispose(g);}
+ return glyphBevel(s,z1,f,p.char,[ox,oy]);}
 // F7 bevel: an OCCT chamfer (symmetric, the F6 MakeChamfer) or round (MakeFillet, Rational as replicad's fillet()) of
 // distance f.bevel on the edges lying in the plane z = top (outer: the plate rectangle, whose border edges are left
 // alone). ADR §4 F7 failure handling: retry once at half the distance; if that fails too, a clear error. Never a silently
-// unbevelled glyph. Consumes s.
+// unbevelled glyph. Consumes s. A halved bevel is recorded on the result (bevelUsed) for the user notice.
 function glyphBevel(s,top,f,char,outer){const oc=R.getOC(),edges=explore(s,'edge'),at=1e-6;
  const onTop=e=>{const c=e.curve;try{const w=c.wrapped,a=w.FirstParameter(),b=w.LastParameter(),pts=[a,(a+b)/2,b].map(t=>{const q=w.Value(t);try{return [q.X(),q.Y(),q.Z()];}finally{q.delete();}});
    return pts.every(q=>Math.abs(q[2]-top)<at)&&!(outer&&(pts.every(q=>Math.abs(Math.abs(q[0])-outer[0])<at)||pts.every(q=>Math.abs(Math.abs(q[1])-outer[1])<at)));}finally{dispose(c);}};
  const pick=edges.filter(onTop);
  const attempt=d=>{const own=[],keep=x=>own[own.length]=x;try{const mk=keep(f.profile==='round'?new oc.BRepFilletAPI_MakeFillet(s.wrapped,oc.ChFi3d_FilletShape.ChFi3d_Rational):new oc.BRepFilletAPI_MakeChamfer(s.wrapped));
    for(const e of pick)mk.Add(d,e.wrapped);return validSolid(keep(mk.Shape()),keep);}catch{return null;}finally{own.reverse().forEach(dispose);}};
- try{if(!pick.length)throw Error(`Bevel not possible on '${char}' at this size`);const r=attempt(f.bevel)||attempt(f.bevel/2);if(!r)throw Error(`Bevel not possible on '${char}' at this size`);return r;}
+ try{if(!pick.length)throw Error(`Bevel not possible on '${char}' at this size`);let r=attempt(f.bevel);if(!r){r=attempt(f.bevel/2);if(r)r.bevelUsed=f.bevel/2;}if(!r)throw Error(`Bevel not possible on '${char}' at this size`);return r;}
  finally{edges.forEach(dispose);dispose(s);}
 }
 function fullShape(o) {
@@ -237,12 +242,12 @@ const BREP_ENTRIES=64,BREP_BYTES=128*1048576,TOPOLOGY_BYTES=32*1048576;let brepB
 function cached(o) {
  const key=geometryKey(o);
  if(cache.has(key)){const v=cache.get(key);cache.delete(key);cache.set(key,v);return v;}
- const base=baseShape(o),edges=explore(base,'edge');let s,t,ok=false;
+ const base=baseShape(o),edges=explore(base,'edge'),bevelUsed=base.bevelUsed;let s,t,ok=false;
  try{t=topology(base,edges,o);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
  const surfaceFaces=explore(s,'face');t.faceCount=surfaceFaces.length;t.flatFaces=surfaceFaces.filter(f=>f.geomType==='PLANE').length;surfaceFaces.forEach(dispose);
- if(TOPOLOGY_SERVICE){const entry=OCCT_SCOPE?{s,base}:{s};entry.bytes=brepEstimate(t);brepBytes+=entry.bytes;cache.set(key,entry);storeTopology(key,t);
+ if(TOPOLOGY_SERVICE){const entry=OCCT_SCOPE?{s,base}:{s};if(bevelUsed)entry.bevelUsed=bevelUsed;entry.bytes=brepEstimate(t);brepBytes+=entry.bytes;cache.set(key,entry);storeTopology(key,t);
   while(cache.size>1&&(cache.size>BREP_ENTRIES||brepBytes>BREP_BYTES)){const first=cache.keys().next().value,old=cache.get(first);release(old);brepBytes-=old.bytes;cache.delete(first);}return entry;}
- const entry=OCCT_SCOPE?{s,base,topology:t}:{s,topology:t};cache.set(key,entry);while(cache.size>OCCT_CACHE_ENTRIES){const first=cache.keys().next().value;release(cache.get(first));cache.delete(first);}return entry;
+ const entry=OCCT_SCOPE?{s,base,topology:t}:{s,topology:t};if(bevelUsed)entry.bevelUsed=bevelUsed;cache.set(key,entry);while(cache.size>OCCT_CACHE_ENTRIES){const first=cache.keys().next().value;release(cache.get(first));cache.delete(first);}return entry;
 }
 // Byte estimates: the B-rep plus its attached triangulations scale with the tessellation that topology() produced.
 export function topologyBytes(t){let n=(t.vertices?.byteLength||0)+(t.triangles?.byteLength||0)+48*(t.groups?.length||0);for(const f of t.faces||[])n+=160+8*(f.edges.length+f.loops.reduce((a,l)=>a+l.length,0));for(const e of t.edges||[])n+=32+8*e.points.length;return n;}
@@ -265,7 +270,11 @@ export const topologyCacheStats=()=>({brepEntries:cache.size,brepBytes,topologyE
 const MESH_BYTES=64*1048576,meshes=new Map();let meshBytes=0;
 const copyMesh=m=>({...m,vertices:m.vertices.slice(),triangles:m.triangles.slice(),...(m.displayGroups?{displayGroups:m.displayGroups.map(g=>({...g}))}:{})});
 export const filletMeshStats=()=>({entries:meshes.size,bytes:meshBytes});
-export function solidMesh(o,tolerance,display=false) {
+// ADR-0001 F7 notice: the bevel actually used per bevelled-glyph part (only when halved), by content key, for local-engine part().
+const bevelNotes=new Map();
+export function glyphBevelNote(o){if(o?.type!=='glyph'||!(o.params?.bevel>0))return null;const v=bevelNotes.get(geometryKey(glyphBevelPart(o)));return v==null?null:v;}
+export function solidMesh(o,tolerance,display=false){const m=solidMeshEntry(o,tolerance,display);if(m?.bevelUsed){const k=geometryKey(o);bevelNotes.delete(k);bevelNotes.set(k,m.bevelUsed);if(bevelNotes.size>256)bevelNotes.delete(bevelNotes.keys().next().value);}return m;}
+function solidMeshEntry(o,tolerance,display) {
  if(remote)return remote.solidMesh(o,tolerance,display,geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|'+(display?1:0));
  if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display);
  const key=geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|'+(display?1:0);let e=meshes.get(key);
@@ -278,12 +287,13 @@ export function solidMesh(o,tolerance,display=false) {
 export function solidMeshFresh(o,tolerance,display=false){return tessellate(o,tolerance,display);}
 function tessellate(o,tolerance,display) {
  tolerance=resolutionTolerance(o,tolerance);
- const {s}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
- const result={vertices:new Float32Array(m.vertices),triangles:new Uint32Array(m.triangles)};
+ const {s,bevelUsed}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
+ const result={vertices:new Float32Array(m.vertices),triangles:new Uint32Array(m.triangles)};if(bevelUsed)result.bevelUsed=bevelUsed;
  if(display){const faces=s.faces,planes=new Set(faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode));faces.forEach(dispose);result.displayGroups=m.faceGroups.map(g=>({start:g.start,count:g.count,flat:planes.has(g.faceId)})).sort((a,b)=>a.start-b.start);}
  return result;
 }
-export function objectTopology(o) {if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;if(remote)return remote.topology(o,geometryKey(o));try{return shapeTopology(o);}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
+// F7: a finished glyph (bevel / plate) is one piece: no face or edge picking, like an imported mesh (its mesh is Manifold-built).
+export function objectTopology(o) {if(o?.type==='glyph'&&hasGlyphFinish(o.params))return null;if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;if(remote)return remote.topology(o,geometryKey(o));try{return shapeTopology(o);}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
 function containsScale(o){return o.scale?.some(v=>Math.abs(v-1)>1e-8)||o.params?.children?.some(containsScale);}
 function containsMesh(o){return o.type==='mesh'||isThread(o)||o.params?.children?.some(containsMesh);}
 export function disposeSolidCache(){meshes.clear();meshBytes=0;for(const entry of cache.values())release(entry);cache.clear();brepBytes=0;topologies.clear();topologyTotal=0;}

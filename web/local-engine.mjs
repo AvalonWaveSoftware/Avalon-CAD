@@ -1,6 +1,8 @@
 import {makeObject,meshData,validateProject} from './kernel.mjs';
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
-import {objectTopology,objectTopologyEntry,memoTopology} from './cad-solid.mjs';
+import {objectTopology,objectTopologyEntry,memoTopology,glyphBevelNote} from './cad-solid.mjs';
+// ADR-0001 F7: a bevelled glyph whose bevel had to be halved carries bevelUsed (mm) so the app can tell the user.
+const bevelNote=o=>{const v=glyphBevelNote(o);return v==null?{}:{bevelUsed:v};};
 import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE,BUNDLE_SPLIT,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {jsJobs} from './js-engine.mjs';
 import {engineCache} from './engine-cache.mjs';
@@ -23,10 +25,10 @@ export async function initLocalEngine(K,options={}){
   validate_layers:validateLayers,assert_same_layer:assertSameLayer,
   styles:()=>new Map(),make_object:(o,tolerance,styles)=>active?cache.makeObject(o,tolerance,styles):makeObject(K,o,tolerance,styles),
   dispose:s=>{if(!(active&&cache.owns(s)))s.delete();},union:solids=>active?cache.union(solids):K.Manifold.union(solids),
-  part:(o,s,styles)=>{if(!TOPOLOGY_SERVICE)return {id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topology:structuredClone(isThread(o)?threadTopology(K.threadMesh(o,resolutionTolerance(o,.15)),o):objectTopology(o))};
+  part:(o,s,styles)=>{if(!TOPOLOGY_SERVICE)return {id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topology:structuredClone(isThread(o)?threadTopology(K.threadMesh(o,resolutionTolerance(o,.15)),o):objectTopology(o)),...bevelNote(o)};
    // WS2: topology by geometry hash; the body rides along only when the requester has not acknowledged the hash
    // (no acknowledgement list means a direct caller, which always gets it). Cached bodies are shared, never mutated.
-   const {hash,topology}=isThread(o)?threadEntry(o):objectTopologyEntry(o),part={id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topologyHash:hash};
+   const {hash,topology}=isThread(o)?threadEntry(o):objectTopologyEntry(o),part={id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topologyHash:hash,...bevelNote(o)};
    if(!hash||!acknowledged?.has(hash))part.topology=topology;return part;},
   empty_result:(parts,styles)=>({vertices:new Float32Array(),triangles:new Uint32Array(),...(styles?{flatTriangles:new Uint8Array(),smoothingGroups:new Uint32Array()}:{}),parts,volume:0,bounds:null}),
   preview_merge:(groups,parts,styles)=>active?cache.previewMerge(groups,parts,styles):undefined,
