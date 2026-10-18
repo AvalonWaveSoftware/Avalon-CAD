@@ -177,6 +177,7 @@ fn push_f32(out: &mut Vec<u8>, value: f32) -> bool {
 /// One DEFLATE-compressed zip entry being written straight into the package buffer.
 struct Part<'a> { out: &'a mut Vec<u8>, deflate: Box<CompressorOxide>, crc: u32, size: u64, limit: usize, failed: i32 }
 impl Part<'_> {
+    #[inline(never)]
     fn feed(&mut self, data: &[u8], flush: TDEFLFlush) {
         if self.failed != 0 { return; }
         self.crc = crc32(self.crc, data);
@@ -193,48 +194,73 @@ impl Part<'_> {
     }
 }
 
-struct Entry { name: &'static [u8], offset: usize, crc: u32, compressed: u32, size: u32 }
+struct Entry { name: &'static [u8], offset: usize, crc: u32, compressed: u32, size: u32, gap: usize }
 const DOS_TIME: u16 = 0;
 const DOS_DATE: u16 = (1 << 5) | 1; // 1980-01-01
 
 fn le16(out: &mut Vec<u8>, v: u16) { out.extend_from_slice(&v.to_le_bytes()); }
 fn le32(out: &mut Vec<u8>, v: u32) { out.extend_from_slice(&v.to_le_bytes()); }
 
-/// Writes one deflated entry: local header (sizes patched afterwards, no data descriptor), then the data that
-/// `write` produces through `Part::feed`.
-fn entry(out: &mut Vec<u8>, name: &'static [u8], level: u8, limit: usize, write: impl FnOnce(&mut Part)) -> Result<Entry, i32> {
+/// The body of an entry: appends raw DEFLATE data to `out` and returns the CRC-32 and size of the uncompressed data,
+/// plus `gap`, the number of compressed bytes it did NOT append because the caller splices them in afterwards.
+type Body<'a> = dyn FnMut(&mut Vec<u8>) -> Result<(u32, u64, usize), i32> + 'a;
+/// Writes one entry: local header (CRC and sizes patched afterwards, no data descriptor), then `body`'s data.
+#[inline(never)]
+fn entry(out: &mut Vec<u8>, name: &'static [u8], body: &mut Body) -> Result<Entry, i32> {
     let offset = out.len();
     le32(out, 0x0403_4b50); le16(out, 20); le16(out, 0); le16(out, 8); le16(out, DOS_TIME); le16(out, DOS_DATE);
     le32(out, 0); le32(out, 0); le32(out, 0); le16(out, name.len() as u16); le16(out, 0);
     out.extend_from_slice(name);
     let start = out.len();
-    let flags = create_comp_flags_from_zip_params(level as i32, 0, 0);
-    let mut part = Part { out, deflate: Box::new(CompressorOxide::new(flags)), crc: 0, size: 0, limit, failed: 0 };
-    write(&mut part);
-    part.feed(&[], TDEFLFlush::Finish);
-    let (crc, size, failed) = (part.crc, part.size, part.failed);
-    if failed != 0 { return Err(failed); }
-    let compressed = out.len() - start;
+    let (crc, size, gap) = body(out)?;
+    let compressed = out.len() - start + gap;
     if size > u32::MAX as u64 - 1 || compressed as u64 > u32::MAX as u64 - 1 { return Err(TOO_LARGE); }
     out[offset + 14..offset + 18].copy_from_slice(&crc.to_le_bytes());
     out[offset + 18..offset + 22].copy_from_slice(&(compressed as u32).to_le_bytes());
     out[offset + 22..offset + 26].copy_from_slice(&(size as u32).to_le_bytes());
-    Ok(Entry { name, offset, crc, compressed: compressed as u32, size: size as u32 })
+    Ok(Entry { name, offset, crc, compressed: compressed as u32, size: size as u32, gap })
+}
+#[inline(never)]
+fn new_part(out: &mut Vec<u8>, level: u8, limit: usize, crc: u32) -> Part<'_> {
+    let flags = create_comp_flags_from_zip_params(level as i32, 0, 0);
+    Part { out, deflate: Box::new(CompressorOxide::new(flags)), crc, size: 0, limit, failed: 0 }
+}
+/// A small constant part ([Content_Types].xml, _rels/.rels) as one complete DEFLATE stream.
+#[inline(never)]
+fn small(out: &mut Vec<u8>, data: &[u8], level: u8, limit: usize) -> Result<(u32, u64), i32> {
+    let mut p = new_part(out, level, limit, 0);
+    p.feed(data, TDEFLFlush::Finish);
+    if p.failed != 0 { Err(p.failed) } else { Ok((p.crc, p.size)) }
 }
 
 /// The grounded vertex coordinate exactly as `encode_stl` writes it (f64 subtraction, then f32).
 #[inline]
 fn coordinate(value: f32, k: usize, min_z: f64) -> f32 { (value as f64 - if k == 2 { min_z } else { 0.0 }) as f32 }
 
-/// Size of the reusable text chunk the model is generated into before each piece goes to the CRC and the
+/// Size of the reusable text chunk the model text is generated into before each piece goes to the CRC and the
 /// deflater. The full model text is never held: peak memory is the compressed package plus this chunk plus the
-/// compressor state. (The DEFLATE stream does not depend on how the input is split.)
+/// compressor state.
 pub const CHUNK: usize = 256 * 1024;
 
-/// Generates the 3D/3dmodel.model text in one pass, handing it to `sink` in pieces of at most CHUNK bytes (no
-/// intermediate strings; `chunk` is reused). Triangles whose three indices are not distinct (zero-area by
-/// construction; the core spec forbids them) are skipped; Manifold never produces them. `sink` returns false to stop.
-pub fn model_stream(v: &[f32], t: &[u32], min_z: f64, chunk: &mut Vec<u8>, sink: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), i32> {
+/// ADR-0001 F2a option A: the model text is split into a FIXED number of parts, independent of how many workers
+/// encode them. Parts 0-3 are the vertex list in quarters (part 0 starts with the document head, part 3 ends with
+/// `</vertices><triangles>`), parts 4-7 the triangle list in quarters (part 7 ends with the document tail). Each part
+/// is an independent raw DEFLATE stream ending in a sync flush (byte-aligned, non-final); only part 7 ends with the
+/// final block, so the concatenation is one valid DEFLATE stream. The CRCs combine with crc32_combine. The bytes are
+/// therefore the same whether one thread encodes all parts or eight workers encode one each.
+pub const PARTS: usize = 8;
+/// Record range [start, end) of part `k`: vertices (points) for k < 4, triangles for k >= 4.
+pub fn part_range(points: usize, triangles: usize, k: usize) -> (usize, usize) {
+    let (n, j) = if k < 4 { (points, k) } else { (triangles, k - 4) };
+    (n * j / 4, n * (j + 1) / 4)
+}
+
+/// Generates one part's text (prefix, vertex lines, triangle lines, suffix) in one pass, handing it to `sink` in
+/// pieces of at most CHUNK bytes (no intermediate strings; `chunk` is reused). Triangles whose three indices are not
+/// distinct (zero-area by construction; the core spec forbids them) are skipped; Manifold never produces them.
+/// `sink` returns false to stop.
+#[inline(never)]
+pub fn text_stream(v: &[f32], t: &[u32], min_z: f64, prefix: &[u8], suffix: &[u8], chunk: &mut Vec<u8>, sink: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), i32> {
     chunk.clear(); chunk.reserve(CHUNK);
     let cap = chunk.capacity();
     // Flush when less than one record of room is left; the buffer never reallocates.
@@ -247,7 +273,7 @@ pub fn model_stream(v: &[f32], t: &[u32], min_z: f64, chunk: &mut Vec<u8>, sink:
     };
     unsafe {
         let mut w = W { p: chunk.as_mut_ptr() };
-        w.bytes(MODEL_HEAD);
+        w.bytes(prefix);
         for point in v.chunks_exact(3) {
             if !flush(chunk, &mut w, sink, false) { return Ok(()); }
             w.bytes(b"<vertex x=\""); if !w.f32(coordinate(point[0], 0, min_z)) { return Err(BROKEN); }
@@ -255,8 +281,6 @@ pub fn model_stream(v: &[f32], t: &[u32], min_z: f64, chunk: &mut Vec<u8>, sink:
             w.bytes(b"\" z=\""); if !w.f32(coordinate(point[2], 2, min_z)) { return Err(BROKEN); }
             w.bytes(b"\"/>\n");
         }
-        if !flush(chunk, &mut w, sink, false) { return Ok(()); }
-        w.bytes(MODEL_MID);
         for f in t.chunks_exact(3) {
             if f[0] == f[1] || f[1] == f[2] || f[0] == f[2] { continue; }
             if !flush(chunk, &mut w, sink, false) { return Ok(()); }
@@ -266,28 +290,55 @@ pub fn model_stream(v: &[f32], t: &[u32], min_z: f64, chunk: &mut Vec<u8>, sink:
             w.bytes(b"\"/>\n");
         }
         if !flush(chunk, &mut w, sink, false) { return Ok(()); }
-        w.bytes(MODEL_TAIL);
+        w.bytes(suffix);
         flush(chunk, &mut w, sink, true);
     }
     Ok(())
 }
 
-/// Builds the whole 3MF package. `v`/`t` must already be validated.
-pub fn encode(v: &[f32], t: &[u32], ground: bool, level: u8, limit: usize) -> Result<Vec<u8>, i32> {
-    let min_z = if ground { v.chunks_exact(3).map(|p| p[2] as f64).fold(f64::INFINITY, f64::min) } else { 0.0 };
-    // The package is about 0.28x the binary STL (50 B per triangle) on typical meshes; reserve a bit more than that
-    // so the output buffer normally never reallocates (a doubling would briefly need 3x its size).
-    let mut out = Vec::with_capacity(t.len() / 3 * 16 + 4096);
+/// Appends part `k` (its vertices `v` or triangles `t`, already sliced) to `out` as raw DEFLATE: sync flush, or the
+/// final block for the last part. Returns the part's text CRC-32 (continuing from `crc`) and text size.
+#[inline(never)]
+pub fn deflate_part(out: &mut Vec<u8>, v: &[f32], t: &[u32], min_z: f64, k: usize, level: u8, limit: usize, crc: u32) -> Result<(u32, u64), i32> {
+    let prefix: &[u8] = if k == 0 { MODEL_HEAD } else { b"" };
+    let suffix: &[u8] = match k { 3 => MODEL_MID, 7 => MODEL_TAIL, _ => b"" };
+    let mut p = new_part(out, level, limit, crc);
+    let mut chunk = Vec::new();
+    text_stream(v, t, min_z, prefix, suffix, &mut chunk, &mut |text| { p.feed(text, TDEFLFlush::None); p.failed == 0 })?;
+    p.feed(&[], if k == PARTS - 1 { TDEFLFlush::Finish } else { TDEFLFlush::Sync });
+    if p.failed != 0 { Err(p.failed) } else { Ok((p.crc, p.size)) }
+}
+
+// crc32_combine (zlib's x^(2^n) mod P method): CRC of A||B from crc(A), crc(B) and len(B).
+const POLY: u32 = 0xEDB8_8320;
+fn multmodp(a: u32, mut b: u32) -> u32 {
+    let (mut m, mut p) = (1u32 << 31, 0u32);
+    loop {
+        if a & m != 0 { p ^= b; if a & (m - 1) == 0 { break; } }
+        m >>= 1;
+        b = if b & 1 != 0 { (b >> 1) ^ POLY } else { b >> 1 };
+    }
+    p
+}
+pub fn crc32_combine(crc1: u32, crc2: u32, len2: u64) -> u32 {
+    // x^(8*len2) mod P, by squaring x^(2^k) for the set bits of 8*len2.
+    let (mut n, mut x2k, mut p) = (len2 << 3, 1u32 << 30, 1u32 << 31);
+    while n != 0 { if n & 1 != 0 { p = multmodp(x2k, p); } x2k = multmodp(x2k, x2k); n >>= 1; }
+    multmodp(p, crc1) ^ crc2
+}
+
+/// The whole package around model data `body` writes (appending raw DEFLATE, returning text CRC and size).
+#[inline(never)]
+/// The zip around the model: returns the package and `split`, where a model body's `gap` bytes belong (the model is
+/// the last local entry, so that is where its central directory starts in the returned bytes).
+fn package(level: u8, limit: usize, reserve: usize, body: &mut Body) -> Result<(Vec<u8>, usize), i32> {
+    let mut out = Vec::with_capacity(reserve);
     let mut entries = Vec::with_capacity(3);
-    entries.push(entry(&mut out, b"[Content_Types].xml", level, limit, |p| p.feed(CONTENT_TYPES, TDEFLFlush::None))?);
-    entries.push(entry(&mut out, b"_rels/.rels", level, limit, |p| p.feed(RELS, TDEFLFlush::None))?);
-    let mut failed = 0;
-    entries.push(entry(&mut out, b"3D/3dmodel.model", level, limit, |p| {
-        let mut chunk = Vec::new();
-        if let Err(code) = model_stream(v, t, min_z, &mut chunk, &mut |text| { p.feed(text, TDEFLFlush::None); p.failed == 0 }) { failed = code; }
-    })?);
-    if failed != 0 { return Err(failed); }
-    let directory = out.len();
+    entries.push(entry(&mut out, b"[Content_Types].xml", &mut |o| small(o, CONTENT_TYPES, level, limit).map(|(c, n)| (c, n, 0)))?);
+    entries.push(entry(&mut out, b"_rels/.rels", &mut |o| small(o, RELS, level, limit).map(|(c, n)| (c, n, 0)))?);
+    entries.push(entry(&mut out, b"3D/3dmodel.model", body)?);
+    let (split, gap) = (out.len(), entries[2].gap);
+    let directory = out.len() + gap;
     for e in &entries {
         le32(&mut out, 0x0201_4b50); le16(&mut out, 20); le16(&mut out, 20); le16(&mut out, 0); le16(&mut out, 8);
         le16(&mut out, DOS_TIME); le16(&mut out, DOS_DATE); le32(&mut out, e.crc); le32(&mut out, e.compressed); le32(&mut out, e.size);
@@ -295,12 +346,51 @@ pub fn encode(v: &[f32], t: &[u32], ground: bool, level: u8, limit: usize) -> Re
         le32(&mut out, 0); le32(&mut out, e.offset as u32);
         out.extend_from_slice(e.name);
     }
-    let directory_size = out.len() - directory;
+    let directory_size = out.len() + gap - directory;
     le32(&mut out, 0x0605_4b50); le16(&mut out, 0); le16(&mut out, 0);
     le16(&mut out, entries.len() as u16); le16(&mut out, entries.len() as u16);
     le32(&mut out, directory_size as u32); le32(&mut out, directory as u32); le16(&mut out, 0);
-    if out.len() > limit { return Err(TOO_LARGE); }
-    Ok(out)
+    if out.len() + gap > limit { return Err(TOO_LARGE); }
+    Ok((out, split))
+}
+
+pub fn min_z(v: &[f32], ground: bool) -> f64 { if ground { v.chunks_exact(3).map(|p| p[2] as f64).fold(f64::INFINITY, f64::min) } else { 0.0 } }
+
+/// Builds the whole 3MF package on this thread: all PARTS in order straight into the package buffer (the reference
+/// bytes; also the fallback when workers are unavailable). `v`/`t` must already be validated.
+pub fn encode(v: &[f32], t: &[u32], ground: bool, level: u8, limit: usize) -> Result<Vec<u8>, i32> {
+    let mz = min_z(v, ground);
+    let (points, tris) = (v.len() / 3, t.len() / 3);
+    // The package is about 0.28x the binary STL (50 B per triangle) on typical meshes; reserve a bit more than that
+    // so the output buffer normally never reallocates (a doubling would briefly need 3x its size).
+    package(level, limit, tris * 16 + 4096, &mut |out| {
+        let (mut crc, mut size) = (0u32, 0u64);
+        for k in 0..PARTS {
+            let (a, b) = part_range(points, tris, k);
+            let (pv, pt) = if k < 4 { (&v[a * 3..b * 3], &t[..0]) } else { (&v[..0], &t[a * 3..b * 3]) };
+            let (c, n) = deflate_part(out, pv, pt, mz, k, level, limit, crc)?;
+            crc = c; size += n;
+        }
+        Ok((crc, size, 0))
+    }).map(|(out, _)| out)
+}
+
+/// The package for PARTS parts encoded elsewhere, WITHOUT their data: `data_len` is the length of their raw DEFLATE
+/// concatenated in order, `parts` their (text CRC-32, text size). Returns the frame (about 1 KB) and `split`: the
+/// package is frame[..split] + the parts' data + frame[split..], identical bytes to `encode` for the same parts. So
+/// the joining worker never holds the parts and the package together in wasm memory.
+pub fn frame(data_len: usize, parts: &[(u32, u64)], level: u8, limit: usize) -> Result<(Vec<u8>, usize), i32> {
+    if parts.len() != PARTS { return Err(BROKEN); }
+    package(level, limit, 1024, &mut |_| {
+        let (c, n) = parts.iter().fold((0u32, 0u64), |(c, n), &(pc, pn)| (crc32_combine(c, pc, pn), n + pn));
+        Ok((c, n, data_len))
+    })
+}
+/// `frame` with the data spliced in (tests).
+#[cfg(test)]
+pub fn assemble(data: &[u8], parts: &[(u32, u64)], level: u8, limit: usize) -> Result<Vec<u8>, i32> {
+    let (f, split) = frame(data.len(), parts, level, limit)?;
+    Ok([&f[..split], data, &f[split..]].concat())
 }
 
 /// ADR-0001 F2a speed gate: stage-by-stage timing hooks (feature `profile`, never shipped).
@@ -318,7 +408,8 @@ pub mod profile {
         if stage == 0 { return min_z as usize; }
         let (v, t) = match stage { 1 => (v, &t[..0]), 2 => (&v[..0], t), _ => (v, t) };
         let mut all = Vec::new(); let mut chunk = Vec::new();
-        let _ = model_stream(v, t, min_z, &mut chunk, &mut |text| { all.extend_from_slice(text); true });
+        let _ = text_stream(v, &t[..0], min_z, MODEL_HEAD, MODEL_MID, &mut chunk, &mut |text| { all.extend_from_slice(text); true });
+        let _ = text_stream(&v[..0], t, min_z, b"", MODEL_TAIL, &mut chunk, &mut |text| { all.extend_from_slice(text); true });
         *xml() = all;
         xml().len()
     }
@@ -423,6 +514,42 @@ mod tests {
         let ungrounded = String::from_utf8(unzip(&encode(&v, &t, false, 6, usize::MAX).unwrap()).data[2].clone()).unwrap();
         assert!(ungrounded.contains("<vertex x=\"0\" y=\"0\" z=\"-1\"/>"));
         assert!(model.contains("<triangle v1=\"0\" v2=\"2\" v3=\"1\"/>"));
+    }
+    #[test] fn crc_combine_matches_direct() {
+        let data: Vec<u8> = (0..5000u32).map(|i| (i * 31 + i / 7) as u8).collect();
+        for cut in [0, 1, 7, 100, 2500, 4999, 5000] {
+            assert_eq!(crc32_combine(crc32(0, &data[..cut]), crc32(0, &data[cut..]), (data.len() - cut) as u64), crc32(0, &data));
+        }
+    }
+    fn sphere_like(n: usize) -> (Vec<f32>, Vec<u32>) {
+        // A closed fan: n rim points plus two poles (valid indices, varied decimals).
+        let mut v = vec![0., 0., 1.37, 0., 0., -2.11];
+        for i in 0..n { let a = i as f32 * 0.7310; v.extend_from_slice(&[a.cos() * 3.3, a.sin() * 3.3, (i % 5) as f32 * 0.013]); }
+        let mut t = vec![];
+        for i in 0..n as u32 { let (a, b) = (2 + i, 2 + (i + 1) % n as u32); t.extend_from_slice(&[0, a, b, 1, b, a]); }
+        (v, t)
+    }
+    #[test] fn parts_assembled_elsewhere_give_identical_bytes() {
+        for n in [3usize, 5, 9, 40_000] {
+            let (v, t) = sphere_like(n);
+            for ground in [true, false] {
+                let reference = encode(&v, &t, ground, 2, usize::MAX).unwrap();
+                let mz = min_z(&v, ground);
+                let (mut data, mut meta) = (vec![], vec![]);
+                for k in 0..PARTS {
+                    let (a, b) = part_range(v.len() / 3, t.len() / 3, k);
+                    let (pv, pt) = if k < 4 { (&v[a * 3..b * 3], &t[..0]) } else { (&v[..0], &t[a * 3..b * 3]) };
+                    let mut out = vec![];
+                    meta.push(deflate_part(&mut out, pv, pt, mz, k, 2, usize::MAX, 0).unwrap());
+                    data.extend_from_slice(&out);
+                }
+                assert_eq!(assemble(&data, &meta, 2, usize::MAX).unwrap(), reference, "n {n} ground {ground}");
+                let zip = unzip(&reference);
+                let model = String::from_utf8(zip.data[2].clone()).unwrap();
+                assert_eq!(model.matches("<vertex ").count(), n + 2); assert_eq!(model.matches("<triangle ").count(), 2 * n);
+                assert!(model.starts_with("<?xml") && model.ends_with("</model>\n") && model.contains("</vertices>\n<triangles>\n<triangle "));
+            }
+        }
     }
     #[test] fn degenerate_index_triangles_are_skipped_and_limit_is_enforced() {
         let (v, mut t) = cube(); t.extend_from_slice(&[1, 1, 2]);

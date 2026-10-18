@@ -1,3 +1,6 @@
+import {PARTS_3MF} from './three-mf-parts.mjs';
+// ADR-0001 F2a: DEFLATE level and output cap of every 3MF path.
+const LEVEL_3MF=2,LIMIT_3MF=50*1024*1024;
 export async function initRustMesh({binary,url,streaming}={}){
  let instance;
  // WS8: streaming compile straight from the response (same bytes, same module); errors keep the same message.
@@ -48,10 +51,40 @@ export async function initRustMesh({binary,url,streaming}={}){
    });
   },
   // ADR-0001 F2a: 3MF package of the same mesh and grounding as writeSTL (Rust encode_3mf at DEFLATE level 2: within the ADR §8 time and size budgets, see tests/export-3mf.mjs).
+  // ADR-0001 F2a option A: the same package in PARTS3MF independently deflated parts (see three_mf.rs), so a worker pool
+  // can encode them in parallel with identical bytes. prepare3MF validates (same errors as write3MF) and returns the
+  // grounding offset; encode3MFPart encodes part k from its own records only; package3MF joins the parts.
+  prepare3MF(vertices,triangles,ground=true){
+   validate(vertices,triangles);if(!triangles.length)throw Error('The model has no solid material to export.');
+   return withBuffers((allocate,input)=>{const vp=input(vertices),tp=input(triangles),zp=allocate(8);
+    if(core.prepare_3mf(vp,vertices.length,tp,triangles.length,ground?1:0,zp))throw Error('The model contains invalid 3MF geometry.');
+    return new Float64Array(core.memory.buffer,zp,1)[0];
+   });
+  },
+  encode3MFPart(vertices,triangles,minZ,k){
+   return withBuffers((allocate,input)=>{const vp=input(vertices),tp=input(triangles),rp=allocate(16);
+    if(core.encode_3mf_part(vp,vertices.length,tp,triangles.length,minZ,k,LEVEL_3MF,rp))throw Error('The model contains invalid 3MF geometry.');
+    const [ptr,size,crc,text]=new Uint32Array(core.memory.buffer,rp,4);
+    try{return {bytes:new Uint8Array(core.memory.buffer,ptr,size).slice().buffer,crc,size:text};}finally{core.free_bytes(ptr,size);}
+   });
+  },
+  package3MF(parts){
+   if(parts.length!==PARTS_3MF)throw Error('The model contains invalid 3MF geometry.');
+   // Rust writes only the zip frame (about 1 KB); the parts are spliced in here, outside wasm memory.
+   const total=parts.reduce((n,p)=>n+p.bytes.byteLength,0),meta=new Uint32Array(2*PARTS_3MF);parts.forEach((p,i)=>{meta[2*i]=p.crc;meta[2*i+1]=p.size;});
+   const [frame,split]=withBuffers((allocate,input)=>{const mp=input(meta),rp=allocate(12);
+    const code=core.package_3mf(total,mp,LEVEL_3MF,LIMIT_3MF,rp),[ptr,size,split]=new Uint32Array(core.memory.buffer,rp,3);
+    if(code===4)throw Error('This 3MF exceeds the 50 MB file transfer limit.');if(code)throw Error('The model contains invalid 3MF geometry.');
+    try{return [new Uint8Array(core.memory.buffer,ptr,size).slice(),split];}finally{core.free_bytes(ptr,size);}
+   });
+   const out=new Uint8Array(frame.length+total);out.set(frame.subarray(0,split));let at=split;
+   for(const p of parts){out.set(new Uint8Array(p.bytes),at);at+=p.bytes.byteLength;}out.set(frame.subarray(split),at);
+   return out.buffer;
+  },
   write3MF(vertices,triangles,ground=true){
    validate(vertices,triangles);if(!triangles.length)throw Error('The model has no solid material to export.');
    return withBuffers((allocate,input)=>{const vp=input(vertices),tp=input(triangles),rp=allocate(8);
-    const code=core.encode_3mf(vp,vertices.length,tp,triangles.length,ground?1:0,2,50*1024*1024,rp),[ptr,size]=new Uint32Array(core.memory.buffer,rp,2);
+    const code=core.encode_3mf(vp,vertices.length,tp,triangles.length,ground?1:0,LEVEL_3MF,LIMIT_3MF,rp),[ptr,size]=new Uint32Array(core.memory.buffer,rp,2);
     if(code===4)throw Error('This 3MF exceeds the 50 MB file transfer limit.');if(code)throw Error('The model contains invalid 3MF geometry.');
     try{return new Uint8Array(core.memory.buffer,ptr,size).slice().buffer;}finally{core.free_bytes(ptr,size);}
    });
