@@ -38,7 +38,11 @@ export function makeLocalSolid(K,o,tolerance=0.15,styles) {
       if(!m)return makeLocalSolid(K,bevelled?{...o,fillets:[],params:{...p,bevel:0}}:{...o,fillets:[]},requested,styles);
       const descriptor={numProp:3,vertProperties:m.vertices,triVerts:m.triangles,tolerance:1e-5};
       if(styles&&m.displayGroups.length){const first=M.reserveIDs(m.displayGroups.length);descriptor.runIndex=new Uint32Array([...m.displayGroups.map(g=>g.start),m.triangles.length]);descriptor.runOriginalID=new Uint32Array(m.displayGroups.map((g,i)=>{styles.set(first+i,g.flat);return first+i;}));tagged=true;}
-      const mesh=new K.Mesh(descriptor);mesh.merge();s=own(new M(mesh));if(bevelled&&p.plate>0){keep.pop();s=own(glyphPlate(K,p,s));}}
+      const mesh=new K.Mesh(descriptor);mesh.merge();
+      // F7: OCCT can return a valid bevelled B-rep whose tessellation is not closed (a face left untriangulated, e.g.
+      // round 'j'); that is reported as the bevel error, never as a broken part.
+      try{s=own(new M(mesh));}catch(e){if(bevelled)throw Error(`Bevel not possible on '${p.char}' at this size`);throw e;}
+      if(bevelled&&p.plate>0){keep.pop();s=own(glyphPlate(K,p,s));}}
     else switch(o.type) {
       case 'threadrod':case 'threadtube':{
         validateThread(o);if(!K.threadMesh)throw Error('The local thread engine is not ready.');

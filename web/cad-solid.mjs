@@ -239,11 +239,13 @@ const geometryKey=o=>JSON.stringify([o.type,o.params,o.fillets||[],o.resolution|
 // WS2: the B-rep LRU holds 64 entries and an estimated byte budget; topology lives in its own map (below), so a
 // preview whose topology is cached never touches the B-rep, and evicting a B-rep keeps its topology.
 const BREP_ENTRIES=64,BREP_BYTES=128*1048576,TOPOLOGY_BYTES=32*1048576;let brepBytes=0;
+const meshOnly=o=>o.type==='glyph-rim'||o.type==='glyph'&&hasGlyphFinish(o.params);
 function cached(o) {
  const key=geometryKey(o);
  if(cache.has(key)){const v=cache.get(key);cache.delete(key);cache.set(key,v);return v;}
  const base=baseShape(o),edges=explore(base,'edge'),bevelUsed=base.bevelUsed;let s,t,ok=false;
- try{t=topology(base,edges,o);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
+ // F7: finished glyphs and their bevel parts have no topology (objectTopology answers null), so none is extracted.
+ try{t=meshOnly(o)?{faces:[],edges:[]}:topology(base,edges,o);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
  const surfaceFaces=explore(s,'face');t.faceCount=surfaceFaces.length;t.flatFaces=surfaceFaces.filter(f=>f.geomType==='PLANE').length;surfaceFaces.forEach(dispose);
  if(TOPOLOGY_SERVICE){const entry=OCCT_SCOPE?{s,base}:{s};if(bevelUsed)entry.bevelUsed=bevelUsed;entry.bytes=brepEstimate(t);brepBytes+=entry.bytes;cache.set(key,entry);storeTopology(key,t);
   while(cache.size>1&&(cache.size>BREP_ENTRIES||brepBytes>BREP_BYTES)){const first=cache.keys().next().value,old=cache.get(first);release(old);brepBytes-=old.bytes;cache.delete(first);}return entry;}
@@ -287,7 +289,9 @@ function solidMeshEntry(o,tolerance,display) {
 export function solidMeshFresh(o,tolerance,display=false){return tessellate(o,tolerance,display);}
 function tessellate(o,tolerance,display) {
  tolerance=resolutionTolerance(o,tolerance);
- const {s,bevelUsed}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
+ const {s,bevelUsed}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:meshOnly(o)?.3:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
+ // F7: bevelled glyph parts mesh at a 0.3 rad angular step: OCCT's rolling-ball faces can take a minute at the finer step
+ // (round engrave 't': one blend face 63 s at 0.12 rad, ~1.7 s at 0.3); the linear deflection still bounds the error.
  const result={vertices:new Float32Array(m.vertices),triangles:new Uint32Array(m.triangles)};if(bevelUsed)result.bevelUsed=bevelUsed;
  if(display){const faces=s.faces,planes=new Set(faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode));faces.forEach(dispose);result.displayGroups=m.faceGroups.map(g=>({start:g.start,count:g.count,flat:planes.has(g.faceId)})).sort((a,b)=>a.start-b.start);}
  return result;
