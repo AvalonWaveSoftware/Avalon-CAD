@@ -1,0 +1,9 @@
+{
+ "note": "ADR-0001 F6 approved pixel areas vs the W0 baseline (Architect ruling 5 + Master Chief 18:35 CT; F6 approved by Master Chief at ab83226). Compare-only: tests/pixels.mjs applies these when AVALON_PIXEL_BASELINE is this baseline and no --allow-box is given. box: the Edge ▾ button; overlay: its dropdown (box-shadow included) while open; scenes: extra areas per scene — sheet-radius-menu's intro line, whose approved wording changed 'Round mode' → 'Edge mode' (36acafd).",
+ "baseline": "perf-baseline-v3-foundation",
+ "box": "[data-mode=round]",
+ "overlay": "#edgeToolMenu",
+ "scenes": {
+  "sheet-radius-menu": ["#sheet p.subtle"]
+ }
+}

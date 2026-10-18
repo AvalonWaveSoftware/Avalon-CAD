@@ -39,7 +39,14 @@ const H={
   return page;},
  tap:(page,mode,points,times=1)=>page.evaluate(([mode,points,times])=>{const t=window.__cad.touch;if(mode)t.setMode(mode);const c=document.querySelector('#scene');for(const p of points){const at=t.pointScreen(p);for(let i=0;i<times;i++)for(const type of ['pointerdown','pointerup'])c.dispatchEvent(new PointerEvent(type,{clientX:at[0],clientY:at[1],pointerId:1,pointerType:'touch',bubbles:true}));}},[mode,points,times]),
 };
-const args=process.argv.slice(2),update=args.includes('--update'),outI=args.indexOf('--out'),boxI=args.indexOf('--allow-box'),ALLOW_BOX=boxI>=0?args[boxI+1]:null,ovI=args.indexOf('--allow-overlay'),ALLOW_OVERLAY=ovI>=0?args[ovI+1]:null;
+// Approved diff areas (committed, tests/perf/approved-areas.json): when the baseline in use is the one named there and no
+// --allow-box is given, its button box / overlay / per-scene areas apply exactly as the flags would (compare-only; never
+// with --update; AVALON_PIXEL_APPROVED=0 turns it off for a strict run). Per-scene areas are extra allowed boxes.
+const args=process.argv.slice(2),update=args.includes('--update'),outI=args.indexOf('--out'),boxI=args.indexOf('--allow-box'),ovI=args.indexOf('--allow-overlay');
+const APPROVED=(()=>{const f=path.join(path.dirname(new URL(import.meta.url).pathname),'perf/approved-areas.json');if(update||boxI>=0||process.env.AVALON_PIXEL_APPROVED==='0'||!fs.existsSync(f))return null;
+ const a=JSON.parse(fs.readFileSync(f,'utf8'));return path.basename(BASE)===a.baseline?a:null;})();
+const ALLOW_BOX=boxI>=0?args[boxI+1]:APPROVED?.box??null,ALLOW_OVERLAY=ovI>=0?args[ovI+1]:APPROVED?.overlay??null,SCENE_AREAS=APPROVED?.scenes||{};
+if(APPROVED)console.log(`approved areas (${APPROVED.baseline}): ${APPROVED.box}${APPROVED.overlay?' + overlay '+APPROVED.overlay:''}; scenes: ${Object.keys(SCENE_AREAS).join(', ')||'none'}`);
 if(ALLOW_BOX&&update)throw Error('--allow-box is a compare-only check; it never writes baselines');
 const OUT=outI>=0?path.resolve(args[outI+1]):path.join(process.env.TMPDIR||'/tmp','avalon-pixel-run');const only=args.filter((a,i)=>!a.startsWith('--')&&i!==outI+1&&i!==boxI+1&&i!==ovI+1);
 const JOBS=Number(process.env.PIXEL_JOBS||4);
@@ -188,8 +195,9 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
      const boxOf=(sel,shadow=false)=>page.evaluate(([sel,shadow])=>{const e=sel&&document.querySelector(sel);if(!e)return null;const q=e.getBoundingClientRect(),k=devicePixelRatio;let [l,t,r,b]=[q.left,q.top,q.right,q.bottom];
       if(shadow)for(const m of getComputedStyle(e).boxShadow.matchAll(/(-?[\d.]+)px (-?[\d.]+)px ([\d.]+)px(?: (-?[\d.]+)px)?/g)){const [x,y,blur,spread=0]=m.slice(1).map(Number),ext=1.5*blur+spread;l=Math.min(l,q.left+x-ext);t=Math.min(t,q.top+y-ext);r=Math.max(r,q.right+x+ext);b=Math.max(b,q.bottom+y+ext);}
       return [Math.floor(l*k),Math.floor(t*k),Math.ceil(r*k),Math.ceil(b*k)];},[sel,shadow]);
-     const box=await boxOf(ALLOW_BOX),overlay=await boxOf(ALLOW_OVERLAY,true);
-     const d=box?diffOutside(fs.readFileSync(bp),png,overlay?[box,overlay]:[box]):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
+     const box=await boxOf(ALLOW_BOX),overlay=await boxOf(ALLOW_OVERLAY,true),areaSel=SCENE_AREAS[name]||[],areas=[];
+     for(const sel of areaSel){const a=await boxOf(sel);if(a)areas.push(a);else r.errors.push(`no element ${sel} (approved area of ${name})`);}
+     const d=box?diffOutside(fs.readFileSync(bp),png,[box,...(overlay?[overlay]:[]),...areas]):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
      if(!box)r.errors.push(`no element ${ALLOW_BOX}`);else if(d.outside)r.errors.push(`${d.outside} differing pixels outside ${ALLOW_BOX} box ${box}${overlay?' or overlay '+overlay:''} (outside diffs span ${d.outsideBox})${d.sizeMismatch?' (size mismatch)':''}`);
      if(fs.existsSync(bd)){const dd=compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom);if(dd.length)console.log(`  ${id} DOM differs (listed, not failed with --allow-box): ${dd.join(' | ').slice(0,300)}`);}results.push(r);}
     else{if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
