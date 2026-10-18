@@ -95,10 +95,11 @@ const D={box:{w:30,d:30,h:15},cylinder:{diameter:20,h:20},sphere:{diameter:25},t
 const distinct=n=>{const types=['box','cylinder','sphere','tube','cone'],o=[];for(let i=0;i<n;i++){const t=types[i%5],q={...D[t]};q.h=(q.h||10)+i*.1;if(t==='sphere')q.diameter+=i*.1;o.push(ob('o'+i,t,q,[(i%10)*35,Math.floor(i/10)*35,0],{name:t+i}));}return proj(`${n} distinct`,o,{buildPlaneEnabled:true});};
 const filletBox=q=>proj('Filleted box '+q,[ob('fb','cylinder',{diameter:30,h:15},[0,0,7.5],{fillets:[{edges:[0,2],radius:2}],resolution:{mode:'tolerance',tolerance:q}})]);
 // An empty project (parts 0) has no model change to wait for, so record that this load's preview started and
-// then wait for it to settle; otherwise the capture can land before the preview runs (blank@* status flake).
+// then wait for its settled 'Ready · millimeters' (empty-project-preview stage); otherwise the capture can land before
+// the preview runs (blank@* status flake).
 async function load(page,p,parts){if(parts===0)await page.evaluate(()=>{window.__previewSeen=false;const b=document.querySelector('#busy');const o=new MutationObserver(()=>{if(b.textContent.trim()==='Building solid…'){window.__previewSeen=true;o.disconnect();}});o.observe(b,{subtree:true,childList:true,characterData:true});});
  await page.evaluate(p=>window.__cad.load(p),typeof p==='string'?JSON.parse(p):p);
- if(parts===0){await page.waitForFunction(()=>window.__previewSeen,{},{timeout:180000});await idle(page);}
+ if(parts===0){await page.waitForFunction(()=>window.__previewSeen&&document.querySelector('#busy').textContent.trim()==='Ready · millimeters',{},{timeout:180000});await idle(page);}
  await page.waitForFunction(n=>window.__cad.model&&(n===0||window.__cad.model.parts?.length>=n),parts??1,{timeout:180000});await deselect(page);await fit(page);}
 const loadTemplate=async(page,t)=>{await page.evaluate(t=>window.__cad.load(window.__cad.templates[t]()),t);await page.waitForFunction(()=>window.__cad.model?.volume>0);await deselect(page);await fit(page);};
 const fit=async page=>{await page.locator('#fit').click();await settle(page);};
