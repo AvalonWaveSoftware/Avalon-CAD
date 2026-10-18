@@ -42,7 +42,7 @@ export function makeLocalSolid(K,o,tolerance=0.15,styles) {
       if(!bevelled)s=own(build(m));
       else{
         // F7: OCCT can return a valid bevelled B-rep whose tessellation is not closed (round 'j', 'm' at 0.5 mm). That
-        // bevel counts as failed: retried once at half size (the same "Bevel reduced" notice), else the bevel error.
+        // bevel counts as failed: retried once at half size (the same half-size notice), else the bevel error.
         const fail=()=>Error(`Bevel not possible on '${p.char}' at this size`);
         try{s=own(build(m));}catch{
           if(m.bevelUsed)throw fail();const half={...o,params:{...p,bevel:p.bevel/2}},mh=solidMesh(glyphBevelPart(half),tolerance,!!styles);
