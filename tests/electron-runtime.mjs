@@ -10,6 +10,11 @@ console.log('Desktop window starting...');
 try {
  const page=await app.firstWindow(),errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.waitForFunction(()=>window.__cad?.model?.engine?.local,{},{timeout:60000});
+ // ADR-0001 android-app-id (06:45/06:50 CT): the app ID is com.avalonwavesoftware.cad, but saved projects and settings stay put
+ // because main.cjs pins userData to appData/'Avalon CAD' by name (not by appId or bundle ID).
+ {const [name,userData,appData]=await app.evaluate(({app})=>[app.getName(),app.getPath('userData'),app.getPath('appData')]);
+  assert.equal(name,'Avalon CAD');assert.equal(userData,path.join(appData,'Avalon CAD'),'userData must stay appData/Avalon CAD');
+  assert.equal(appData,path.join(testRoot,'profile'),'test profile isolates appData');}
  assert.equal(page.url(),'app://avalon-cad/index.html');assert.equal(await page.evaluate(()=>window.AvalonDesktop.platform),process.platform==='darwin'?'mac':process.platform);assert.equal(await page.evaluate(()=>self.crossOriginIsolated),true);
  assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:3,local:true});
  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');assert.equal(await page.evaluate(()=>typeof window.process),'undefined');

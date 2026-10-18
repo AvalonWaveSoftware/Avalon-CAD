@@ -18,7 +18,7 @@
     "dist:pacman": "electron-builder --linux pacman --x64 --publish never"
   },
   "build": {
-    "appId": "com.tristan.cad",
+    "appId": "com.avalonwavesoftware.cad",
     "productName": "Avalon CAD",
     "copyright": "Copyright (c) 2026 Avalon Wave Software",
     "directories": {
