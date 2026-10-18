@@ -9,3 +9,7 @@ export function finishFields(p){const round=p.bevelProfile==='round';
 export function readFinish(params,$){if(!$('f_bevel'))return params;const n=id=>Number($(id).value),bevel=n('f_bevel'),plate=n('f_plate'),margin=n('f_margin'),profile=$('f_profile').value,engrave=$('f_engrave').checked;
  const put=(k,v,on)=>{if(on)params[k]=v;else delete params[k];};
  put('bevel',bevel,bevel!==0);put('bevelProfile',profile,bevel!==0&&profile!=='chamfer');put('plate',plate,plate!==0);put('plateMargin',margin,plate!==0);put('engrave',true,plate!==0&&engrave);return params;}
+// Architect F7 ruling 4: the half-size notice. Same formatting as units.mjs fmtLen(v,2)/unitLabel() (mm stubs in 3.0);
+// not imported from there because units.mjs is already in the edge-tool chunk and a second importer splits it into a
+// shared chunk (startup-split rule). The inch-units lane switches this to fmtLen/unitLabel when units.mjs gains inches.
+export function bevelNoticeText(used,char){return `Bevel reduced to ${Number(used).toFixed(2)} mm on '${char}'`;}

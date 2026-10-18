@@ -54,7 +54,7 @@ const warmAfterStartup=()=>{if(warmStarted||window.Android)return;(globalThis.re
 addEventListener('pointerdown',startWarm,true);addEventListener('keydown',startWarm,true);
 worker.onerror=e=>{topologies?.reset();for(const r of requests.values())r.reject(Error('The modeling engine could not start. Close and reopen the app.'));requests.clear();toast('The modeling engine could not start: '+e.message,true);};
 // ADR-0001 F7: a bevel that only worked at half its size is never silent: one notice per glyph and size.
-const bevelNoticed=new Set();function bevelNotice(o,used){const k=o.id+'|'+o.params.char+'|'+o.params.bevel+'|'+used;if(bevelNoticed.has(k))return;bevelNoticed.add(k);import('./units.mjs').then(({fmtLen,unitLabel})=>toast(`Bevel reduced to ${fmtLen(used,2)} ${unitLabel()} on '${o.params.char}'`));}
+const bevelNoticed=new Set();function bevelNotice(o,used){const k=o.id+'|'+o.params.char+'|'+o.params.bevel+'|'+used;if(bevelNoticed.has(k))return;bevelNoticed.add(k);import('./glyph-finish-ui.mjs').then(m=>toast(m.bevelNoticeText(used,o.params.char)));}
 function toast(message,error=false){clearTimeout(toastTimer);$('toast').textContent=message;$('toast').classList.toggle('error',error);$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,error?7000:3500);}
 function status(s){$('busy').textContent=s;}
 // While the v1 autosave can't be backed up, edits are not autosaved: show a persistent marker and re-warn at most once a minute.
