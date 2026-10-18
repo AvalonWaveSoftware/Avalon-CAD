@@ -113,8 +113,8 @@ fn candidate(value: f64, p: i32, n: i32, m: u64, e: i32, even: bool, lower_gap: 
 fn pow2(k: i32) -> f64 { f64::from_bits(((k + 1023) as u64) << 52) }
 const PAIRS: &[u8; 200] = b"00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899";
 
-/// Raw writer into a Vec's spare capacity. The caller guarantees `room` bytes are reserved before each record
-/// (MAX_RECORD per vertex or triangle line), so the hot loop has no capacity checks or bounds checks.
+/// Raw writer into a Vec's spare capacity. The caller guarantees MAX_RECORD bytes of room before each vertex or
+/// triangle line (model_stream flushes its chunk first), so the hot loop has no capacity or bounds checks.
 struct W { p: *mut u8 }
 impl W {
     #[inline(always)] unsafe fn byte(&mut self, b: u8) { *self.p = b; self.p = self.p.add(1); }
@@ -168,11 +168,6 @@ impl W {
 }
 /// Longest vertex or triangle line: 3 numbers of at most 48 characters ("-0." + 44 zeros/digits) plus the markup.
 const MAX_RECORD: usize = 3 * 48 + 32;
-#[inline] unsafe fn room(out: &mut Vec<u8>, w: &W, need: usize) -> W {
-    let used = w.p.offset_from(out.as_ptr()) as usize; out.set_len(used);
-    if out.capacity() - used < need { out.reserve(need.max(out.capacity() / 2)); }
-    W { p: out.as_mut_ptr().add(out.len()) }
-}
 #[cfg(test)]
 fn push_f32(out: &mut Vec<u8>, value: f32) -> bool {
     out.reserve(64);
@@ -180,11 +175,11 @@ fn push_f32(out: &mut Vec<u8>, value: f32) -> bool {
 }
 
 /// One DEFLATE-compressed zip entry being written straight into the package buffer.
-struct Part<'a> { out: &'a mut Vec<u8>, deflate: Box<CompressorOxide>, crc: u32, hash: bool, size: u64, limit: usize, failed: i32 }
+struct Part<'a> { out: &'a mut Vec<u8>, deflate: Box<CompressorOxide>, crc: u32, size: u64, limit: usize, failed: i32 }
 impl Part<'_> {
     fn feed(&mut self, data: &[u8], flush: TDEFLFlush) {
         if self.failed != 0 { return; }
-        if self.hash { self.crc = crc32(self.crc, data); }
+        self.crc = crc32(self.crc, data);
         self.size += data.len() as u64;
         let (out, limit) = (&mut *self.out, self.limit);
         let mut over = false;
@@ -207,15 +202,14 @@ fn le32(out: &mut Vec<u8>, v: u32) { out.extend_from_slice(&v.to_le_bytes()); }
 
 /// Writes one deflated entry: local header (sizes patched afterwards, no data descriptor), then the data that
 /// `write` produces through `Part::feed`.
-/// `known_crc`: the CRC-32 of the data when the caller already computed it (the model text, hashed while written).
-fn entry(out: &mut Vec<u8>, name: &'static [u8], level: u8, limit: usize, known_crc: Option<u32>, write: impl FnOnce(&mut Part)) -> Result<Entry, i32> {
+fn entry(out: &mut Vec<u8>, name: &'static [u8], level: u8, limit: usize, write: impl FnOnce(&mut Part)) -> Result<Entry, i32> {
     let offset = out.len();
     le32(out, 0x0403_4b50); le16(out, 20); le16(out, 0); le16(out, 8); le16(out, DOS_TIME); le16(out, DOS_DATE);
     le32(out, 0); le32(out, 0); le32(out, 0); le16(out, name.len() as u16); le16(out, 0);
     out.extend_from_slice(name);
     let start = out.len();
     let flags = create_comp_flags_from_zip_params(level as i32, 0, 0);
-    let mut part = Part { out, deflate: Box::new(CompressorOxide::new(flags)), crc: known_crc.unwrap_or(0), hash: known_crc.is_none(), size: 0, limit, failed: 0 };
+    let mut part = Part { out, deflate: Box::new(CompressorOxide::new(flags)), crc: 0, size: 0, limit, failed: 0 };
     write(&mut part);
     part.feed(&[], TDEFLFlush::Finish);
     let (crc, size, failed) = (part.crc, part.size, part.failed);
@@ -232,59 +226,67 @@ fn entry(out: &mut Vec<u8>, name: &'static [u8], level: u8, limit: usize, known_
 #[inline]
 fn coordinate(value: f32, k: usize, min_z: f64) -> f32 { (value as f64 - if k == 2 { min_z } else { 0.0 }) as f32 }
 
-/// The whole 3D/3dmodel.model text in one buffer, in a single pass (no intermediate strings). Triangles whose
-/// three indices are not distinct (zero-area by construction; the core spec forbids them) are skipped; Manifold
-/// never produces them. Err(TOO_LARGE) if the text would exceed `limit` (it is compressed afterwards, but text over
-/// 4 GiB cannot be stored without ZIP64).
-/// Returns the text and its CRC-32, computed in the same pass over each 32 KB block just written (cache-hot).
-pub fn model_xml(v: &[f32], t: &[u32], min_z: f64) -> Result<(Vec<u8>, u32), i32> {
-    // ~13 B per coordinate and ~11 B per index cover typical CAD meshes; room() grows the buffer if not.
-    let mut out: Vec<u8> = Vec::with_capacity(MODEL_HEAD.len() + MODEL_MID.len() + MODEL_TAIL.len() + v.len() / 3 * 64 + t.len() / 3 * 52);
-    out.extend_from_slice(MODEL_HEAD);
-    let (mut crc, mut hashed) = (0u32, 0usize);
-    // Hash whatever was written since the last call once it reaches `block` bytes (0: everything).
-    let mut hash = |out: &Vec<u8>, w: &W, block: usize| unsafe {
-        let end = w.p.offset_from(out.as_ptr()) as usize;
-        if end - hashed >= block { crc = crc32(crc, core::slice::from_raw_parts(out.as_ptr().add(hashed), end - hashed)); hashed = end; }
+/// Size of the reusable text chunk the model is generated into before each piece goes to the CRC and the
+/// deflater. The full model text is never held: peak memory is the compressed package plus this chunk plus the
+/// compressor state. (The DEFLATE stream does not depend on how the input is split.)
+pub const CHUNK: usize = 256 * 1024;
+
+/// Generates the 3D/3dmodel.model text in one pass, handing it to `sink` in pieces of at most CHUNK bytes (no
+/// intermediate strings; `chunk` is reused). Triangles whose three indices are not distinct (zero-area by
+/// construction; the core spec forbids them) are skipped; Manifold never produces them. `sink` returns false to stop.
+pub fn model_stream(v: &[f32], t: &[u32], min_z: f64, chunk: &mut Vec<u8>, sink: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), i32> {
+    chunk.clear(); chunk.reserve(CHUNK);
+    let cap = chunk.capacity();
+    // Flush when less than one record of room is left; the buffer never reallocates.
+    let flush = |chunk: &mut Vec<u8>, w: &mut W, sink: &mut dyn FnMut(&[u8]) -> bool, force: bool| -> bool {
+        let used = unsafe { w.p.offset_from(chunk.as_ptr()) as usize };
+        if !force && cap - used >= MAX_RECORD { return true; }
+        unsafe { chunk.set_len(used); }
+        let ok = used == 0 || sink(chunk);
+        chunk.clear(); w.p = chunk.as_mut_ptr(); ok
     };
     unsafe {
-        let mut w = W { p: out.as_mut_ptr().add(out.len()) };
+        let mut w = W { p: chunk.as_mut_ptr() };
+        w.bytes(MODEL_HEAD);
         for point in v.chunks_exact(3) {
-            w = room(&mut out, &w, MAX_RECORD);
+            if !flush(chunk, &mut w, sink, false) { return Ok(()); }
             w.bytes(b"<vertex x=\""); if !w.f32(coordinate(point[0], 0, min_z)) { return Err(BROKEN); }
             w.bytes(b"\" y=\""); if !w.f32(coordinate(point[1], 1, min_z)) { return Err(BROKEN); }
             w.bytes(b"\" z=\""); if !w.f32(coordinate(point[2], 2, min_z)) { return Err(BROKEN); }
             w.bytes(b"\"/>\n");
-            hash(&out, &w, 1 << 15);
         }
-        w = room(&mut out, &w, MODEL_MID.len()); w.bytes(MODEL_MID);
+        if !flush(chunk, &mut w, sink, false) { return Ok(()); }
+        w.bytes(MODEL_MID);
         for f in t.chunks_exact(3) {
             if f[0] == f[1] || f[1] == f[2] || f[0] == f[2] { continue; }
-            w = room(&mut out, &w, MAX_RECORD);
+            if !flush(chunk, &mut w, sink, false) { return Ok(()); }
             w.bytes(b"<triangle v1=\""); w.uint(f[0] as u64);
             w.bytes(b"\" v2=\""); w.uint(f[1] as u64);
             w.bytes(b"\" v3=\""); w.uint(f[2] as u64);
             w.bytes(b"\"/>\n");
-            hash(&out, &w, 1 << 15);
         }
-        w = room(&mut out, &w, MODEL_TAIL.len()); w.bytes(MODEL_TAIL);
-        hash(&out, &w, 0);
-        let _ = room(&mut out, &w, 0);
+        if !flush(chunk, &mut w, sink, false) { return Ok(()); }
+        w.bytes(MODEL_TAIL);
+        flush(chunk, &mut w, sink, true);
     }
-    if out.len() as u64 >= u32::MAX as u64 { return Err(TOO_LARGE); }
-    Ok((out, crc))
+    Ok(())
 }
 
 /// Builds the whole 3MF package. `v`/`t` must already be validated.
 pub fn encode(v: &[f32], t: &[u32], ground: bool, level: u8, limit: usize) -> Result<Vec<u8>, i32> {
     let min_z = if ground { v.chunks_exact(3).map(|p| p[2] as f64).fold(f64::INFINITY, f64::min) } else { 0.0 };
-    let (model, model_crc) = model_xml(v, t, min_z)?;
-    let mut out = Vec::with_capacity(model.len() / 4 + 1024);
+    // The package is about 0.28x the binary STL (50 B per triangle) on typical meshes; reserve a bit more than that
+    // so the output buffer normally never reallocates (a doubling would briefly need 3x its size).
+    let mut out = Vec::with_capacity(t.len() / 3 * 16 + 4096);
     let mut entries = Vec::with_capacity(3);
-    entries.push(entry(&mut out, b"[Content_Types].xml", level, limit, None, |p| p.feed(CONTENT_TYPES, TDEFLFlush::None))?);
-    entries.push(entry(&mut out, b"_rels/.rels", level, limit, None, |p| p.feed(RELS, TDEFLFlush::None))?);
-    entries.push(entry(&mut out, b"3D/3dmodel.model", level, limit, Some(model_crc), |p| p.feed(&model, TDEFLFlush::None))?);
-    drop(model);
+    entries.push(entry(&mut out, b"[Content_Types].xml", level, limit, |p| p.feed(CONTENT_TYPES, TDEFLFlush::None))?);
+    entries.push(entry(&mut out, b"_rels/.rels", level, limit, |p| p.feed(RELS, TDEFLFlush::None))?);
+    let mut failed = 0;
+    entries.push(entry(&mut out, b"3D/3dmodel.model", level, limit, |p| {
+        let mut chunk = Vec::new();
+        if let Err(code) = model_stream(v, t, min_z, &mut chunk, &mut |text| { p.feed(text, TDEFLFlush::None); p.failed == 0 }) { failed = code; }
+    })?);
+    if failed != 0 { return Err(failed); }
     let directory = out.len();
     for e in &entries {
         le32(&mut out, 0x0201_4b50); le16(&mut out, 20); le16(&mut out, 20); le16(&mut out, 0); le16(&mut out, 8);
@@ -308,13 +310,16 @@ pub mod profile {
     static mut XML: Vec<u8> = Vec::new();
     #[allow(static_mut_refs)]
     fn xml() -> &'static mut Vec<u8> { unsafe { &mut XML } }
-    /// 0: min_z only; 1: vertices text; 2: triangles text; 3: whole model XML into one buffer (kept for 4/5).
+    /// 0: min_z only; 1: vertices text; 2: triangles text; 3: whole model XML, collected into one buffer (kept for the
+    /// CRC/deflate hooks; the encoder itself streams).
     #[no_mangle] pub unsafe extern "C" fn prof_xml(vp: *const f32, nv: usize, tp: *const u32, nt: usize, stage: u32) -> usize {
         let v = core::slice::from_raw_parts(vp, nv); let t = core::slice::from_raw_parts(tp, nt);
         let min_z = v.chunks_exact(3).map(|p| p[2] as f64).fold(f64::INFINITY, f64::min);
         if stage == 0 { return min_z as usize; }
         let (v, t) = match stage { 1 => (v, &t[..0]), 2 => (&v[..0], t), _ => (v, t) };
-        *xml() = model_xml(v, t, min_z).map(|x| x.0).unwrap_or_default();
+        let mut all = Vec::new(); let mut chunk = Vec::new();
+        let _ = model_stream(v, t, min_z, &mut chunk, &mut |text| { all.extend_from_slice(text); true });
+        *xml() = all;
         xml().len()
     }
     #[no_mangle] pub extern "C" fn prof_crc() -> u32 { crc32(0, xml()) }

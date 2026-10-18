@@ -12,6 +12,8 @@ export async function initRustMesh({binary,url,streaming}={}){
  }
  function validate(vertices,triangles){if(vertices.length%3||triangles.length%3)throw Error('Invalid geometry buffers.');}
  return {version:4,
+  // ADR-0001 F2a: wasm linear memory size (it never shrinks), for the leak bench.
+  memoryBytes:()=>core.memory.buffer.byteLength,
   threadMesh(type,params,tolerance=.15){
    const p=params,inputParams=new Float64Array([type==='threadtube'?1:0,p.diameter,p.pitch,p.h,p.outer||0,p.clearance,p.hand==='left'?-1:1,p.phase%p.pitch,tolerance]);
    return withBuffers((allocate,input)=>{const pp=input(inputParams),ip=allocate(24);let code=core.thread_mesh(pp,ip,0,0,0,0);
