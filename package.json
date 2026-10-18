@@ -4,7 +4,7 @@
   "description": "Offline Android and Apple silicon desktop CAD with local Python/Rust modeling and STL export",
   "main": "index.js",
   "directories": {
-    "test": "tests"
+    "test": "tests && node tests/approved-dom-areas.mjs"
   },
   "scripts": {
     "build:web": "node build-web.mjs",
