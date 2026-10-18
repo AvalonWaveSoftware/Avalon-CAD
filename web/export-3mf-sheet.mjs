@@ -4,3 +4,5 @@ export const TITLE='Export a printable 3MF';
 export const INTRO='The 3MF adds the completed layers together. Each layer\'s cutouts affect only that layer. Dimensions use millimeters. The build plane is never included in this file.';
 export const BUILD='Build & save .3MF';
 export const KIND='3MF · compressed · millimeters';
+// ADR-0001 F2a option A: the parallel encoder rides in this lazy chunk too.
+export {export3MF,dispose3MFPool} from './export-3mf-pool.mjs';

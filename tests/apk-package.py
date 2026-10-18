@@ -20,7 +20,7 @@ def check_apk(path):
         assert len(names) == len(set(names)), 'Duplicate APK entries'
         assert apk.testzip() is None, 'APK CRC check failed'
         for name in ['AndroidManifest.xml', 'resources.arsc', 'classes.dex',
-                     'assets/index.html', 'assets/main.js', 'assets/worker.js',
+                     'assets/index.html', 'assets/main.js', 'assets/worker.js', 'assets/export-pool.js',
                      'assets/cad-kernel.wasm', 'assets/manifold.wasm',
                      'assets/mesh-core.wasm'] + PYTHON_ENTRIES:
             assert name in names, f'Missing required APK entry: {name}'
