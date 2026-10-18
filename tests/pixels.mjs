@@ -10,11 +10,14 @@
 //        difference against the baseline FAILS in this mode too (ADR-0001 ruling, blank-scene-flake follow-up).
 //   --allow-overlay SELECTOR (with --allow-box): also allows SELECTOR's box, only in captures where that element is
 //        present (e.g. '#edgeToolMenu', the Edge ▾ dropdown, only while it is open).
+//   Approved DOM entries (ADR-0001 approved-dom-areas): the "dom" list of tests/perf/approved-areas.json approves exact
+//        DOM changes (see tests/perf/approved-dom.mjs); every capture prints its matched/unmatched DOM-change counts and
+//        lists unmatched changes; any unmatched change fails. With no entries the result is the same as before.
 // Env: AVALON_PLAYWRIGHT (playwright module path), AVALON_CHROMIUM (browser executable), AVALON_ASSETS (served build),
 //      PIXEL_JOBS (parallel browser contexts in the one shared browser, default 4), AVALON_PIXEL_BASELINE (baseline dir).
 // Same setup as tools/readme-shots/harness.mjs (served app, open(), tap()); one shared browser, PIXEL_JOBS contexts; toasts and #busy are hidden as capture.mjs does.
 import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import {createRequire} from 'node:module';
-import {diffPixels,diffOutside,decodePNG} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {execSync} from 'node:child_process';
+import {diffPixels,diffOutside,decodePNG} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {execSync} from 'node:child_process';
 
 const require=createRequire(import.meta.url);const {chromium}=require(process.env.AVALON_PLAYWRIGHT||'playwright');
 // open()/tap() mirror tools/readme-shots/harness.mjs exactly (inlined since before harness.mjs honoured
@@ -50,6 +53,19 @@ const APPROVED=(()=>{const f=path.join(path.dirname(new URL(import.meta.url).pat
 const ALLOW_BOX=boxI>=0?args[boxI+1]:APPROVED?.box??null,ALLOW_OVERLAY=ovI>=0?args[ovI+1]:APPROVED?.overlay??null,SCENE_AREAS=APPROVED?.scenes||{};
 if(APPROVED)console.log(`approved areas (${APPROVED.baseline}): ${APPROVED.box}${APPROVED.overlay?' + overlay '+APPROVED.overlay:''}; scenes: ${Object.keys(SCENE_AREAS).join(', ')||'none'}`);
 if(ALLOW_BOX&&update)throw Error('--allow-box is a compare-only check; it never writes baselines');
+// ADR-0001 approved-dom-areas: the "dom" entries of the same approved-areas.json (same baseline rule, same
+// AVALON_PIXEL_APPROVED=0 switch) approve exact DOM changes; see tests/perf/approved-dom.mjs. Validated here, at load:
+// an invalid selector/kind or an expected value missing from the strings tables stops the run before any capture.
+const DOM_ENTRIES=loadDomEntries(APPROVED?.dom,approvedStrings(BASE));
+if(APPROVED)console.log(`approved DOM entries (${APPROVED.baseline}): ${DOM_ENTRIES.length}`);
+// Compares a capture's DOM with its baseline snapshot. Every DOM change is listed as matched (by an approved DOM
+// entry) or unmatched; any unmatched change fails with the same messages as before (compareDom), and with no entries
+// the pass/fail result is exactly the old one. Computed-style/box changes are never matched.
+async function checkDom(page,name,id,bd,dom,r){if(!fs.existsSync(bd)){r.errors.push('no DOM baseline');return;}
+ const c=await checkCapture(page,{name,id,base:JSON.parse(fs.readFileSync(bd,'utf8')),now:dom,entries:DOM_ENTRIES,compareDom});
+ r.dom={matched:c.matched.length,unmatched:c.unmatched.length};r.errors.push(...c.errors);
+ if(c.matched.length||c.unmatched.length){r.domMatched=c.matched;r.domUnmatched=c.unmatched.map(fmtChange);
+  console.log(`  ${id} DOM changes: ${c.matched.length} matched, ${c.unmatched.length} unmatched${c.unmatched.length?':\n    '+r.domUnmatched.slice(0,20).join('\n    ')+(c.unmatched.length>20?`\n    …${c.unmatched.length-20} more (report.json)`:''):''}`);}}
 const OUT=outI>=0?path.resolve(args[outI+1]):path.join(process.env.TMPDIR||'/tmp','avalon-pixel-run');const only=args.filter((a,i)=>!a.startsWith('--')&&i!==outI+1&&i!==boxI+1&&i!==ovI+1);
 const JOBS=Number(process.env.PIXEL_JOBS||4);
 // Same server as the harness (harness.start() launches its own bundled browser; we need AVALON_CHROMIUM, so we start our own).
@@ -214,9 +230,9 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
      const d=box?diffOutside(fs.readFileSync(bp),png,[box,...(overlay?[overlay]:[]),...areas]):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
      if(!box)r.errors.push(`no element ${ALLOW_BOX}`);else if(d.outside)r.errors.push(`${d.outside} differing pixels outside ${ALLOW_BOX} box ${box}${overlay?' or overlay '+overlay:''} (outside diffs span ${d.outsideBox})${d.sizeMismatch?' (size mismatch)':''}`);
      // Approved areas are pixel boxes only: no DOM allowance inside them (ADR-0001 ruling); every DOM/style difference fails.
-     if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');results.push(r);}
+     await checkDom(page,name,id,bd,dom,r);results.push(r);}
     else{if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
-    if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');
+    await checkDom(page,name,id,bd,dom,r);
     if(MASK_BASE){const help=await page.evaluate(()=>{const e=document.getElementById('desktopHelp');if(!e||getComputedStyle(e).display==='none'||getComputedStyle(e).visibility==='hidden')return null;const b=e.getBoundingClientRect();return {left:b.left,top:b.top,right:b.right,bottom:b.bottom};});
      const mp=path.join(MASK_BASE,'pixels',id+'.png'),md=path.join(MASK_BASE,'dom',id+'.json');if(!fs.existsSync(mp))r.errors.push('no mask baseline');else{r.helpBox=help;r.outsideHelp=outsideBox(fs.readFileSync(mp),png,help,desktop?1:2);if(r.outsideHelp)r.errors.push(`${r.outsideHelp} px differ outside the help line vs ${path.basename(MASK_BASE)}`);if(!desktop&&help)r.errors.push('help line visible on phone');}
      if(fs.existsSync(md))r.errors.push(...compareDom(stripHelp(JSON.parse(fs.readFileSync(md,'utf8'))),stripHelp(dom)).map(e=>'vs '+path.basename(MASK_BASE)+' without #desktopHelp: '+e));}
@@ -236,4 +252,6 @@ if(!only.length){const m=JSON.parse(fs.readFileSync(path.join(BASE,'manifest.jso
 const bad=results.filter(r=>r.errors.length);fs.writeFileSync(path.join(OUT,'report.json'),JSON.stringify({secs,results},null,1));
 for(const r of bad)console.error('FAIL',r.id,'—',r.errors.join(' | '));
 const accs=results.filter(r=>r.accepted&&!r.errors.length),acc=accs.length,total=results.reduce((n,r)=>n+(r.differing||0),0);
+const dm=results.reduce((n,r)=>n+(r.dom?.matched||0),0),du=results.reduce((n,r)=>n+(r.dom?.unmatched||0),0);
+console.log(`DOM changes: ${dm} matched by approved DOM entries, ${du} unmatched, in ${results.filter(r=>r.dom?.unmatched).length} capture(s) with unmatched changes`);
 console.log(`test:pixels: ${results.length-bad.length-acc}/${results.length} captures at 0 px, ${acc} accepted exception(s)${acc?' ('+accs.map(r=>r.id+' '+r.accepted+' px').join(', ')+')':''}, ${bad.length} failed; ${total} differing px in total; DOM/styles ${results.some(r=>r.errors.some(e=>/^(outerHTML differs|computed style|…\d+ elements|vs )/.test(e)))?'DIFFER':'equal'} in ${secs}s`);process.exit(bad.length?1:0);
