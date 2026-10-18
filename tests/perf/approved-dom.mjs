@@ -67,8 +67,8 @@ export function validSelector(sel){
 export function validKind(kind){if(kind==='text'||kind==='added'||kind==='replaced')return null;if(typeof kind!=='string'||!/^[a-z][a-z0-9-]*$/.test(kind))return 'kind must be "text" or an attribute name';if(kind==='style'||kind==='class')return `kind "${kind}" is not approvable`;return null;}
 // Strings an entry may expect: the active baseline's strings-baseline.json and tests/perf/strings-additions.json (plain
 // strings and runtime texts; the file is validated, so a bad runtime entry fails here too).
-export function approvedStrings(base,additionsFile){const s=new Set();const f=path.join(base,'strings-baseline.json');if(fs.existsSync(f))for(const x of JSON.parse(fs.readFileSync(f,'utf8')))s.add(x);
- for(const x of additionTexts(additionsFile?readAdditions(additionsFile):readAdditions()))s.add(x);return s;}
+export function approvedStrings(base,additionsFile,repo){const s=new Set();const f=path.join(base,'strings-baseline.json');if(fs.existsSync(f))for(const x of JSON.parse(fs.readFileSync(f,'utf8')))s.add(x);
+ for(const x of additionTexts(additionsFile?readAdditions(additionsFile,repo):readAdditions()))s.add(x);return s;}
 // Validates the "dom" list; throws one Error listing every bad entry.
 export function loadDomEntries(list,strings){
  if(list==null)return [];if(!Array.isArray(list))throw Error('approved-areas.json "dom" must be a list');const bad=[];

@@ -1,7 +1,7 @@
 // ADR-0001 approved-dom-areas: unit tests for tests/perf/approved-dom.mjs (the "dom" entries of approved-areas.json
 // used by tests/pixels.mjs). Runs domChanges in a blank Chromium page; no app, no baseline folder is written.
 import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
-import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture} from './perf/approved-dom.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions} from './perf/dom-baseline.mjs';
+import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture} from './perf/approved-dom.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds} from './perf/dom-baseline.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const STR=new Set(['Edge (F)','Move (M)','Project menu','Ready · millimeters','Fit model (0)']);
 const E=(o)=>({scene:'*',kind:'title',approval:'test',...o});
@@ -54,33 +54,64 @@ const S=approvedStrings(tmp,add);assert.ok(S.has('Base string')&&S.has('Added st
  // QA §3 (ii): CSS strings are tracked, so '/*' inside content:'…' is not a comment and the rest of the file survives.
  {const css="a{content:'/* x'} b{content:\"*/ y\"} /* real */ c{color:red}",o=stripComments(css,{line:false});
   assert.equal(o,css.replace('/* real */',' '.repeat(10)),'css string with /* kept');}
+ // QA pre-review 3: a backslash-newline inside a CSS (or JS) string continues the string; nothing after it is blanked
+ {const css="a{content:'one \\\ntwo /* x'} /* real */ b{color:red}",o=stripComments(css,{line:false});assert.equal(o,css.replace('/* real */',' '.repeat(10)),'css backslash-newline');
+  const js="const s='one \\\ntwo // x'; // gone",oj=stripComments(js);assert.ok(oj.includes("two // x'")&&!oj.includes('gone'),'js backslash-newline');
+  assert.equal(o.split('\n').length,2,'line count kept');}
  // Never silently: whatever the scanner cannot close throws with line:col (extractStrings prefixes the file).
  for(const [src,css,re] of [["a=1;\n/* open",false,/unterminated \/\* comment at 2:1/],["x{content:'open}",true,/unterminated string at 1:11/],["a=1;\nb='open\n",false,/unterminated string at 2:3/],["t=`open",false,/unterminated template literal at 1:3/],["a=(/open\n)",false,/unterminated regex literal .* at 1:4/],["a{} /* open",true,/unterminated \/\* comment at 1:5/]])
   assert.throws(()=>stripComments(src,{line:!css}),re,'throws: '+JSON.stringify(src));
  // at this tree: the comment-only string is gone from the extracted set, the UI error text is still there
  const S=new Set(extractStrings());assert.ok(!S.has('The modeling engine could not start'));assert.ok(S.has('The modeling engine could not start. Close and reopen the app.'));}
 
-// 7. Runtime texts in strings-additions.json and extractor corrections (ADR-0001 rulings).
-{const R=path.resolve(path.dirname(new URL(import.meta.url).pathname),'..');
- const ok={text:'Layers · Layer 1',runtime:true,source:'web/main.mjs:1',approval:'ruling X'};
+// 7. Runtime texts in strings-additions.json and extractor corrections (ADR-0001 rulings; QA pre-review notes).
+{const R=fs.mkdtempSync(path.join(os.tmpdir(),'ada-repo-'));fs.mkdirSync(path.join(R,'web'));
+ const fx=["const a='Plain literal text.';","el.title='Layers · '+layerName(p);","const t=`${label} (${keyText(k)})`;",
+  "const pos=(ref?'Bottom-center placement':'Object center position')+' · '+byUnit('millimeters','inches');","// 'Comment text only.'",
+  ...Array(14).fill(''),"const far='Far away text.';"];
+ fs.writeFileSync(path.join(R,'web/fx.mjs'),fx.join('\n')+'\n');fs.writeFileSync(path.join(R,'web/bad.mjs'),"const x='open\n");
+ const ok={text:'Layers · Layer 1',runtime:true,source:'web/fx.mjs:2',approval:'ruling X'};
  assert.doesNotThrow(()=>validateAdditions({strings:['Plain.',ok]},R));
  for(const [bad,re] of [[{...ok,runtime:undefined},/needs runtime:true/],[{...ok,text:''},/"text" must be a non-empty string/],[{...ok,approval:undefined},/"approval" must be a non-empty string/],
-  [{...ok,source:undefined},/"source" must be a non-empty string/],[{...ok,source:'web/main.mjs'},/source must be "file:line"/],[{...ok,source:'web/nope.mjs:3'},/source file web\/nope.mjs does not exist/],[{...ok,source:'web/main.mjs:999999'},/web\/main.mjs has no line 999999/]])
+  [{...ok,source:undefined},/"source" must be a non-empty string/],[{...ok,source:'web/fx.mjs'},/source must be "file:line"/],[{...ok,source:'web/nope.mjs:3'},/source file web\/nope.mjs does not exist/],[{...ok,source:'web/fx.mjs:999999'},/web\/fx.mjs has no line 999999/]])
   assert.throws(()=>validateAdditions({strings:[bad]},R),re,JSON.stringify(bad));
+ // template/pattern syntax is rejected (the exact set RUNTIME_SYNTAX); ordinary UI punctuation is not
+ assert.deepEqual(RUNTIME_SYNTAX,['${','*','\\','[',']','{','}','^','$','|','.*','.+','.?','(?:','(?=','(?!','(?<']);
+ for(const x of RUNTIME_SYNTAX)assert.throws(()=>validateAdditions({strings:[{...ok,text:'Layers · '+x+'1'}]},R),/template\/pattern syntax .* is not allowed/,'rejects '+x);
+ for(const t of ['Help (?)','Undo (Cmd/Ctrl+Z)','Redo (Cmd/Ctrl+Shift+Z)','Fit model (0)','Edge (F)'])assert.deepEqual(runtimeSyntax(t),[],'ordinary text: '+t);
+ // the cited line (±3) must contain or build the text
+ const sb=(t,src)=>sourceBuilds(t,src,R);
+ assert.equal(sb('Plain literal text.','web/fx.mjs:1').how,'literal');
+ assert.equal(sb('Bottom-center placement · millimeters','web/fx.mjs:4').how,'concatenation of literals');
+ assert.match(sb('Layers · Layer 1','web/fx.mjs:2').how,/1 dynamic part/);
+ assert.match(sb('Help (?)','web/fx.mjs:3').how,/2 dynamic part/);
+ assert.ok(sb('Plain literal text.','web/fx.mjs:3').ok,'within ±3 lines');
+ for(const [t,src] of [['Nope · x','web/fx.mjs:2'],['Layer 1 · Layers','web/fx.mjs:2'],['Help','web/fx.mjs:3'],['Help (?) more','web/fx.mjs:3'],['Far away text.','web/fx.mjs:2'],['Comment text only.','web/fx.mjs:5'],['Object center position - millimeters','web/fx.mjs:4']])
+  assert.equal(sb(t,src).ok,false,'not built: '+t+' @ '+src);
+ // known limit, pinned: dynamic parts are not traced, so line 4's chain (…)+' · '+(…) also admits other ' · ' texts
+ assert.ok(sb('Bottom-center placement · inches · x','web/fx.mjs:4').ok);
+ assert.ok(sb('Far away text.','web/fx.mjs:20').ok);
+ assert.match(sb('x','web/bad.mjs:1').why,/cannot scan web\/bad.mjs: stripComments: unterminated string/,'unreadable source fails loudly');
+ assert.throws(()=>validateAdditions({strings:[{...ok,text:'Nope · x'}]},R),/cannot verify the source: web\/fx.mjs:2 \(±3 lines\) neither contains nor builds "Nope · x"/);
  // a dom entry may cite a runtime text by its exact text, never by a pattern
  const tmpA=fs.mkdtempSync(path.join(os.tmpdir(),'ada-'));const af=path.join(tmpA,'additions.json');fs.writeFileSync(af,JSON.stringify({strings:['Plain.',ok]}));
- const S2=approvedStrings(tmpA,af);assert.ok(S2.has('Layers · Layer 1')&&S2.has('Plain.'));
+ const S2=approvedStrings(tmpA,af,R);assert.ok(S2.has('Layers · Layer 1')&&S2.has('Plain.'));
  assert.equal(loadDomEntries([E({selector:'#layersBtn',expected:'Layers · Layer 1'})],S2).length,1);
  assert.throws(()=>loadDomEntries([E({selector:'#layersBtn',expected:'Layers · Layer 2'})],S2),/not in strings-baseline/);
- fs.writeFileSync(af,JSON.stringify({strings:[{...ok,source:'web/nope.mjs:1'}]}));assert.throws(()=>approvedStrings(tmpA,af),/does not exist/);fs.rmSync(tmpA,{recursive:true});
- // extractor corrections: accepted as missing, kept apart from removals; fields and source validated
- const c=compareStrings(['A b.','Comment only.'],['A b.'],new Set(),[],[{string:'Comment only.',reason:'comment-only',source:'web/main.mjs:1'}]);
- assert.deepEqual([c.errors,c.corrected,c.removedApproved],[[],['Comment only.'],[]]);
+ fs.writeFileSync(af,JSON.stringify({strings:[{...ok,source:'web/nope.mjs:1'}]}));assert.throws(()=>approvedStrings(tmpA,af,R),/does not exist/);fs.rmSync(tmpA,{recursive:true});
+ // extractor corrections: accepted as missing, kept apart from removals; fields and source validated; stale when still extracted
+ const cr=[{string:'Comment only.',reason:'comment-only',source:'web/fx.mjs:5'}];
+ const c=compareStrings(['A b.','Comment only.'],['A b.'],new Set(),[],cr);
+ assert.deepEqual([c.errors,c.corrected,c.removedApproved,c.staleCorrections],[[],['Comment only.'],[],[]]);
  assert.equal(compareStrings(['A b.','Comment only.'],['A b.'],new Set(),[],[]).errors.length,1);
+ assert.deepEqual(compareStrings(['A b.','Comment only.'],['A b.','Comment only.'],new Set(),[],cr).staleCorrections,['Comment only.'],'a correction for a string still extracted is stale');
+ assert.deepEqual(compareStrings(['A b.'],['A b.'],new Set(),[],cr).staleCorrections,['Comment only.'],'a correction for a string not in the baseline is stale');
  assert.throws(()=>validateAdditions({strings:[],extractorCorrections:[{string:'x',reason:'r'}]},R),/"source" must be a non-empty string/);
  assert.throws(()=>validateAdditions({strings:[],extractorCorrections:[{string:'x',reason:'r',source:'web/nope.mjs:1'}]},R),/does not exist/);
+ fs.rmSync(R,{recursive:true});
  // the committed file is valid and lists the comment-only string as a correction, not a removal
- const cur=JSON.parse(fs.readFileSync(new URL('./perf/strings-additions.json',import.meta.url),'utf8'));validateAdditions(cur,R);
+ const RR=path.resolve(path.dirname(new URL(import.meta.url).pathname),'..');
+ const cur=JSON.parse(fs.readFileSync(new URL('./perf/strings-additions.json',import.meta.url),'utf8'));validateAdditions(cur,RR);
  assert.ok(cur.extractorCorrections.some(x=>x.string==='The modeling engine could not start'&&x.source==='web/perf-flags.mjs:72'));assert.ok(!cur.removals.some(x=>x.string==='The modeling engine could not start'));}
 
 // 3. Matching in a page, and per-capture counts.

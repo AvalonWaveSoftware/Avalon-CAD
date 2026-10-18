@@ -22,18 +22,19 @@ const STRING_SOURCES=()=>[...fs.readdirSync(path.join(REPO,'web')).filter(f=>/\.
 // approved-dom-areas-2 (QA §3 edge cases): '/' after a postfix ++/-- is division, not a regex start; CSS strings are
 // tracked, so '/*' inside content:'…' is not a comment. Anything the scanner cannot close (an unterminated /* */, string,
 // template or regex) throws with line:col instead of silently blanking the rest of the file; extractStrings adds the file.
-export function stripComments(src,{line=true}={}){let out='',i=0;const n=src.length,stack=[];let prev='';// last significant token char/word
+export function stripComments(src,{line=true,tok=null}={}){let out='',i=0;const n=src.length,stack=[];let prev='';// last significant token char/word
  const where=k=>{const b=src.slice(0,k).split('\n');return `${b.length}:${b.at(-1).length+1}`},fail=(k,what)=>{throw Error(`stripComments: unterminated ${what} at ${where(k)}`)};
  const blank=s=>s.replace(/[^\n]/g,' ');const regexOk=()=>prev===''||/[(,=:[!&|?{};+\-*%<>~^]$/.test(prev)||/(?:^|[^\w$])(?:return|typeof|case|in|of|void|delete|new|throw|yield|await|else|do)$/.test(prev);
  while(i<n){const c=src[i],d=src[i+1];
   if(c==='/'&&d==='*'){const j=src.indexOf('*/',i+2);if(j<0)fail(i,'/* comment');const e=j+2;out+=blank(src.slice(i,e));i=e;continue;}
   if(line&&c==='/'&&d==='/'){let e=src.indexOf('\n',i);if(e<0)e=n;out+=blank(src.slice(i,e));i=e;continue;}
-  if(c==="'"||c==='"'){let j=i+1;while(j<n&&src[j]!==c&&src[j]!=='\n'){if(src[j]==='\\')j++;j++;}if(src[j]!==c)fail(i,'string');out+=src.slice(i,j+1);i=j+1;prev='a';continue;}
+  if(c==="'"||c==='"'){let j=i+1;while(j<n&&src[j]!==c&&src[j]!=='\n'){if(src[j]==='\\')j++;j++;}if(src[j]!==c)fail(i,'string');tok?.({k:'str',s:src.slice(i+1,j),a:i,b:j+1,depth:stack.length});out+=src.slice(i,j+1);i=j+1;prev='a';continue;}
   if(!line){out+=c;i++;continue;}// CSS: strings (above) and /* */ only
   if((c==='+'||c==='-')&&d===c){const post=prev!==''&&!regexOk();out+=c+d;i+=2;prev=post?'a':c;continue;}// x++ / 2: operand ends
   if(c==='`'||(c==='}'&&stack.length&&stack.at(-1)===0)){// template literal body (start, or resume after ${ … })
    if(c==='}')stack.pop();let j=i+1,interp=false;while(j<n&&src[j]!=='`'){if(src[j]==='\\'){j+=2;continue;}if(src[j]==='$'&&src[j+1]==='{'){j+=2;stack.push(0);interp=true;break;}j++;}
    if(!interp&&j>=n)fail(i,'template literal');
+   tok?.({k:'tpl',s:src.slice(i+1,interp?j-2:j),open:c==='`',close:!interp,a:i,b:interp?j:j+1,depth:stack.length-(interp?1:0)});
    if(interp){out+=src.slice(i,j);i=j;prev='{';}else{out+=src.slice(i,j+1);i=j+1;prev='a';}continue;}
   if(c==='{'&&stack.length){stack[stack.length-1]++;}else if(c==='}'&&stack.length){stack[stack.length-1]--;}
   if(c==='/'&&regexOk()){let j=i+1,cls=false;while(j<n&&src[j]!=='\n'){if(src[j]==='\\'){j+=2;continue;}if(src[j]==='[')cls=true;else if(src[j]===']')cls=false;else if(src[j]==='/'&&!cls)break;j++;}
@@ -58,18 +59,65 @@ export function extractStrings(){const set=new Set();
 // an existing file (relative to the repo) with that line; validateAdditions throws otherwise.
 export function checkSource(src,repo=REPO){const m=typeof src==='string'&&src.match(/^([^:]+):(\d+)$/);if(!m)return 'source must be "file:line"';
  const f=path.join(repo,m[1]);if(!fs.existsSync(f))return `source file ${m[1]} does not exist`;if(+m[2]<1||+m[2]>fs.readFileSync(f,'utf8').split('\n').length)return `${m[1]} has no line ${m[2]}`;return null;}
+// QA pre-review (approved-dom-areas-2): a runtime text is the exact rendered text, so pattern or template syntax in it
+// is rejected at load. The rejected set, exactly: "${", "*", "\", "[", "]", "{", "}", "^", "$", "|", ".*", ".+", ".?",
+// "(?:", "(?=", "(?!", "(?<". ("?", "(", ")", "+", "/" and "." alone are ordinary UI text: "Help (?)", "Cmd/Ctrl+Z".)
+export const RUNTIME_SYNTAX=['${','*','\\','[',']','{','}','^','$','|','.*','.+','.?','(?:','(?=','(?!','(?<'];
+export const runtimeSyntax=t=>RUNTIME_SYNTAX.filter(x=>t.includes(x));
+// Source check: the cited line (±SOURCE_WINDOW lines; comments stripped) must contain or build the text. Verified when
+//  (a) the text is the content of a string literal there, or
+//  (b) the text is a concatenation of string-literal contents found there, or
+//  (c) a template literal or a '+' chain ON THE CITED LINE has static parts that, in order, with each dynamic part (${…} or a
+//      non-literal '+' operand) standing for a non-empty run of text, spell exactly the text; at least one static part
+//      must be non-empty.
+// Limit: in (c) the dynamic parts are not traced to their values; the entry's approval covers them. Anything else
+// (including a window the scanner cannot read) fails loudly.
+export const SOURCE_WINDOW=3;
+const unesc=t=>t.replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|\r\n|[\s\S])/g,(m,x)=>x[0]==='u'||x[0]==='x'?String.fromCodePoint(parseInt(x.replace(/[ux{}]/g,''),16)):x==='n'?'\n':x==='t'?'\t':x==='r'?'\r':/^\r?\n$/.test(x)?'':x);
+// Literal units of a JS source from the stripComments scanner (the same one the extractor uses): string literals and
+// whole template literals at nesting depth 0, a template as static parts with a gap per ${…}.
+export function literalUnits(code){const toks=[];stripComments(code,{tok:t=>toks.push(t)});const units=[];let tpl=null;
+ for(const t of toks){if(t.depth!==0)continue;
+  if(t.k==='str'){units.push({parts:[{s:unesc(t.s)}],a:t.a,b:t.b});continue;}
+  if(t.open)tpl={parts:[],a:t.a};if(!tpl)continue;if(!t.open)tpl.parts.push({gap:1});tpl.parts.push({s:unesc(t.s)});if(t.close){tpl.b=t.b;units.push(tpl);tpl=null;}}
+ return units.sort((x,y)=>x.a-y.a);}
+export function sourceBuilds(text,src,repo=REPO){const m=src.match(/^([^:]+):(\d+)$/),L=+m[2];let raw,units,code;
+ try{raw=fs.readFileSync(path.join(repo,m[1]),'utf8');code=stripComments(raw);units=literalUnits(raw);}catch(e){return {ok:false,why:`cannot scan ${m[1]}: ${e.message}`};}
+ const lineOf=k=>code.slice(0,k).split('\n').length,win=units.filter(u=>Math.abs(lineOf(u.a)-L)<=SOURCE_WINDOW);
+ const lits=win.filter(u=>u.parts.length===1).map(u=>u.parts[0].s);
+ if(lits.includes(text))return {ok:true,how:'literal'};
+ const ls=[...new Set(lits.filter(Boolean))],can=new Array(text.length+1).fill(false);can[0]=true;
+ for(let k=0;k<text.length;k++)if(can[k])for(const l of ls)if(text.startsWith(l,k))can[k+l.length]=true;
+ if(can[text.length])return {ok:true,how:'concatenation of literals'};
+ // '+' chains: units joined by '+' (direct) or by '+ <expression> +' (a gap); an operand '+' before the first unit or
+ // after the last one is a leading/trailing gap. A ';', ',' or line break between units ends the chain.
+ const chains=[];let ch=null;
+ for(let k=0;k<win.length;k++){const u=win[k],prevEnd=k?win[k-1].b:Math.max(0,code.lastIndexOf('\n',u.a)),before=code.slice(prevEnd,u.a);
+  if(ch){const between=before;if(/^\s*\+\s*$/.test(between))ch.push(...u.parts);else if(/^\s*\+[^;,\n]*\+\s*$/.test(between))ch.push({gap:1},...u.parts);else{chains.push(ch);ch=null;}}
+  if(ch&&lineOf(u.a)===L)ch.onLine=true;
+  if(!ch){ch=[];if(lineOf(u.a)===L)ch.onLine=true;if(/[\w$)\]]\s*\+\s*$/.test(before))ch.push({gap:1});ch.push(...u.parts);}
+  const after=code.slice(u.b,k+1<win.length?win[k+1].a:code.indexOf('\n',u.b)>=0?code.indexOf('\n',u.b):code.length);
+  if(!(k+1<win.length&&/^\s*\+[^;,\n]*$/.test(after)&&/\+\s*$/.test(after))&&/^\s*\+\s*[\w$(!]/.test(after)){ch.push({gap:1});chains.push(ch);ch=null;}}
+ if(ch)chains.push(ch);
+ const esc=t=>t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+ for(const c of chains){if(!c.onLine)continue;const parts=[];for(const p of c){if(p.gap){if(!parts.at(-1)?.gap)parts.push(p);}else if(parts.length&&!parts.at(-1).gap)parts[parts.length-1]={s:parts.at(-1).s+p.s};else parts.push({s:p.s});}
+  if(!parts.some(p=>!p.gap&&p.s)||!parts.some(p=>p.gap))continue;
+  if(new RegExp('^'+parts.map(p=>p.gap?'([\\s\\S]+?)':esc(p.s)).join('')+'$').test(text))return {ok:true,how:`static parts of a template or '+' chain (${parts.filter(p=>p.gap).length} dynamic part(s) not traced)`};}
+ return {ok:false,why:`${m[1]}:${L} (±${SOURCE_WINDOW} lines) neither contains nor builds ${JSON.stringify(text)} (as a literal, a concatenation of literals, or the static parts of a template or '+' chain)`};}
 export function validateAdditions(a,repo=REPO){const bad=[];
  if(!a||!Array.isArray(a.strings))bad.push('"strings" must be a list');
  for(const [i,s] of (a?.strings||[]).entries()){if(typeof s==='string')continue;const at=`strings[${i}] ${JSON.stringify(s)}`;
   if(!s||typeof s!=='object'){bad.push(at+': must be a string or a runtime entry');continue;}
   if(s.runtime!==true)bad.push(at+': an object entry needs runtime:true');
   for(const k of ['text','source','approval'])if(typeof s[k]!=='string'||!s[k])bad.push(`${at}: "${k}" must be a non-empty string`);
-  const e=checkSource(s.source,repo);if(e)bad.push(`${at}: ${e}`);}
+  const e=checkSource(s.source,repo);if(e)bad.push(`${at}: ${e}`);
+  if(typeof s.text==='string'){const x=runtimeSyntax(s.text);if(x.length)bad.push(`${at}: template/pattern syntax ${x.map(v=>JSON.stringify(v)).join(', ')} is not allowed in a runtime text (exact rendered text only)`);
+   else if(!e&&s.text){const v=sourceBuilds(s.text,s.source,repo);if(!v.ok)bad.push(`${at}: cannot verify the source: ${v.why}`);}}}
  for(const [i,c] of (a?.extractorCorrections||[]).entries()){const at=`extractorCorrections[${i}] ${JSON.stringify(c)}`;for(const k of ['string','reason','source'])if(!c||typeof c[k]!=='string'||!c[k])bad.push(`${at}: "${k}" must be a non-empty string`);const e=c&&checkSource(c.source,repo);if(e)bad.push(`${at}: ${e}`);}
  if(a?.extractorCorrections!=null&&!Array.isArray(a.extractorCorrections))bad.push('"extractorCorrections" must be a list');
  if(bad.length)throw Error('tests/perf/strings-additions.json rejected:\n  '+bad.join('\n  '));return a;}
 const ADDITIONS_FILE=path.join(HERE,'strings-additions.json');
-export const readAdditions=(f=ADDITIONS_FILE)=>fs.existsSync(f)?validateAdditions(JSON.parse(fs.readFileSync(f,'utf8'))):{strings:[]};
+export const readAdditions=(f=ADDITIONS_FILE,repo=REPO)=>fs.existsSync(f)?validateAdditions(JSON.parse(fs.readFileSync(f,'utf8')),repo):{strings:[]};
 export const additionTexts=a=>a.strings.map(s=>typeof s==='string'?s:s.text);
 export const APPROVED_ADDITIONS=()=>new Set(additionTexts(readAdditions()));
 // ADR-0001 approved-dom-areas (a): strings-additions.json may also list approved removals, "removals": [{string, approval}].
@@ -84,10 +132,10 @@ export function compareStrings(baseline,strings,approved,removals,corrections=[]
  if(!Array.isArray(removals))errors.push('strings-additions.json "removals" must be a list');
  const ok=new Map();for(const [i,r] of (Array.isArray(removals)?removals:[]).entries()){if(!r||typeof r.string!=='string'||!r.string||typeof r.approval!=='string'||!r.approval)errors.push(`removals[${i}] ${JSON.stringify(r)}: needs a non-empty "string" and "approval"`);else ok.set(r.string,r.approval);}
  const corr=new Set(corrections.map(c=>c.string)),added=strings.filter(s=>!bt.has(s)&&!approved.has(s)),missing=[...bt].filter(s=>!now.has(s)),removed=missing.filter(s=>!ok.has(s)&&!corr.has(s)),removedApproved=missing.filter(s=>ok.has(s)),corrected=missing.filter(s=>corr.has(s)&&!ok.has(s));
- const stale=[...ok.keys()].filter(s=>!bt.has(s)||now.has(s));
+ const stale=[...ok.keys()].filter(s=>!bt.has(s)||now.has(s)),staleCorrections=[...corr].filter(s=>!bt.has(s)||now.has(s));
  for(const s of added)errors.push('new/changed user-visible string: '+JSON.stringify(s));
  for(const s of removed)errors.push('string missing vs baseline: '+JSON.stringify(s));
- return {errors,added,removed,removedApproved,corrected,stale,approvedSeen:strings.filter(s=>!bt.has(s)&&approved.has(s)).length};}
+ return {errors,added,removed,removedApproved,corrected,stale,staleCorrections,approvedSeen:strings.filter(s=>!bt.has(s)&&approved.has(s)).length};}
 export function staticState(){return Object.fromEntries(STATIC_FILES.map(f=>[f,sha(fs.readFileSync(path.join(ASSETS,f)))]));}
 // Runs in the page: outerHTML of body (id/class/style/text and all other attributes) with the #scene canvas size
 // attributes dropped and random object ids normalised; computed styles hashed per element.
@@ -121,6 +169,7 @@ function main(){const update=process.argv.includes('--update');fs.mkdirSync(BASE
  const c=compareStrings([...bt],strings,APPROVED_ADDITIONS(),APPROVED_REMOVALS(),EXTRACTOR_CORRECTIONS()),approvedSeen=c.approvedSeen;
  for(const e of c.errors){bad++;console.error('FAIL '+e);}
  for(const s of c.stale)console.log('note: listed removal not needed (string still present, or not in this baseline):',JSON.stringify(s));
- console.log(`strings: ${strings.length} extracted, ${c.errors.length} error(s), ${approvedSeen} approved addition(s) in use, ${c.removedApproved.length} approved removal(s), ${c.corrected.length} extractor correction(s)${c.corrected.length?' ('+c.corrected.map(x=>JSON.stringify(x)).join(', ')+')':''}, ${c.stale.length} stale`);
+ for(const s of c.staleCorrections)console.log('note: listed extractor correction not needed (string still extracted, or not in this baseline):',JSON.stringify(s));
+ console.log(`strings: ${strings.length} extracted, ${c.errors.length} error(s), ${approvedSeen} approved addition(s) in use, ${c.removedApproved.length} approved removal(s), ${c.corrected.length} extractor correction(s)${c.corrected.length?' ('+c.corrected.map(x=>JSON.stringify(x)).join(', ')+')':''}, ${c.stale.length+c.staleCorrections.length} stale`);
  if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length-approvedSeen} baseline strings identical${approvedSeen?`, ${approvedSeen} approved addition(s)`:''}${c.removedApproved.length?`, ${c.removedApproved.length} approved removal(s)`:''}${c.corrected.length?`, ${c.corrected.length} extractor correction(s)`:''}`);}
 if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname)main();
