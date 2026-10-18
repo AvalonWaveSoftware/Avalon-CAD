@@ -198,12 +198,12 @@ else {
       const payload = exportPayload(value); dialogBusy = true;
       try {
         // ADR-0001 F2a option B: the dialog (user time) and the write are timed for the [Avalon export] debug line.
-        const dialogAt = performance.now();
+        const dialogAt = Date.now();
         const selected = await dialog.showSaveDialog(window, {title: 'Save ' + payload.name, defaultPath: path.join(app.getPath('documents'), payload.name), filters: [{name: payload.extension === '.stl' ? 'STL model' : payload.extension === '.3mf' ? '3MF model' : 'Avalon CAD editable file', extensions: [payload.extension.slice(1)]}], properties: ['createDirectory', 'showOverwriteConfirmation']});
         if (selected.canceled || !selected.filePath) return {canceled: true};
-        const writeAt = performance.now();
+        const writeAt = Date.now();
         await writeModel(selected.filePath, payload.bytes);
-        return {canceled: false, name: path.basename(selected.filePath), timing: {dialogMs: Math.round(writeAt - dialogAt), writeMs: Math.round(performance.now() - writeAt)}};
+        return {canceled: false, name: path.basename(selected.filePath), timing: {dialogMs: Math.round(writeAt - dialogAt), writeMs: Math.round(Date.now() - writeAt)}};
       } finally { dialogBusy = false; }
     });
     ipcMain.handle('avalon:open', async event => {

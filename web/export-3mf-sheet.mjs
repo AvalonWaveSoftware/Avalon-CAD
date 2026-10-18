@@ -6,5 +6,5 @@ export const BUILD='Build & save .3MF';
 export const KIND='3MF · compressed · millimeters';
 // ADR-0001 F2a option A: the parallel encoder rides in this lazy chunk too.
 export {export3MF,dispose3MFPool,warm3MFPool} from './export-3mf-pool.mjs';
-// Option B step 2: main.mjs warms the pool whenever the sheet shows 3MF. The preview mesh can't predict the export's
+// Option B step 2: main.mjs warms the pool whenever the sheet shows 3MF. The preview mesh cannot predict the export
 // triangle count (a 524k mesh object previews at a few hundred triangles), so small projects warm it too, unused.
