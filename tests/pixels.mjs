@@ -6,8 +6,8 @@
 //   node tests/pixels.mjs [--out DIR] [scene-name-substring ...]
 //   node tests/pixels.mjs --allow-box SELECTOR [...]   ADR-0001 F6 ruling 5 check (compare only, never with --update):
 //        differing pixels are allowed only inside SELECTOR's box (e.g. '[data-mode=round]'), measured in the page at
-//        capture time; any differing pixel outside it fails. DOM/style differences are listed but not failed in this
-//        mode (the label change is a DOM change by design; the DOM baseline is re-taken with the pixels after approval).
+//        capture time; any differing pixel outside it fails. Approved boxes cover pixels only: every DOM/style
+//        difference against the baseline FAILS in this mode too (ADR-0001 ruling, blank-scene-flake follow-up).
 //   --allow-overlay SELECTOR (with --allow-box): also allows SELECTOR's box, only in captures where that element is
 //        present (e.g. '#edgeToolMenu', the Edge ▾ dropdown, only while it is open).
 // Env: AVALON_PLAYWRIGHT (playwright module path), AVALON_CHROMIUM (browser executable), AVALON_ASSETS (served build),
@@ -42,6 +42,8 @@ const H={
 // Approved diff areas (committed, tests/perf/approved-areas.json): when the baseline in use is the one named there and no
 // --allow-box is given, its button box / overlay / per-scene areas apply exactly as the flags would (compare-only; never
 // with --update; AVALON_PIXEL_APPROVED=0 turns it off for a strict run). Per-scene areas are extra allowed boxes.
+// They are for in-flight, unmerged changes only and approve PIXELS only: DOM/style differences always fail. Any other
+// baseline (e.g. AVALON_PIXEL_BASELINE=.../perf-baseline-release-3.0-6892eb7) is compared strictly, with no areas.
 const args=process.argv.slice(2),update=args.includes('--update'),outI=args.indexOf('--out'),boxI=args.indexOf('--allow-box'),ovI=args.indexOf('--allow-overlay');
 const APPROVED=(()=>{const f=path.join(path.dirname(new URL(import.meta.url).pathname),'perf/approved-areas.json');if(update||boxI>=0||process.env.AVALON_PIXEL_APPROVED==='0'||!fs.existsSync(f))return null;
  const a=JSON.parse(fs.readFileSync(f,'utf8'));return path.basename(BASE)===a.baseline?a:null;})();
@@ -75,10 +77,21 @@ async function settle(page){await idle(page);await page.waitForFunction(()=>!win
 // worker job running, camera stable, and then two consecutive captures (screenshot + DOM snapshot) taken ≥250 ms and
 // several frames apart are identical. A frame that is still changing is retried, never compared; the app is untouched.
 async function frames(page,n){await page.evaluate(n=>new Promise(r=>{const f=k=>k?requestAnimationFrame(()=>f(k-1)):r();f(n);}),n);}
+// blank@desktop flake (ADR-0001 blank-scene-flake): Chromium can leave a root-layer tile holding a raster from an earlier
+// paint-invalidation state. That raster differs from a fresh full raster of the same page by 1 LSB at one gradient pixel
+// ((1162,241) in #viewport's radial-gradient, blue 50 instead of 51). Nothing invalidates it later, so two identical
+// captures do not prove the frame is the page's settled raster. The WebGL canvas is transparent there in every frame.
+// Before EVERY screenshot of the still-shot loop (the only capture path: every scene, step and viewport goes through
+// stillShot, including its retries), the root layer is fully re-rasterized: the base background colour is overridden
+// over CDP and then cleared, so each capture comes from a full raster of the final state. DOM and app are untouched,
+// and no pixel is allowed.
+async function fullRaster(page){const c=await page.context().newCDPSession(page);
+ try{await c.send('Emulation.setDefaultBackgroundColorOverride',{color:{r:255,g:0,b:255,a:1}});await frames(page,2);
+  await c.send('Emulation.setDefaultBackgroundColorOverride',{});await frames(page,2);}finally{await c.detach().catch(()=>{});}}
 async function stillShot(page){
  await page.evaluate(()=>document.fonts.ready.then(()=>{}));await settle(page);
  let prev=null,prevDom=null;
- for(let i=0;i<40;i++){await frames(page,3);await page.waitForTimeout(250);await idle(page);
+ for(let i=0;i<40;i++){await frames(page,3);await page.waitForTimeout(250);await idle(page);await fullRaster(page);
   const png=await page.screenshot({animations:'disabled',caret:'hide'}),dom=JSON.stringify(await domSnapshot(page));
   if(prev&&png.equals(prev)&&dom===prevDom&&await page.evaluate(()=>document.fonts.status==='loaded'))return {png,dom:JSON.parse(dom),tries:i+1};
   prev=png;prevDom=dom;}
@@ -200,7 +213,8 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
      for(const sel of areaSel){const a=await boxOf(sel);if(a)areas.push(a);else r.errors.push(`no element ${sel} (approved area of ${name})`);}
      const d=box?diffOutside(fs.readFileSync(bp),png,[box,...(overlay?[overlay]:[]),...areas]):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
      if(!box)r.errors.push(`no element ${ALLOW_BOX}`);else if(d.outside)r.errors.push(`${d.outside} differing pixels outside ${ALLOW_BOX} box ${box}${overlay?' or overlay '+overlay:''} (outside diffs span ${d.outsideBox})${d.sizeMismatch?' (size mismatch)':''}`);
-     if(fs.existsSync(bd)){const dd=compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom);if(dd.length)console.log(`  ${id} DOM differs (listed, not failed with --allow-box): ${dd.join(' | ').slice(0,300)}`);}results.push(r);}
+     // Approved areas are pixel boxes only: no DOM allowance inside them (ADR-0001 ruling); every DOM/style difference fails.
+     if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');results.push(r);}
     else{if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
     if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');
     if(MASK_BASE){const help=await page.evaluate(()=>{const e=document.getElementById('desktopHelp');if(!e||getComputedStyle(e).display==='none'||getComputedStyle(e).visibility==='hidden')return null;const b=e.getBoundingClientRect();return {left:b.left,top:b.top,right:b.right,bottom:b.bottom};});
@@ -222,4 +236,4 @@ if(!only.length){const m=JSON.parse(fs.readFileSync(path.join(BASE,'manifest.jso
 const bad=results.filter(r=>r.errors.length);fs.writeFileSync(path.join(OUT,'report.json'),JSON.stringify({secs,results},null,1));
 for(const r of bad)console.error('FAIL',r.id,'—',r.errors.join(' | '));
 const accs=results.filter(r=>r.accepted&&!r.errors.length),acc=accs.length,total=results.reduce((n,r)=>n+(r.differing||0),0);
-console.log(`test:pixels: ${results.length-bad.length-acc}/${results.length} captures at 0 px, ${acc} accepted exception(s)${acc?' ('+accs.map(r=>r.id+' '+r.accepted+' px').join(', ')+')':''}, ${bad.length} failed; ${total} differing px in total; DOM/styles ${results.some(r=>r.errors.some(e=>!/pixels|baseline/.test(e)))?'DIFFER':'equal'} in ${secs}s`);process.exit(bad.length?1:0);
+console.log(`test:pixels: ${results.length-bad.length-acc}/${results.length} captures at 0 px, ${acc} accepted exception(s)${acc?' ('+accs.map(r=>r.id+' '+r.accepted+' px').join(', ')+')':''}, ${bad.length} failed; ${total} differing px in total; DOM/styles ${results.some(r=>r.errors.some(e=>/^(outerHTML differs|computed style|…\d+ elements|vs )/.test(e)))?'DIFFER':'equal'} in ${secs}s`);process.exit(bad.length?1:0);
