@@ -271,7 +271,7 @@ if(loadUnit()==='in')showUnits();
 window.__cad={touch,get project(){return project;},get selected(){return selected;},get historyLength(){return history.length;},get model(){return model;},get display(){return resultMesh;},change:fn=>change(()=>fn(project)),get uploads(){return uploads.bytes;},get picks(){return pickMeshes;},get scene(){return scene;},request,objectsPanel,tooltips,commands,selection,load:p=>{project=loadProject(p);selected=project.objects.find(o=>layerOf(o)===project.activeLayer)?.id;refresh(true);},templates:{blank,plate,tray},exportMenu,units:{get:getUnit,set:u=>{setUnit(u);showUnits();}}};
 refresh(true);
 
-// ADR unified-desktop-layout: the help line exists on every platform (F1a adds the approved '· ? for shortcuts'); CSS shows it only with a mouse or trackpad
+// ADR unified-desktop-layout: the help line exists on every platform (F1a appends the approved shortcuts hint to its text below); CSS shows it only with a mouse or trackpad
 // ((any-hover:hover) and (any-pointer:fine)). It sits 18 px right of the Objects toggle, centred on it, or 18 px right
 // of the open Objects panel at the same top; at widths where that would overlap a viewport control it is hidden.
 {const help=document.createElement('div');help.id='desktopHelp';help.textContent='Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom · ? for shortcuts';$('viewport').appendChild(help);

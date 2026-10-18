@@ -11,5 +11,111 @@
    "#sheet"
   ]
  },
- "dom": []
+ "dom": [
+  {
+   "scene": "*",
+   "selector": "#desktopHelp",
+   "kind": "text",
+   "expected": "Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom · ? for shortcuts",
+   "approval": "keyboard-shortcuts help pill '· ? for shortcuts' (QA'd at 40f3c6e)"
+  },
+  {
+   "scene": "*",
+   "selector": "#helpBtn",
+   "kind": "title",
+   "expected": "Help (?)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#undo",
+   "kind": "title",
+   "expected": "Undo (Cmd/Ctrl+Z)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#redo",
+   "kind": "title",
+   "expected": "Redo (Cmd/Ctrl+Shift+Z)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#wire",
+   "kind": "title",
+   "expected": "Wireframe (W)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#fit",
+   "kind": "title",
+   "expected": "Fit model (0)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#touchModes>button[data-mode=select]",
+   "kind": "title",
+   "expected": "Select (V)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#touchModes>button[data-mode=move]",
+   "kind": "title",
+   "expected": "Move (M)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#touchModes>button[data-mode=stretch]",
+   "kind": "title",
+   "expected": "Stretch (S)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#touchModes>button[data-mode=round]",
+   "kind": "title",
+   "expected": "Edge (F)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#deselectBtn",
+   "kind": "title",
+   "expected": "Clear (Shift+Delete)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#addBtn",
+   "kind": "title",
+   "expected": "Add (A)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#exportBtn",
+   "kind": "title",
+   "expected": "Export (Cmd/Ctrl+E)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#closeSheet",
+   "kind": "title",
+   "expected": "Close panel (Esc)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#duplicateObject",
+   "kind": "title",
+   "expected": "Duplicate (Cmd/Ctrl+D)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  }
+ ]
 }
