@@ -25,12 +25,16 @@ const textOf=el=>{const t=[],walk=n=>{for(const c of n.childNodes)c.nodeType===3
 export const visibleLabel=el=>{const t=[],walk=n=>{for(const c of n.childNodes)c.nodeType===3?t.push(c.nodeValue):c.nodeType===1&&walk(c);};walk(el);
  return t.filter(x=>/[\p{L}\p{N}]/u.test(x)).join(' ').replace(/\s+/g,' ').replace(/\s*▾$/,'').trim();};
 export function installTooltips({commands,root=document}={}){
- // What this module last wrote, per button and attribute; any other value came from the markup or the app.
- // A registry command owns both attributes; on other buttons the values set by the markup or the app win.
- const ours=new WeakMap(),cmdOf=el=>commands?.get(commandId(el)),authored=(el,a)=>!cmdOf(el)&&el.hasAttribute(a)&&el.getAttribute(a)!==ours.get(el)?.[a];
- const tipFor=el=>{const cmd=cmdOf(el);return cmd?tooltipText(cmd,el.dataset.tipLabel||visibleLabel(el)||cmd.tooltip):authored(el,'title')?el.getAttribute('title'):authored(el,'aria-label')?el.getAttribute('aria-label'):textOf(el);};
- const label=el=>{if(inert(el))return;const tip=tipFor(el);if(!tip)return;
-  const mine=ours.get(el)||{};for(const a of ['title','aria-label'])if(!authored(el,a)){if(el.getAttribute(a)!==tip)el.setAttribute(a,tip);mine[a]=tip;}ours.set(el,mine);};
+ // What this module last wrote, per button and attribute; any other value came from the markup or the app (own()).
+ // UI round 2, ruling 3: F1b never changes an existing accessible name. It writes the title (the tooltip), and an
+ // aria-label only on a button that had no name at all (no aria-label, no text, no title of its own). A button whose
+ // only name was its own title gets that title copied to aria-label before the tooltip replaces the title.
+ const ours=new WeakMap(),cmdOf=el=>commands?.get(commandId(el)),own=(el,a)=>el.hasAttribute(a)&&el.getAttribute(a)!==ours.get(el)?.[a];
+ const tipFor=el=>{const cmd=cmdOf(el);return cmd?tooltipText(cmd,el.dataset.tipLabel||visibleLabel(el)||cmd.tooltip):own(el,'title')?el.getAttribute('title'):own(el,'aria-label')?el.getAttribute('aria-label'):textOf(el);};
+ const set=(el,mine,a,v)=>{if(el.getAttribute(a)!==v)el.setAttribute(a,v);mine[a]=v;};
+ const label=el=>{if(inert(el))return;const tip=tipFor(el);if(!tip)return;const mine=ours.get(el)||{};
+  if(!own(el,'aria-label')&&(mine.named||!textOf(el))){if(!('named' in mine))mine.named=own(el,'title')?el.getAttribute('title'):null;set(el,mine,'aria-label',mine.named??tip);}
+  if(cmdOf(el)||!own(el,'title'))set(el,mine,'title',tip);ours.set(el,mine);};
  const apply=(node=root)=>{if(node.matches?.('button'))label(node);node.querySelectorAll?.('button').forEach(label);};
  apply();
  const observer=new MutationObserver(list=>{for(const m of list){m.addedNodes.forEach(apply);const b=(m.target.nodeType===1?m.target:m.target.parentElement)?.closest('button');if(b)label(b);}});
