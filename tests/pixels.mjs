@@ -80,7 +80,11 @@ const proj=(name,objects,extra={})=>({format:'tristancad',version:2,name,objects
 const D={box:{w:30,d:30,h:15},cylinder:{diameter:20,h:20},sphere:{diameter:25},tube:{diameter:25,inner:18,h:20},cone:{diameter:25,top:8,h:25}};
 const distinct=n=>{const types=['box','cylinder','sphere','tube','cone'],o=[];for(let i=0;i<n;i++){const t=types[i%5],q={...D[t]};q.h=(q.h||10)+i*.1;if(t==='sphere')q.diameter+=i*.1;o.push(ob('o'+i,t,q,[(i%10)*35,Math.floor(i/10)*35,0],{name:t+i}));}return proj(`${n} distinct`,o,{buildPlaneEnabled:true});};
 const filletBox=q=>proj('Filleted box '+q,[ob('fb','cylinder',{diameter:30,h:15},[0,0,7.5],{fillets:[{edges:[0,2],radius:2}],resolution:{mode:'tolerance',tolerance:q}})]);
-async function load(page,p,parts){await page.evaluate(p=>window.__cad.load(p),typeof p==='string'?JSON.parse(p):p);
+// An empty project (parts 0) has no model change to wait for, so record that this load's preview started and
+// then wait for it to settle; otherwise the capture can land before the preview runs (blank@* status flake).
+async function load(page,p,parts){if(parts===0)await page.evaluate(()=>{window.__previewSeen=false;const b=document.querySelector('#busy');const o=new MutationObserver(()=>{if(b.textContent.trim()==='Building solid…'){window.__previewSeen=true;o.disconnect();}});o.observe(b,{subtree:true,childList:true,characterData:true});});
+ await page.evaluate(p=>window.__cad.load(p),typeof p==='string'?JSON.parse(p):p);
+ if(parts===0){await page.waitForFunction(()=>window.__previewSeen,{},{timeout:180000});await idle(page);}
  await page.waitForFunction(n=>window.__cad.model&&(n===0||window.__cad.model.parts?.length>=n),parts??1,{timeout:180000});await deselect(page);await fit(page);}
 const loadTemplate=async(page,t)=>{await page.evaluate(t=>window.__cad.load(window.__cad.templates[t]()),t);await page.waitForFunction(()=>window.__cad.model?.volume>0);await deselect(page);await fit(page);};
 const fit=async page=>{await page.locator('#fit').click();await settle(page);};
@@ -166,6 +170,11 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
   const tr=(l,t)=>process.env.PIXEL_TRACE&&console.log(`    ${name}@${vp} ${l} ${Date.now()-t}ms`);
   await scenes[name](page,async(step)=>{let t=Date.now();const id=`${name}${step?'.'+step:''}@${vp}`,{png,dom,tries}=await stillShot(page);tr('still shot ('+tries+' captures)',t);
    const dir=update?null:OUT;if(update){fs.writeFileSync(path.join(PX,id+'.png'),png);fs.writeFileSync(path.join(DOM,id+'.json'),JSON.stringify(dom));}else{fs.writeFileSync(path.join(dir,id+'.png'),png);fs.writeFileSync(path.join(dir,id+'.json'),JSON.stringify(dom));}
+   // AVALON_PIXEL_RECTS=1 (with --out): also write <id>.rects.json, the boxes of the areas a re-baseline may change, for
+   // the approved-area check (ADR-0001 W0 re-baseline). Capture only; nothing is compared here.
+   if(process.env.AVALON_PIXEL_RECTS&&!update)fs.writeFileSync(path.join(OUT,id+'.rects.json'),JSON.stringify(await page.evaluate(()=>{const box=e=>{if(!e)return null;const r=e.getBoundingClientRect(),c=getComputedStyle(e);return r.width&&r.height&&c.visibility!=='hidden'&&c.display!=='none'?[r.left,r.top,r.right,r.bottom]:null;};
+    const help5=[...document.querySelectorAll('#sheet:not([hidden]) .helpitem')].find(e=>/^5\. Export for printing/.test(e.textContent));
+    return {dpr:devicePixelRatio,modebar:box(document.getElementById('touchModes')),dock:box(document.querySelector('.dock')),toolbar:box(document.querySelector('.toolbar')),help5:box(help5),pill:box(document.getElementById('desktopHelp'))};})));
    caps.push(id);if(!update){const bp=path.join(PX,id+'.png'),bd=path.join(DOM,id+'.json');const r={id,errors:[]};
     if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
     if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');

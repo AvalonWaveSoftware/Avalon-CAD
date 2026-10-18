@@ -18,6 +18,9 @@ grep -q "JS_ENGINE=false" "$ROOT/web/perf-flags.mjs" && ASSETS="$ASSETS python/p
 for f in $ASSETS; do
   [ -f "$ROOT/app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
 done
+# ADR-0001 W0 (ruling 4): every lazy chunk main.js loads with import() must ship too.
+CHUNKS=$(grep -oE 'import\("\./chunk-[A-Za-z0-9_-]+\.js"\)' "$ROOT/app/assets/main.js" | sed -E 's/.*\.\/(chunk-[^"]+)".*/\1/' | sort -u)
+for f in $CHUNKS; do [ -f "$ROOT/app/assets/$f" ] || { echo "Missing lazy chunk app/assets/$f" >&2; exit 1; }; done
 # --skip-web must not ship assets built from older sources (tools/web-stamp.mjs compares content hashes).
 # AVALON_ALLOW_STALE_WEB=1 packages anyway, with a warning.
 if ! (cd "$ROOT" && node tools/web-stamp.mjs check); then
@@ -30,6 +33,7 @@ fi
 rm -rf build/web build/icons dist
 mkdir -p build/icons
 cp -r "$ROOT/app/assets" build/web
+for f in $CHUNKS; do [ -f "build/web/$f" ] || { echo "Staged build/web is missing lazy chunk $f" >&2; exit 1; }; done
 for s in 16 24 32 48 64 128 256 512; do rsvg-convert -w $s -h $s icon.svg -o build/icons/${s}x${s}.png; done
 npm ci --no-audit --no-fund
 TARGET="${TARGET:-rpm}"

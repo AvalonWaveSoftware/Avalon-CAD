@@ -1,5 +1,5 @@
 {
- "note": "User-visible strings added by ADR new-primitives-polyhedra-text (phase 2: Torus, Triangular prism, Advanced shapes, Letters, numbers & symbols). dom-baseline.mjs accepts exactly these additions to the aab9865 string baseline; anything else new, or any removal, still fails.",
+ "note": "User-visible strings added by ADR new-primitives-polyhedra-text (phase 2: Torus, Triangular prism, Advanced shapes, Letters, numbers & symbols). dom-baseline.mjs accepts exactly these additions to the aab9865 string baseline; anything else new, or any removal, still fails. ADR-0001 W0 (3.0 v3-foundation): \"tristancad.autosave.v3\" is the internal localStorage key of the dual-key autosave (§2.2, Q14), not UI text. W0 mode bar and dock (ADR-0001 §2.3, round-2 ruling 1): \"Rotate\" and \"Mirror\" are the reserved, hidden mode-bar buttons; \"Export\" is the renamed dock button. \"Export STL\" leaves the string table at the W0 re-baseline (strings-baseline.json --update after Sean's approval).",
  "strings": [
   "Advanced shapes",
   "Capital letters",
@@ -27,6 +27,10 @@
   "Tube diameter",
   "Letter ",
   "Number ",
-  "Symbol "
+  "Symbol ",
+  "tristancad.autosave.v3",
+  "Export",
+  "Rotate",
+  "Mirror"
  ]
 }

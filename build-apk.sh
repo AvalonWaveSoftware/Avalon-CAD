@@ -13,6 +13,9 @@ npm run build:web
 for f in index.html style.css main.js worker.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt; do
   [ -f "app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
 done
+# ADR-0001 W0 (ruling 4): every lazy chunk main.js loads with import() must ship too.
+CHUNKS=$(grep -oE 'import\("\./chunk-[A-Za-z0-9_-]+\.js"\)' "app/assets/main.js" | sed -E 's/.*\.\/(chunk-[^"]+)".*/\1/' | sort -u)
+for f in $CHUNKS; do [ -f "app/assets/$f" ] || { echo "Missing lazy chunk app/assets/$f" >&2; exit 1; }; done
 "$BT/aapt2" compile --dir app/res -o build/resources.zip
 "$BT/aapt2" link -o build/base-resources.apk --manifest app/AndroidManifest.xml -I "$PLATFORM" build/resources.zip
 java com.sun.tools.javac.Main -source 8 -target 8 -classpath "$PLATFORM" -d build/classes app/src/com/tristan/cad/MainActivity.java
