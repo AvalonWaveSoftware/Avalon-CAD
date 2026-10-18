@@ -27,7 +27,9 @@ export const fieldLen=mm=>unit==='in'?fmtLen(mm):String(mm);
 // unitMessage(text) → a validation message in the shown unit (Master Chief approval, UI round 2 ruling 1): the mm
 // limits of a length field read in inches while inches are on. Tolerance and export messages are not listed, so they stay mm.
 const INCH_MESSAGES={'Dimension must be 0.05–10000 mm.':'Dimension must be 0.002–393.7 in.','Dimensions must be at least 0.05 mm.':'Dimensions must be at least 0.002 in.',
- 'Extrusion height must be 0.05–10000 mm.':'Extrusion height must be 0.002–393.7 in.','Connecting bar diameter must be 0.5–10000 mm.':'Connecting bar diameter must be 0.02–393.7 in.'};
+ 'Extrusion height must be 0.05–10000 mm.':'Extrusion height must be 0.002–393.7 in.','Connecting bar diameter must be 0.5–10000 mm.':'Connecting bar diameter must be 0.02–393.7 in.',
+ // ADR-0001 F7 ruling 1 (wired by F7, the second of F7 / inch-units to merge): the Engrave plate limit, 1 mm = 0.039 in.
+ 'Engrave needs a plate thicker than 1 mm.':'Engrave needs a plate thicker than 0.039 in.'};
 export const unitMessage=m=>unit==='in'&&INCH_MESSAGES[m]||m;
 // stepOptions() → steps in mm (ruling 13): the edit-field step and the Move/Stretch drag steps (Free / 0.1 / 1 mm, or
 // Free / 0.01 / 0.1 in). The sketch snap (1 mm or 0.05 in) is snapSketch below; the grid cell (10 mm or 0.5 in) is main.mjs gridHelper.

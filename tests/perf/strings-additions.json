@@ -168,6 +168,11 @@
    "runtime": true,
    "source": "web/main.mjs:160",
    "approval": "F7 batch (pending Master Chief)"
+  },
+  {
+   "text": "Engrave needs a plate thicker than 0.039 in.",
+   "source": "web/units.mjs:32",
+   "approval": "F7 batch (pending Master Chief)"
   }
  ],
  "removals": [
