@@ -1,7 +1,7 @@
 import {initKernel} from './kernel.mjs';
 import {initLocalEngine} from './local-engine.mjs';
 import {TOPOLOGY_SERVICE,PARALLEL_INIT,BUNDLE_SPLIT,OCCT_SIDECAR} from './perf-flags.mjs';
-import {initSolid,solidMeshFresh,objectTopology,warmShape} from './cad-solid.mjs';
+import {initSolid,solidMeshFresh,objectTopology,warmShape,occtNeedsReset,resetSolid} from './cad-solid.mjs';
 import {solidRemote,runJob,packError} from './occt-remote.mjs';
 import {needsSolid} from './solid-gate.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
@@ -56,7 +56,8 @@ async function drain(){if(running)return;running=true;
   await prepareGlyphs(data);
   // WS14: a preview waiting for the sidecar is dropped as soon as a newer preview arrives.
   if(OCCT_SIDECAR){const abort=data.type==='preview'?new Promise(r=>current={type:'preview',abort:r}):null;try{result=await runJob(engine,data,remote,{fetch:askSidecar,onInterim:r=>postInterim(data.id,r),abort});}finally{current=null;}if(result.canceled){self.postMessage({id:data.id,canceled:true});continue;}}
-  else{if(BUNDLE_SPLIT&&needsSolid(data))await startSolid();result=engine.process(data);}
+  // ADR-0001 F7 P3: after an OCCT memory error (wasm trap) the next job first gets a fresh OCCT instance from the compiled module.
+  else{if(BUNDLE_SPLIT&&needsSolid(data))await startSolid();if(occtNeedsReset())await resetSolid();result=engine.process(data);}
   result.engine=engine.info;
   const transfers=[];if(result.buffer)transfers.push(result.buffer);
   for(const key of ['vertices','triangles','flatTriangles','smoothingGroups','displayPositions','displayNormals','displayIndex'])if(ArrayBuffer.isView(result[key]))transfers.push(result[key].buffer);
@@ -71,8 +72,9 @@ async function drain(){if(running)return;running=true;
 // (or the same error) the in-process calls give.
 function occtSidecar(){
  const asset=name=>new URL(name+(PARALLEL_INIT?self.location.search:''),self.location.href).href;
- const ready=initSolid({locateFile:()=>asset('cad-kernel.wasm')});
- self.onmessage=async({data:{id,request:r}})=>{let answer;try{await ready;}catch(e){self.postMessage({id,answer:{error:packError(e),init:true}});return;}
+ let ready=initSolid({locateFile:()=>asset('cad-kernel.wasm')});
+ // P3: a request that finds OCCT trapped by an earlier one first waits for a fresh instance (requests run in arrival order).
+ self.onmessage=async({data:{id,request:r}})=>{let answer;try{if(occtNeedsReset())ready=ready.then(()=>occtNeedsReset()?resetSolid():undefined);await ready;}catch(e){self.postMessage({id,answer:{error:packError(e),init:true}});return;}
   try{
    await prepareGlyphs(r.o);
    if(r.kind==='mesh'){const m=solidMeshFresh(r.o,r.tolerance,r.display);answer={m};self.postMessage({id,answer},[m.vertices.buffer,m.triangles.buffer]);return;}

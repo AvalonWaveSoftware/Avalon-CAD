@@ -1,7 +1,15 @@
 import {makeObject,meshData,validateProject} from './kernel.mjs';
+import {glyphLayout,glyphHalfExtents} from './glyph-geometry.mjs';
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
 import {objectTopology,objectTopologyEntry,memoTopology,glyphBevelNote} from './cad-solid.mjs';
 // ADR-0001 F7: a bevelled glyph whose bevel had to be halved carries bevelUsed (mm) so the app can tell the user.
+// ADR-0001 F7 P2: placement / ground only need bounds. A bevelled glyph with a plate has planar extremes (the plate box,
+// the flat glyph top), so a 0.15 mm build gives the same bounds as 0.005 mm without tessellating the OCCT bevel part at
+// 0.0025 mm (round Engrave 't': 29 s, 1.7 GB OCCT heap). The coarse build is used only when its bounds are exactly the
+// analytic plate box (within 1e-4 mm); otherwise 0.005 mm as before.
+const finishedPlate=o=>o?.type==='glyph'&&o.params?.bevel>0&&o.params?.plate>0;
+function plateBox(o){const p=o.params,{f,plate,glyph}=glyphLayout(p),[hx,hy]=glyphHalfExtents(p.char,p.size),ox=hx+f.margin,oy=hy+f.margin;return [[-ox,-oy,plate[0]],[ox,oy,f.engrave?plate[1]:glyph[1]]];}
+function boundsSolid(K,o){if(finishedPlate(o)){let s;try{s=makeObject(K,o,.15);}catch(e){if(e instanceof WebAssembly.RuntimeError)throw e;return makeObject(K,o,.005);}const b=s.boundingBox(),[lo,hi]=plateBox(o),ok=[0,1,2].every(i=>Math.abs(b.min[i]-lo[i])<1e-4&&Math.abs(b.max[i]-hi[i])<1e-4);if(ok)return s;s.delete();}return makeObject(K,o,.005);}
 const bevelNote=o=>{const v=glyphBevelNote(o);return v==null?{}:{bevelUsed:v};};
 import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE,BUNDLE_SPLIT,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {jsJobs} from './js-engine.mjs';
@@ -15,8 +23,8 @@ import {resolutionTolerance} from './facets.mjs';
 export async function initLocalEngine(K,options={}){
  const rust=await (options.rust?.ready||initRustMesh(options.rust||{}));
  K.threadMesh=(o,tolerance)=>rust.threadMesh(o.type,o.params,tolerance);
- function placeObject(value,requested,floor){const o=structuredClone(value),at=Array.from(requested);if(at.length!==3||at.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('Invalid placement coordinates.');if(floor)at[2]=Math.max(0,at[2]);o.position=[0,0,0];validateProject(booleanProject([o]));const s=makeObject(K,o,.005);try{const b=s.boundingBox();if(s.isEmpty())throw Error('This object contains no material.');o.position=[at[0]-(b.min[0]+b.max[0])/2,at[1]-(b.min[1]+b.max[1])/2,at[2]-b.min[2]];o.positionReference='base';o.placement=at;validateProject(booleanProject([o]));return {object:o};}finally{s.delete();}}
- function groundProject(value){const p=validateProject(value);let min=0;for(const o of p.objects.filter(o=>o.enabled)){const s=makeObject(K,o,.005);try{if(!s.isEmpty())min=Math.min(min,s.boundingBox().min[2]);}finally{s.delete();}}if(min<0)for(const o of p.objects){o.position[2]-=min;if(o.placement)o.placement[2]-=min;}p.buildPlaneEnabled=true;return {project:validateProject(p),lift:-min};}
+ function placeObject(value,requested,floor){const o=structuredClone(value),at=Array.from(requested);if(at.length!==3||at.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('Invalid placement coordinates.');if(floor)at[2]=Math.max(0,at[2]);o.position=[0,0,0];validateProject(booleanProject([o]));const s=boundsSolid(K,o);try{const b=s.boundingBox();if(s.isEmpty())throw Error('This object contains no material.');o.position=[at[0]-(b.min[0]+b.max[0])/2,at[1]-(b.min[1]+b.max[1])/2,at[2]-b.min[2]];o.positionReference='base';o.placement=at;validateProject(booleanProject([o]));return {object:o};}finally{s.delete();}}
+ function groundProject(value){const p=validateProject(value);let min=0;for(const o of p.objects.filter(o=>o.enabled)){const s=boundsSolid(K,o);try{if(!s.isEmpty())min=Math.min(min,s.boundingBox().min[2]);}finally{s.delete();}}if(min<0)for(const o of p.objects){o.position[2]-=min;if(o.placement)o.placement[2]-=min;}p.buildPlaneEnabled=true;return {project:validateProject(p),lift:-min};}
  let acknowledged=null;const cache=ENGINE_CACHE?engineCache(K,{budget:options.engineCacheBudget,prepare:INDEXED_DISPLAY?d=>rust.prepareIndexed(d.vertices,d.triangles,d.flatTriangles,d.smoothingGroups):null}):null,cachedJob=d=>cache&&['preview','check','export'].includes(d?.type);let active=false;
  const threadEntry=o=>{const tolerance=resolutionTolerance(o,.15);const v=memoTopology(JSON.stringify(['thread',o.type,o.params,tolerance]),()=>threadTopology(K.threadMesh(o,tolerance),o));return {hash:v.hash,topology:v.t};};
  const bridge={runtime_info:version=>({python:version,rust:rust.version,local:true}),
