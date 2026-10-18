@@ -15,31 +15,34 @@ const defaultWorker=url=>new Worker(url,{type:'module',name:'3mf-pool'});
 /** Starts `size` pool workers. `wasm` is the mesh-core.wasm URL (or `binary`, an ArrayBuffer, for tests). */
 export function createPool({size=poolSize(),script,wasm,binary,makeWorker=defaultWorker,timeout=8000}={}){
  const workers=[],pending=new Map();let nextId=0,dead=false,error='';
+ // Reasons are debug codes (console line only, never shown), with the platform's detail appended.
+ const why=(code,detail)=>detail?`${code} ${detail}`:code;
  const kill=reason=>{if(dead)return;dead=true;error=error||reason;for(const w of workers){try{w.terminate();}catch{}}for(const p of pending.values())p.reject(Error(error));pending.clear();};
  const ready=new Promise(resolve=>{
-  let left=size;const timer=setTimeout(()=>{kill('pool start timed out');resolve(false);},timeout);
+  let left=size;const timer=setTimeout(()=>{kill('start-timeout');resolve(false);},timeout);
   const done=ok=>{if(!ok){clearTimeout(timer);resolve(false);return;}if(--left===0){clearTimeout(timer);resolve(!dead);}};
   try{for(let i=0;i<size;i++){const w=makeWorker(script);workers.push(w);
-   w.onmessage=({data})=>{if(data.op==='ready')return done(true);if(data.op==='failed'){kill('worker failed to start: '+data.error);return done(false);}
+   w.onmessage=({data})=>{if(data.op==='ready')return done(true);if(data.op==='failed'){kill(why('worker-failed',data.error));return done(false);}
     const p=pending.get(data.id);if(!p)return;pending.delete(data.id);data.op==='error'?p.reject(Error(data.error)):p.resolve(data);};
-   w.onerror=e=>{e?.preventDefault?.();kill('worker error: '+(e?.message||'load failed'));done(false);};
-   w.onmessageerror=()=>{kill('worker message error');done(false);};
+   w.onerror=e=>{e?.preventDefault?.();kill(why('worker-error',e?.message));done(false);};
+   w.onmessageerror=()=>{kill('message-error');done(false);};
    w.postMessage(binary?{op:'init',binary:binary.slice(0)}:{op:'init',wasm});}}
-  catch(e){kill('workers unavailable: '+(e?.message||e));clearTimeout(timer);resolve(false);}
+  catch(e){kill(why('no-workers',String(e?.message||e)));clearTimeout(timer);resolve(false);}
  });
  const call=(w,msg,transfer=[])=>new Promise((resolve,reject)=>{if(dead)return reject(Error(error));const id=++nextId;pending.set(id,{resolve,reject});w.postMessage({...msg,id},transfer);});
  return {size,ready,get dead(){return dead;},get error(){return error;},
-  /** The 3MF package of a validated mesh ({vertices, triangles, minZ}) from PARTS_3MF parts, by a work queue. */
+  /** The 3MF package of a validated mesh ({vertices, triangles, minZ}) from PARTS_3MF parts, in a fixed round-robin. */
   async encode({vertices,triangles,minZ}){
-   const points=vertices.length/3,tris=triangles.length/3,parts=new Array(PARTS_3MF);let next=0;
-   const loop=async w=>{while(next<PARTS_3MF){const k=next++,[a,b]=partRange3MF(points,tris,k);
+   // Part k always goes to worker k % size, so every worker meets its memory peak on the first export.
+   const points=vertices.length/3,tris=triangles.length/3,parts=new Array(PARTS_3MF);
+   const loop=async(w,j)=>{for(let k=j;k<PARTS_3MF;k+=workers.length){const [a,b]=partRange3MF(points,tris,k);
     const v=k<4?vertices.slice(a*3,b*3):new Float32Array(0),t=k<4?new Uint32Array(0):triangles.slice(a*3,b*3);
     const r=await call(w,{op:'part',k,minZ,vertices:v,triangles:t},[v.buffer,t.buffer]);parts[k]={bytes:r.bytes,crc:r.crc,size:r.size};}};
-   await Promise.all(workers.map(loop));
+   await Promise.all(workers.map((w,j)=>loop(w,j)));
    return (await call(workers[0],{op:'package',parts},parts.map(p=>p.bytes))).buffer;
   },
   memory(){return Promise.all(workers.map(w=>call(w,{op:'memory'}).then(r=>r.memory)));},
-  dispose(){kill('pool closed');}};
+  dispose(){kill('closed');}};
 }
 
 let current=null,broken='';
@@ -58,9 +61,9 @@ export async function export3MF({request,payload,assetURL,options={}}){
  const data=await request('export',{...payload,format:'3mf-mesh'});
  const mesh=data.mesh3mf;delete data.mesh3mf;
  let buffer=null;
- if(pool){try{if(!await pool.ready)throw Error(pool.error||'pool did not start');
+ if(pool){try{if(!await pool.ready)throw Error(pool.error||'not-ready');
   // Watchdog: a pool that stops answering falls back too.
-  buffer=await Promise.race([pool.encode(mesh),new Promise((_,reject)=>setTimeout(()=>reject(Error('pool timed out')),options.encodeTimeout||60000))]);}
+  buffer=await Promise.race([pool.encode(mesh),new Promise((_,reject)=>setTimeout(()=>reject(Error('encode-timeout')),options.encodeTimeout||60000))]);}
   catch(e){reason=String(e?.message||e);broken=reason;pool.dispose();if(current===pool)current=null;}}
  if(!buffer)buffer=(await request('encode3mf',{vertices:mesh.vertices,triangles:mesh.triangles,ground:payload.ground},[mesh.vertices.buffer,mesh.triangles.buffer])).buffer;
  const encoder={path:buffer&&pool&&!reason?'pool':'fallback',workers:pool&&!reason?pool.size:0,cold,ms:Math.round(performance.now()-t0),...(reason?{reason}:{})};

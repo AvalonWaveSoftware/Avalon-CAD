@@ -76,11 +76,11 @@ r=await export3MF({request,payload:structuredClone(job),assetURL:n=>n==='export-
 assert.equal(r.encoder.path,'fallback');same(r.buffer,want,'missing script');dispose3MFPool();assert.equal(live.size,0);
 // mesh-core.wasm fails to instantiate in the workers (e.g. memory).
 r=await export3MF({request,payload:structuredClone(job),assetURL,options:opts({size:2,binary:new Uint8Array([0,97,115,109,9,9,9,9]).buffer})});
-assert.equal(r.encoder.path,'fallback');assert.match(r.encoder.reason,/failed to start/);same(r.buffer,want,'bad wasm');dispose3MFPool();
+assert.equal(r.encoder.path,'fallback');assert.match(r.encoder.reason,/worker-failed/);same(r.buffer,want,'bad wasm');dispose3MFPool();
 // Workers never answer.
 const silent=()=>({postMessage(){},terminate(){this.terminated=true;}});
 r=await export3MF({request,payload:structuredClone(job),assetURL,options:opts({size:2,makeWorker:silent,timeout:200})});
-assert.equal(r.encoder.path,'fallback');assert.match(r.encoder.reason,/timed out/);same(r.buffer,want,'silent workers');dispose3MFPool();
+assert.equal(r.encoder.path,'fallback');assert.match(r.encoder.reason,/start-timeout/);same(r.buffer,want,'silent workers');dispose3MFPool();
 // A worker dies mid-encode.
 let made=0;const dying=url=>{const w=nodeWorker(url);if(++made===2){const post=w.postMessage;w.postMessage=(m,t)=>{if(m.op==='part'){w.terminate();setTimeout(()=>w.onerror?.({message:'worker crashed'}),5);return;}post(m,t);};}return w;};
 r=await export3MF({request,payload:structuredClone(job),assetURL,options:opts({size:2,makeWorker:dying})});
