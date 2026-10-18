@@ -5,7 +5,10 @@ import {isThread,containsThreads} from './threads.mjs';
 import {polyBounds,POLYHEDRON_TYPES} from './polyhedra-shapes.mjs';
 import {GLYPH_METRICS} from './glyph-metrics.mjs';
 // Letters: outline bounding box × size / cap height (UI-safe metrics only), and the extrusion depth.
-export function glyphDimensions(p){const m=GLYPH_METRICS.m[p.char],k=p.size/GLYPH_METRICS.capHeight;return m?[(m[2]-m[0])*k,(m[3]-m[1])*k,p.depth]:[p.size,p.size,p.depth];}
+// ADR-0001 F7: with a plate the bounds are the plate (outline box + 2 × margin) and the total height (Emboss: plate +
+// depth; Engrave: the plate). Without one, exactly as before.
+export function glyphDimensions(p){const m=GLYPH_METRICS.m[p.char],k=p.size/GLYPH_METRICS.capHeight,d=m?[(m[2]-m[0])*k,(m[3]-m[1])*k,p.depth]:[p.size,p.size,p.depth];
+ if(!(p.plate>0))return d;const g=p.plateMargin>0?2*p.plateMargin:0;return [d[0]+g,d[1]+g,p.engrave===true?p.plate:p.plate+p.depth];}
 export const axes=['X','Y','Z'];
 export function rotation(o){return new T.Euler(...o.rotation.map(T.MathUtils.degToRad),'ZYX');}
 export function matrix(o){return new T.Matrix4().compose(new T.Vector3(...o.position),new T.Quaternion().setFromEuler(rotation(o)),new T.Vector3(...(o.scale||[1,1,1])));}
@@ -27,7 +30,10 @@ export function stretch(o,axis,sign,amount){const out=structuredClone(o),d=dimen
   if(axis===2&&o.type!=='sphere')p.h=next/s[axis];else{const ratio=next/d[axis];p.diameter*=ratio;if(p.inner)p.inner*=ratio;if(p.top)p.top*=ratio;}
  }else if(POLYHEDRON_TYPES.includes(o.type)){const ratio=next/d[axis];if(o.type==='decahedron'){p.diameter*=ratio;p.h*=ratio;}else p.size*=ratio; // uniform: keeps the solid regular
  }else if(o.type==='torus'){if(axis===2)p.tube=next/s[axis];else p.diameter=next/s[axis];
- }else if(o.type==='glyph'){if(axis===2)p.depth=next/s[axis];else p.size*=next/d[axis];
+ }else if(o.type==='glyph'){
+  // F7 plate: the margin and plate thickness stay; the glyph (size, or depth for Emboss) takes the change. Engrave: Z sets the plate.
+  if(p.plate>0){const g=p.plateMargin>0?2*p.plateMargin:0;if(axis===2){if(p.engrave===true)p.plate=next/s[axis];else p.depth=next/s[axis]-p.plate;}else p.size*=(next/s[axis]-g)/(d[axis]/s[axis]-g);}
+  else if(axis===2)p.depth=next/s[axis];else p.size*=next/d[axis];
  }else if(o.type==='polygon'){
   if(axis===2)p.h=next/s[axis];else{const vals=p.points.map(a=>a[axis]),mid=(Math.max(...vals)+Math.min(...vals))/2,ratio=next/d[axis];for(const a of p.points)a[axis]=mid+(a[axis]-mid)*ratio;}
  }else {out.scale=[...s];out.scale[axis]*=next/d[axis];}

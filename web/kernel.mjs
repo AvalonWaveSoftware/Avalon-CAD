@@ -29,10 +29,11 @@ export function makeLocalSolid(K,o,tolerance=0.15,styles) {
   const {Manifold:M}=K,p=o.params,custom=customFaces(o),n=custom||segments((p.diameter||p.r*2||20)/2,tolerance);
   let s,tagged=false; const keep=[]; const own=x=>(keep.push(x),x);
   try {
-    if(o.fillets?.some(f=>f.radius>0)){const m=solidMesh(o,tolerance,!!styles);
+    // ADR-0001 F7: a bevelled glyph (glyph-geometry.mjs) is an OCCT product too, meshed like a filleted part.
+    if(o.fillets?.some(f=>f.radius>0)||o.type==='glyph'&&p.bevel>0){const m=solidMesh(o,tolerance,!!styles);
       // WS14 (OCCT_SIDECAR): the fillet mesh is still being computed by the sidecar. This run is a stand-in (never
-      // cached, sent, if at all, only as display-only interim data): the part without its fillets.
-      if(!m)return makeLocalSolid(K,{...o,fillets:[]},requested,styles);
+      // cached, sent, if at all, only as display-only interim data): the part without its fillets (and bevel).
+      if(!m)return makeLocalSolid(K,o.type==='glyph'&&p.bevel>0?{...o,fillets:[],params:{...p,bevel:0}}:{...o,fillets:[]},requested,styles);
       const descriptor={numProp:3,vertProperties:m.vertices,triVerts:m.triangles,tolerance:1e-5};
       if(styles&&m.displayGroups.length){const first=M.reserveIDs(m.displayGroups.length);descriptor.runIndex=new Uint32Array([...m.displayGroups.map(g=>g.start),m.triangles.length]);descriptor.runOriginalID=new Uint32Array(m.displayGroups.map((g,i)=>{styles.set(first+i,g.flat);return first+i;}));tagged=true;}
       const mesh=new K.Mesh(descriptor);mesh.merge();s=own(new M(mesh));}

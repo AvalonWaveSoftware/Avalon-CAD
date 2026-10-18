@@ -1,5 +1,5 @@
 import {primitiveFaces} from './polyhedra.mjs';
-import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid} from './glyph-geometry.mjs';
+import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid,hasGlyphFinish,glyphLayout,glyphHalfExtents} from './glyph-geometry.mjs';
 import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
@@ -54,7 +54,7 @@ function baseShape(o) {
   case 'sphere':s=R.makeSphere(p.diameter/2);break;
   // replicad 1.1.0 has no makeTorus; the OCCT builder is used directly (as makeSphere does) and deleted at once (WS1).
   case 'torus':{const maker=new (R.getOC()).BRepPrimAPI_MakeTorus((p.diameter-p.tube)/2,p.tube/2);try{s=new R.Solid(maker.Shape());}finally{maker.delete();}break;}
-  case 'glyph':s=glyphSolid(R,p);break;
+  case 'glyph':s=glyphShape(p);break;
   case 'polygon':{const area=p.points.reduce((s,a,i)=>{const b=p.points[(i+1)%p.points.length];return s+a[0]*b[1]-a[1]*b[0];},0);const pts=area<0?[...p.points].reverse():p.points;const f=R.makePolygon(pts.map(a=>[a[0],a[1],-p.h/2])),v=new R.Vector([0,0,p.h]);try{s=R.basicFaceExtrusion(f,v);}finally{dispose(f);dispose(v);}break;}
   case 'prefab':{for(const group of materialGroups(p.children)){let merged;for(const child of [...group.solids,...group.cuts]){const a=fullShape(child);if(!merged)merged=a;else{const old=merged;try{merged=child.mode==='cut'?cut(old,a):fuse(old,a);}finally{dispose(old);dispose(a);}}}const fs=merged.faces,empty=!fs.length;fs.forEach(dispose);if(empty){dispose(merged);continue;}if(!s)s=merged;else{const old=s;try{s=fuse(old,merged);}finally{dispose(old);dispose(merged);}}}if(!s)throw Error('The prefab contains no solid material.');break;}
   case 'joined':{
@@ -82,9 +82,36 @@ function edgeFinish(base,fillets,edges){const oc=R.getOC(),by=new Map(),own=[],k
  try{const cb=keep(new oc.BRepFilletAPI_MakeChamfer(base.wrapped));for(const [i,f] of pass(true))cb.Add(f.radius,edges[i].wrapped);let out=keep(cb.Shape());
   if(rounds.length){step=1;const fb=keep(new oc.BRepFilletAPI_MakeFillet(out,oc.ChFi3d_FilletShape.ChFi3d_Rational));
    for(const [i,f] of rounds){let e=edges[i].wrapped;const l=keep(cb.Modified(e));if(l.Size())e=keep(oc.TopoDS.Edge(l.First()));fb.Add(f.radius,e);}out=keep(fb.Shape());}
-  if(!keep(new oc.BRepCheck_Analyzer(out,true,false)).IsValid())throw 0;const r=R.cast(out);if(!R.isShape3D(r)){dispose(r);throw 0;}return r;}
+  return validSolid(out,keep);}
  catch{throw Error(step?'That roundover is too large or conflicts with another edge. Reduce the radius.':'That chamfer is too large or conflicts with another edge. Reduce the distance.');}
  finally{own.reverse().forEach(dispose);}}
+// The finished OCCT result must pass BRepCheck and be a 3D shape (F6 edge finish, F7 glyph bevel); throws 0 otherwise.
+function validSolid(out,keep){const oc=R.getOC();if(!keep(new oc.BRepCheck_Analyzer(out,true,false)).IsValid())throw 0;const r=R.cast(out);if(!R.isShape3D(r)){dispose(r);throw 0;}return r;}
+// ADR-0001 F7: the finished glyph (glyph-geometry.mjs glyphLayout): the prism, the bevel and the plate. Without a
+// finish this is exactly the 2.x glyphSolid. Emboss: the glyph is bevelled on its own (top-cap edges), then fused onto
+// the plate; Engrave: the plate minus the glyph prism, then the cavity rim is bevelled.
+function glyphShape(p){
+ if(!hasGlyphFinish(p))return glyphSolid(R,p);
+ const {f,plate,glyph}=glyphLayout(p);let s=glyphSolid(R,p,glyph[0],glyph[1]-glyph[0]);
+ if(f.bevel&&!f.engrave)s=glyphBevel(s,glyph[1],f,p.char,null);
+ if(f.plate){const [hx,hy]=glyphHalfExtents(p.char,p.size),ox=hx+f.margin,oy=hy+f.margin,slab=R.makeBox([-ox,-oy,plate[0]],[ox,oy,plate[1]]),g=s;
+  try{s=f.engrave?cut(slab,g):fuse(slab,g);}finally{dispose(slab);dispose(g);}
+  if(f.bevel&&f.engrave)s=glyphBevel(s,plate[1],f,p.char,[ox,oy]);}
+ return s;
+}
+// F7 bevel: an OCCT chamfer (symmetric, the F6 MakeChamfer) or round (MakeFillet, Rational as replicad's fillet()) of
+// distance f.bevel on the edges lying in the plane z = top (outer: the plate rectangle, whose border edges are left
+// alone). ADR §4 F7 failure handling: retry once at half the distance; if that fails too, a clear error. Never a silently
+// unbevelled glyph. Consumes s.
+function glyphBevel(s,top,f,char,outer){const oc=R.getOC(),edges=explore(s,'edge'),at=1e-6;
+ const onTop=e=>{const c=e.curve;try{const w=c.wrapped,a=w.FirstParameter(),b=w.LastParameter(),pts=[a,(a+b)/2,b].map(t=>{const q=w.Value(t);try{return [q.X(),q.Y(),q.Z()];}finally{q.delete();}});
+   return pts.every(q=>Math.abs(q[2]-top)<at)&&!(outer&&(pts.every(q=>Math.abs(Math.abs(q[0])-outer[0])<at)||pts.every(q=>Math.abs(Math.abs(q[1])-outer[1])<at)));}finally{dispose(c);}};
+ const pick=edges.filter(onTop);
+ const attempt=d=>{const own=[],keep=x=>own[own.length]=x;try{const mk=keep(f.profile==='round'?new oc.BRepFilletAPI_MakeFillet(s.wrapped,oc.ChFi3d_FilletShape.ChFi3d_Rational):new oc.BRepFilletAPI_MakeChamfer(s.wrapped));
+   for(const e of pick)mk.Add(d,e.wrapped);return validSolid(keep(mk.Shape()),keep);}catch{return null;}finally{own.reverse().forEach(dispose);}};
+ try{if(!pick.length)throw Error(`Bevel not possible on '${char}' at this size`);const r=attempt(f.bevel)||attempt(f.bevel/2);if(!r)throw Error(`Bevel not possible on '${char}' at this size`);return r;}
+ finally{edges.forEach(dispose);dispose(s);}
+}
 function fullShape(o) {
  if(o.scale?.some(v=>Math.abs(v-1)>1e-8))throw Error('A scaled compound uses mesh editing. Round its component shapes before conjoining.');
  const s=baseShape(o),edges=s.edges;let r;
@@ -179,7 +206,7 @@ function glyphTopology(s,edges,o){return withScope(own=>{
   const dot=(ti[0]*to[0]+ti[1]*to[1])/(Math.hypot(...ti)*Math.hypot(...to));if(Math.abs(dot)<.9999)pickEdges.push({index:k,points:[...e.A,...e.B]});}
  return {vertices:new Float32Array(V),triangles:new Uint32Array(Tr),groups,faces:faceData,edges:pickEdges};
 });}
-function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulator){const t=glyphTopology(s,edges,o);if(t)return t;}return withScope(own=>{
+function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulator&&!hasGlyphFinish(o.params)){const t=glyphTopology(s,edges,o);if(t)return t;}return withScope(own=>{
  const faces=own.all(explore(s,'face')),edgeIds=new Map(edges.map((e,i)=>[e.hashCode,i]));
  const mesh=GLYPH_FAST&&o?.type==='torus'&&faces.length===1?torusTopologyMesh(o.params,faces[0].hashCode):s.mesh({tolerance:.08,angularTolerance:.12});
  const groups=mesh.faceGroups.map(g=>({...g,face:faces.findIndex(f=>f.hashCode===g.faceId)}));

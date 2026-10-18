@@ -55,6 +55,9 @@ export function validateProject(p, shareFrozen=false) {
     if(o.type==='tube' && o.params.inner>=o.params.diameter) throw Error('The inner diameter must be smaller than the outer diameter.');
     if(o.type==='torus' && !(o.params.tube<o.params.diameter/2)) throw Error('The tube diameter must be less than half the outer diameter.');
     if(o.type==='glyph' && (!isGlyphChar(o.params.char)||!GLYPH_FONTS.includes(o.params.font))) throw Error('Choose a letter, number or symbol.');
+    // ADR-0001 F7 glyph finish (v3): bevel/plate/plateMargin ≥ 0, bevelProfile 'chamfer'|'round', engrave boolean; an
+    // engraved glyph needs a plate thicker than its depth (it is cut depth mm into the plate).
+    if(o.type==='glyph'){const q=o.params;if(['bevel','plate','plateMargin'].some(k=>q[k]!==undefined&&!(typeof q[k]==='number'&&q[k]>=0))||q.bevelProfile!==undefined&&q.bevelProfile!=='chamfer'&&q.bevelProfile!=='round'||q.engrave!==undefined&&typeof q.engrave!=='boolean'||q.engrave===true&&!(q.plate>q.depth))throw Error('Invalid dimensions.');}
     if(o.type==='polygon') {
       const pts=o.params.points;
       if(!Array.isArray(pts)||pts.length<3||pts.length>300||pts.some(a=>!Array.isArray(a)||a.length!==2||a.some(v=>!Number.isFinite(v)||Math.abs(v)>10000))) throw Error('Invalid sketch polygon.');
