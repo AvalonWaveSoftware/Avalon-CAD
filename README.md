@@ -152,7 +152,7 @@ Download the latest build from the [**GitHub Releases**](https://github.com/Aval
 
 Android 9 or later is required, and Android System WebView must support WebGL 2. Download `AvalonCad-<version>.apk`, open it from **My Files → Downloads** and choose **Update**.
 
-- **Updating:** install the new APK over the existing app. You don't need to uninstall first, because every release uses the same app identity (`com.tristan.cad`) and signing key, so your projects are kept.
+- **Updating to 3.0:** 3.0 installs as a new app (`com.avalonwavesoftware.cad`) next to 2.7.x. To bring a project over, open it in 2.7.x, save it to a file, then open that file in 3.0. Once your projects are moved you can uninstall 2.7.x. Later 3.x releases install over 3.0 as usual.
 - **Uninstalling** deletes local projects and prefabs. Export .tcad and .avprefab backups first.
 
 ### Linux (.rpm and Arch)

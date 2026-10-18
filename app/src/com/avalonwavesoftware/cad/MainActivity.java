@@ -1,4 +1,4 @@
-package com.tristan.cad;
+package com.avalonwavesoftware.cad;
 
 import android.app.Activity;
 import android.content.Intent;

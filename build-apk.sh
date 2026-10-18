@@ -18,7 +18,7 @@ CHUNKS=$(grep -oE 'import\("\./chunk-[A-Za-z0-9_-]+\.js"\)' "app/assets/main.js"
 for f in $CHUNKS; do [ -f "app/assets/$f" ] || { echo "Missing lazy chunk app/assets/$f" >&2; exit 1; }; done
 "$BT/aapt2" compile --dir app/res -o build/resources.zip
 "$BT/aapt2" link -o build/base-resources.apk --manifest app/AndroidManifest.xml -I "$PLATFORM" build/resources.zip
-java com.sun.tools.javac.Main -source 8 -target 8 -classpath "$PLATFORM" -d build/classes app/src/com/tristan/cad/MainActivity.java
+java com.sun.tools.javac.Main -source 8 -target 8 -classpath "$PLATFORM" -d build/classes app/src/com/avalonwavesoftware/cad/MainActivity.java
 python3 - <<'PY'
 import zipfile,pathlib
 with zipfile.ZipFile('build/classes.jar','w') as z:
