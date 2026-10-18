@@ -28,9 +28,9 @@ const wait=async(fn,what='')=>{for(let i=0;i<400;i++){if(fn())return;await sleep
 let checks=0;const ok=()=>checks++;
 await wait(()=>w.__cad.model!==null);assert.equal(glyphsReady(),false,'no glyph load at startup');
 const objs=()=>w.__cad.project.objects,hist=()=>w.__cad.historyLength,apply=async()=>{click('applyObject');await wait(()=>$('sheet').hidden,'apply');};
-// ADR-0001 F7 (Architect ruling 2026-10-18): a new glyph's Add sheet is pre-filled with the Q11 finish (Bevel 0.5, Chamfer,
+// ADR-0001 F7 (Architect ruling 2026-10-18): a new glyph's Add sheet is pre-filled with the Q11 finish, Bevel off by default (F7 Bevel default, Master Chief 2026-10-18): (Bevel 0, Chamfer,
 // Plate 2, Margin 2, Engrave off). The plain-glyph flows below clear it first (Bevel 0, Plate 0) to keep testing the 2.x glyph.
-const prefilled=async()=>{await wait(()=>$('f_bevel'),'finish fields');assert.deepEqual(['f_bevel','f_profile','f_plate','f_margin'].map(id=>$(id).value),['0.5','chamfer','2','2']);assert.equal($('f_engrave').checked,false);},
+const prefilled=async()=>{await wait(()=>$('f_bevel'),'finish fields');assert.deepEqual(['f_bevel','f_profile','f_plate','f_margin'].map(id=>$(id).value),['0','chamfer','2','2']);assert.equal($('f_engrave').checked,false);},
  plainGlyph=async()=>{await prefilled();$('f_bevel').value='0';$('f_plate').value='0';};
 const built=async n=>wait(()=>w.__cad.model?.parts?.length===n&&w.__cad.model.parts.every(p=>objs().some(o=>o.id===p.id)),'build '+n);
 
@@ -117,7 +117,7 @@ await built(7);ok();
 // Objects panel and layers: the new names list under the layer, a new layer takes the next shape.
 click('objectsToggle');const panel=$('objectsPanel').textContent;for(const n of ['Torus','Triangular prism','Dodecahedron','Letter g','Symbol @'])assert.ok(panel.includes(n),n+' in Objects panel');click('objectsToggle');
 const layerId='layer-2';w.__cad.change(p=>{p.layers.push({id:layerId,name:'Letters'});p.activeLayer=layerId;});await sleep();
-click('addBtn');click('lettersBtn');await wait(()=>qa('#sheetContent [data-glyph]').length===94);qa('#sheetContent [data-glyph]')[GLYPH_CHARS.indexOf('k')].click();assert.equal($('objectLayer').value,layerId);$('pos1').value='-50';await prefilled();await apply();await built(8);assert.equal(objs()[7].layerId,layerId);assert.deepEqual(objs()[7].params,{char:'k',size:20,depth:5,font:'roboto-bold@1',bevel:.5,plate:2,plateMargin:2},'pre-filled finish applied');ok();
+click('addBtn');click('lettersBtn');await wait(()=>qa('#sheetContent [data-glyph]').length===94);qa('#sheetContent [data-glyph]')[GLYPH_CHARS.indexOf('k')].click();assert.equal($('objectLayer').value,layerId);$('pos1').value='-50';await prefilled();await apply();await built(8);assert.equal(objs()[7].layerId,layerId);assert.deepEqual(objs()[7].params,{char:'k',size:20,depth:5,font:'roboto-bold@1',plate:2,plateMargin:2},'pre-filled finish applied (bevel off is not written)');ok();
 
 // Backup → load → same model; STL export of the whole scene.
 const volume=w.__cad.model.volume;click('projectMenu');click('backupProject');await wait(()=>w.testSaved?.done);const backed=JSON.parse(Buffer.concat(w.testSaved.chunks.map(x=>Buffer.from(x,'base64'))));click('closeSheet');
