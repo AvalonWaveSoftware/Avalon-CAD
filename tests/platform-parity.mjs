@@ -10,6 +10,8 @@
 // 4. Sweep: widths 320..1920 (and heights 480/688/900), panel closed and open: the help line is either hidden or
 //    entirely inside the viewport and overlapping no viewport control; at 1024x688 it is shown in both states, 18 px
 //    right of the toggle (or panel) and vertically centred on the toggle.
+// 5. ADR-0001 sidecar-apply-perf: the desktop app (Mac/RPM stage + AvalonDesktop) opens sheets with no animation (2.7.2
+//    behaviour); web (mouse 1024x688 and phone 412x915) keeps the 180 ms rise animation.
 import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import os from 'node:os';import {createRequire} from 'node:module';
 import {stageDesktop} from '../desktop/stage.mjs';import {diffPixels} from './perf/png.mjs';
 const ROOT=path.resolve(path.dirname(new URL(import.meta.url).pathname),'..'),ASSETS=path.join(ROOT,'app/assets');
@@ -59,6 +61,14 @@ try{const origins={mac:await serve(mac),rpm:await serve(rpm2),web:await serve(AS
   if(name==='blank')results.push('help box '+JSON.stringify(bx.web.help)+' toggle '+JSON.stringify(bx.web.toggle));}
  // 3. phone
  {const {ctx,page}=await open(origins.web,{viewport:{width:412,height:915},touch:true});assert.equal(await page.evaluate(()=>getComputedStyle(document.getElementById('desktopHelp')).display),'none','phone: no help line');await ctx.close();}
+ // 5. sheet animation: desktop app none (2.7.2), web rise
+ {const anim=[];for(const [p,origin,opt] of [['mac',origins.mac,{platform:'mac'}],['rpm',origins.rpm,{platform:'linux'}],['web',origins.web,{}],['phone',origins.web,{viewport:{width:412,height:915},touch:true}]]){
+   const {ctx,page}=await open(origin,opt);
+   const a=await page.evaluate(()=>{const s=document.getElementById('sheet');document.getElementById('addBtn').click();const st=getComputedStyle(s);return {name:st.animationName,duration:st.animationDuration,running:s.getAnimations().map(x=>x.animationName)};});
+   await ctx.close();anim.push(p+' '+a.name);
+   if(p==='mac'||p==='rpm'){assert.equal(a.name,'none',p+': desktop app .sheet animation is none');assert.deepEqual(a.running,[],p+': no sheet animation runs');}
+   else{assert.equal(a.name,'rise',p+': web .sheet keeps the rise animation');assert.equal(a.duration,'0.18s',p+': rise lasts 180 ms');assert.deepEqual(a.running,['rise'],p+': rise runs when the sheet opens');}}
+  results.push('sheet animation: '+anim.join(', '));}
  // 4. sweep
  let shown=0,hidden=0;const CONTROLS='#objectsToggle,#objectsPanel:not([hidden]),.views,.axis,#bounds,#liveMeasure:not([hidden]),#empty:not([hidden])>*';
  for(const height of [480,688,900]){const {ctx,page}=await open(origins.web,{viewport:{width:1024,height}});await scene(page,'selected');
