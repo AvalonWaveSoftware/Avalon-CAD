@@ -8,7 +8,8 @@
 // the console (and globalThis.__avalon3MF); there is no visible UI.
 import {parts3MF,partRange3MF} from './three-mf-parts.mjs';
 
-export function poolSize(cores=globalThis.navigator?.hardwareConcurrency||2,android=!!globalThis.Android){return Math.max(1,Math.min(cores-1,android?2:4));}
+// Option B step 3: on Android, min(cores - 1, 4) when navigator.deviceMemory >= 4 (GB, as the WebView reports it), else 2.
+export function poolSize(cores=globalThis.navigator?.hardwareConcurrency||2,android=!!globalThis.Android,memory=globalThis.navigator?.deviceMemory){return Math.max(1,Math.min(cores-1,android&&!(memory>=4)?2:4));}
 
 const defaultWorker=url=>new Worker(url,{type:'module',name:'3mf-pool'});
 
@@ -53,8 +54,10 @@ export function current3MFPool(){return current;}
 /** The session pool, started if needed (cold=true when this call started it). */
 export function ensure3MFPool({assetURL,options={}}){
  if(broken)return {pool:null,cold:false};let cold=false;
- if(!current){current=createPool({size:options.size,script:assetURL('export-pool.js'),wasm:assetURL('mesh-core.wasm'),binary:options.binary,makeWorker:options.makeWorker,timeout:options.timeout});cold=true;}
+ if(!current){current=createPool({size:options.size,script:assetURL('export-pool.js'),wasm:assetURL('mesh-core.wasm'),binary:options.binary,makeWorker:options.makeWorker,timeout:options.timeout});current.started=options.started||'export';cold=true;}
  return {pool:current,cold};}
+/** Option B step 2: the export sheet opened (or switched) to 3MF. Starts the workers and loads the wasm; never encodes. */
+export function warm3MFPool({assetURL,options={}}){return ensure3MFPool({assetURL,options:{...options,started:'sheet'}}).pool;}
 
 /**
  * Runs a 3MF export. `request(type, data, transfer)` talks to the geometry worker; `payload` is the export job
@@ -77,7 +80,7 @@ export async function export3MF({request,payload,assetURL,options={}}){
    catch(e){reason=String(e?.message||e);broken=reason;pool.dispose();if(current===pool)current=null;}}
   if(!buffer){buffer=(await request('encode3mf',{vertices:mesh.vertices,triangles:mesh.triangles,ground:payload.ground},[mesh.vertices.buffer,mesh.triangles.buffer])).buffer;path='fallback';}
  }
- const encoder={path,workers:path==='pool'?pool.size:0,cold,ms:Math.round(performance.now()-t0),...(reason?{reason}:{})};
+ const encoder={path,workers:path==='pool'?pool.size:0,cold,...(path==='pool'?{started:pool.started}:{}),ms:Math.round(performance.now()-t0),...(reason?{reason}:{})};
  globalThis.__avalon3MF=encoder;log?.('[Avalon 3MF] '+JSON.stringify(encoder));
  return {...data,buffer,format:'3mf',encoder};
 }

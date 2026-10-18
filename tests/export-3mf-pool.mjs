@@ -30,7 +30,9 @@ const assetURL=name=>name==='export-pool.js'?SCRIPTS.built:pathToFileURL('app/as
 const opts=extra=>({makeWorker:nodeWorker,binary,log:null,...extra});
 
 // ---- pool size ----
-assert.equal(poolSize(8,false),4);assert.equal(poolSize(3,false),2);assert.equal(poolSize(1,false),1);assert.equal(poolSize(16,true),2);assert.equal(poolSize(2,true),1);checks+=5;
+assert.equal(poolSize(8,false),4);assert.equal(poolSize(3,false),2);assert.equal(poolSize(1,false),1);assert.equal(poolSize(16,true,undefined),2);assert.equal(poolSize(2,true,8),1);
+// Option B step 3: Android uses min(cores - 1, 4) when deviceMemory >= 4, else 2.
+assert.equal(poolSize(16,true,4),4);assert.equal(poolSize(8,true,8),4);assert.equal(poolSize(4,true,4),3);assert.equal(poolSize(8,true,2),2);assert.equal(poolSize(8,true,3.9),2);assert.equal(poolSize(8,false,0.5),4);checks+=11;
 
 // ---- meshes ----
 const P=objs=>({...blank(),objects:objs});
