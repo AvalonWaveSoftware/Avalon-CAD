@@ -5,7 +5,7 @@ import {installPrefabs} from './prefabs-ui.mjs';
 import {freshComponents} from './prefabs.mjs';
 import {installTouch} from './touch-tools.mjs';
 import {installObjectsPanel} from './objects-panel.mjs';
-import {installTooltips} from './tooltips.mjs';import {createCommands} from './commands.mjs';
+import {installTooltips} from './tooltips.mjs';import {createCommands,installShortcuts,ELECTRON_MENU} from './commands.mjs';
 import {migrateProject,forWrite} from './migrate.mjs';import {readAutosave,autosaveEntry,writeAutosave,AUTOSAVE,AUTOSAVE_V3} from './autosave-store.mjs';
 import {resolutionPanel,bindResolution,readResolution,sameTopology,faceSummary,applySmoothPreset} from './resolution-ui.mjs';
 import {displayGeometry} from './display-geometry.mjs';
@@ -176,8 +176,8 @@ function editMenu(newObject=null){if(!newObject?.params||!newObject?.id)newObjec
  }catch(e){error.textContent=e.message;}finally{lockPanel(false);}};
  if(creating){$('cancelObject').onclick=closeSheet;return;}
  $('saveAsPrefab').onclick=()=>prefabs.form(selection().length>=2?{source:'selection'}:{});if($('editMerge'))$('editMerge').onclick=()=>touch.mergeMenu(selection());
- $('duplicateObject').onclick=()=>{if(project.objects.length>=100)return toast('Maximum 100 objects.',true);const copy=structuredClone(o);copy.id=uid();copy.name=o.name+' copy';startAtOrigin(copy);if(copy.params.children)copy.params.children=freshComponents(copy.params.children);editMenu(copy);};
- $('deleteObject').onclick=()=>{change(()=>{project.objects=project.objects.filter(x=>x.id!==o.id);selected=null;});closeSheet();};
+ $('duplicateObject').onclick=()=>duplicateDraft(o);
+ $('deleteObject').onclick=()=>deleteObject(o);
  if($('explodeObject'))$('explodeObject').onclick=()=>separateObject(o);if($('editSketch'))$('editSketch').onclick=()=>sketchMenu(o);
 
 }
@@ -203,6 +203,11 @@ function projectMenu(){openSheet('Your projects',`<div class="row">${field('mode
 function saveProject(){const id=project.savedId||uid();project.savedId=id;saved[id]={date:Date.now(),project:structuredClone(forWrite(project))};try{localStorage.setItem('tristancad.projects',JSON.stringify(saved));if(v1Loaded){localStorage.removeItem(BACKUP);v1Loaded=false;}autosave();toast('Project saved on this device.');projectMenu();}catch(e){toast('Project storage is full. Export a .tcad backup.',true);}}
 function guardReplace(fn){if(!project.objects.length)return fn();openSheet('Start another project?',`<p class="subtle">Your current model is in Undo history. Save an editable backup before replacing it if you want to keep it long term.</p><div class="row"><button id="keepCurrent">Keep current</button><button id="replaceCurrent" class="primary">Continue</button></div>`);$('keepCurrent').onclick=projectMenu;$('replaceCurrent').onclick=fn;}
 $('projectMenu').onclick=projectMenu;
+// Edit → Duplicate / Delete, shared with the Cmd/Ctrl+D and Delete shortcuts (F1a).
+function duplicateDraft(o){if(project.objects.length>=100)return toast('Maximum 100 objects.',true);const copy=structuredClone(o);copy.id=uid();copy.name=o.name+' copy';startAtOrigin(copy);if(copy.params.children)copy.params.children=freshComponents(copy.params.children);editMenu(copy);}
+function deleteObject(o){change(()=>{project.objects=project.objects.filter(x=>x.id!==o.id);selected=null;});closeSheet();}
+// Delete key (Architect UI round 1, ruling 3): every selected object goes in one undo step; a multi-selection is then cleared like Clear.
+function deleteSelected(){const ids=new Set(selection()),many=!!touch.multi().length;if(!ids.size)return;change(()=>{project.objects=project.objects.filter(x=>!ids.has(x.id));selected=null;});if(many)touch.deselect();closeSheet();}
 function safeName(){return (project.name||'model').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,64)||'model';}
 async function saveFile(data,name,mime){try{const bytes=typeof data==='string'?new TextEncoder().encode(data):new Uint8Array(data);if(window.AvalonDesktop){const result=await AvalonDesktop.saveFile(bytes,name);toast(result.canceled?'Save canceled. Your model is still open.':result.name+' saved.');}else if(window.Android){if(BINARY_EXPORT&&androidAsync(bytes.length))await androidSend(Android,bytes,name,mime);else{Android.beginFile(name,mime);for(let i=0;i<bytes.length;i+=24576){let s='';for(const b of bytes.subarray(i,i+24576))s+=String.fromCharCode(b);Android.appendFile(btoa(s));}Android.finishFile();}toast('Choose where to save the file.');}else{const url=URL.createObjectURL(new Blob([bytes],{type:mime})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);toast(name+' exported.');}}catch(e){toast('Could not export the file: '+e.message,true);}}
 function exportMenu(){openSheet('Export a printable STL',`<p class="subtle">The STL adds the completed layers together. Each layer's cutouts affect only that layer. Dimensions use millimeters. The build plane is never included in this file.</p><div class="field"><label for="quality">Curve quality · target chord deviation</label><select id="quality"><option value="draft">Draft · 0.15 mm · smallest file</option><option value="fine">Fine · 0.03 mm</option><option value="ultra" selected>Ultra · 0.01 mm · recommended</option><option value="maximum">Maximum · 0.005 mm · larger file</option></select></div><p class="inlinehelp">More triangles make automatic curves smoother. Custom face counts stay faceted, and custom deviation settings override this quality for their shape. Roundovers still use the selected curve quality. Automatic curves are capped at 1,024 segments.</p><label class="toggle"><input type="checkbox" id="ground" checked>Place the lowest point on Z = 0 for printing</label><div class="metrics" id="exportMetrics">${model?.bounds?'Size: <strong>'+model.bounds.max.map((v,i)=>(v-model.bounds.min[i]).toFixed(2)).join(' × ')+' mm</strong><br>Solid volume: <strong>'+(model.volume/1000).toFixed(2)+' cm³</strong>':'Add an enabled solid shape to export.'}</div><button class="primary full" id="downloadSTL" ${!model?.triangles.length?'disabled':''}>Build & save .STL</button><div id="exportError" class="modalerror"></div>`,'HIGH-RESOLUTION MESH');$('downloadSTL').onclick=async()=>{const button=$('downloadSTL');button.disabled=true;button.textContent='Building high-resolution solid…';$('exportError').textContent='';try{const data=await request('export',{project:structuredClone(project),tolerance:QUALITY[$('quality').value],ground:$('ground').checked});$('exportMetrics').innerHTML=`<strong>${data.triangles.toLocaleString()} triangles</strong><br>${(data.buffer.byteLength/1024/1024).toFixed(2)} MB · binary STL · millimeters<br>Solid volume: ${(data.volume/1000).toFixed(2)} cm³`;saveFile(data.buffer,safeName()+'.stl','model/stl');}catch(e){if($('exportError'))$('exportError').textContent=e.message;else toast(e.message,true);}finally{if(button.isConnected){button.disabled=false;button.textContent='Build & save .STL';}}};}
@@ -213,7 +218,9 @@ $('importFile').onchange=async e=>{const f=e.target.files[0];if(f){try{if(f.size
 async function importData(buffer,name){try{if(name.toLowerCase().endsWith('.stl')){if(project.objects.length>=100)throw Error('Maximum 100 objects.');const mesh=readSTL(buffer),o=object('mesh',{mesh},[0,0,0],name.replace(/\.stl$/i,''));o.layerId=project.activeLayer;const p=structuredClone(project);p.objects.push(o);validateProject(p);startAtOrigin(o);editMenu(o);toast('Choose placement, then Apply to add the imported STL.');}else{const value=JSON.parse(new TextDecoder().decode(buffer));if(value.format==='avaloncad-prefab'||name.toLowerCase().endsWith('.avprefab')){await prefabs.importRecord(value);return;}const p=loadProject(value);guardReplace(()=>{change(()=>{project=p;selected=p.objects.find(o=>layerOf(o)===p.activeLayer)?.id||null;});refresh(true);closeSheet();toast('Editable project opened.');});}}catch(e){toast('Import failed: '+e.message,true);}}
 let importChunks=[],importName='';window.nativeImportStart=name=>{importName=name;importChunks=[];};window.nativeImportChunk=s=>{importChunks.push(s);};window.nativeImportEnd=()=>{try{const raw=atob(importChunks.join('')),a=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i);importData(a.buffer,importName);}catch(e){toast('Could not read the selected file.',true);}finally{importChunks=[];}};window.nativeNotice=(message,error)=>toast(message,error);
 // Help is a lazy chunk (web/help-sheet.mjs); the sheet opens once it has loaded (a local file, so within a frame or two).
-async function help(){const {HELP_TITLE,helpHTML}=await import('./help-sheet.mjs');openSheet(HELP_TITLE,helpHTML());$('loadExample').onclick=()=>guardReplace(()=>{change(()=>{project=plate();selected=project.objects[0].id;});refresh(true);closeSheet();});}
+// The help table lists only shortcuts that work here (ruling 7): browsers keep Ctrl+N, so plain web hides that row.
+const onWeb=()=>!window.AvalonDesktop&&!window.Android;
+async function help(){const {HELP_TITLE,helpHTML}=await import('./help-sheet.mjs');openSheet(HELP_TITLE,helpHTML(id=>!!commands.get(id)?.shortcut&&!(id==='new'&&onWeb())));$('loadExample').onclick=()=>guardReplace(()=>{change(()=>{project=plate();selected=project.objects[0].id;});refresh(true);closeSheet();});}
 $('helpBtn').onclick=help;
 window.handleBack=()=>{if(touch?.isCommitting()||panelBusy)return true;if(touch?.closeEdgeMenu())return true;// F6: Android Back closes the Edge ▾ dropdown (no mode change)
  if(!$('sheet').hidden){closeSheet();return true;}if(objectsPanel?.isOpen()){objectsPanel.toggle(false);return true;}return false;};
@@ -223,15 +230,33 @@ objectsPanel=installObjectsPanel({project:()=>project,selected:()=>selected,sele
 {const messages=pendingWarnings.splice(0);if(messages.length)toast(messages.join(' '),messages.length>1);}
 const layers=installLayerTools({project:()=>project,change,current,select,openSheet,closeSheet,escape,clear:()=>touch.deselect()});
 $('layersBtn').onclick=()=>{if(!touch.isDragging()&&!touch.isCommitting())layers.menu();};
+// ADR-0001 command registry: F1a runs every command through it (shortcuts, the Electron menu bridge); F1b reads the
+// tooltips. Buttons are clicked so each command keeps its button's own guards.
+const busy=()=>panelBusy||touch.isDragging()||touch.isCommitting(),press=id=>({run:()=>$(id).click()});
+const commands=createCommands({
+ new:{run:()=>{projectMenu();document.querySelector('[data-template="blank"]').click();}},open:{run:importDialog},save:{run:()=>{saveProject();closeSheet();}},
+ backup:{run:()=>saveFile(JSON.stringify(forWrite(project),null,2),safeName()+'.tcad','application/json')},
+ export:press('exportBtn'),undo:press('undo'),redo:press('redo'),add:press('addBtn'),edit:press('editBtn'),clear:press('deselectBtn'),fit:press('fit'),wire:press('wire'),help:press('helpBtn'),
+ ...Object.fromEntries(['3d','top','front','right'].map(v=>[`view:${v}`,{run:()=>document.querySelector(`[data-view="${v==='3d'?'iso':v}"]`).click()}])),
+ // Modes run through their mode-bar button, so F follows whatever the Round button does (F6 turns it into the Edge ▾
+ // dropdown opener; F then opens it with no change here, or F6 passes its own mode:round handler).
+ ...Object.fromEntries(['select','move','stretch','round'].map(m=>[`mode:${m}`,{run:()=>document.querySelector(`[data-mode="${m}"]`).click()}])),
+ delete:{run:deleteSelected,enabled:()=>!!selection().length},duplicate:{run:()=>duplicateDraft(current()),enabled:()=>!!current()},
+ escape:{run:()=>{if(!$('sheet').hidden)closeSheet();else touch.deselect();}}});
+// ADR-0001 F1a: one keyboard dispatcher for web, Electron and Android hardware keyboards. Nothing fires while a field
+// has focus or during a drag/commit, except Esc; with a sheet open only Esc and the Cmd/Ctrl commands run (as the
+// Electron menu does). On desktop the native menu runs its own accelerators, so the page skips those combos.
+const typing=()=>!!document.activeElement?.matches('input,textarea,select,[contenteditable=true]');
+installShortcuts(commands,{allow:(id,k)=>id==='escape'||!busy()&&!typing()&&($('sheet').hidden||k.startsWith('Mod+')),skip:new Set(window.AvalonDesktop?Object.values(ELECTRON_MENU(AvalonDesktop.platform==='mac')):[])});
 // ADR-0001 F1b: title/aria-label on every button from the registry, and the touch long-press bubble.
-const tooltips=installTooltips({commands:createCommands()});
-window.__cad={touch,get project(){return project;},get selected(){return selected;},get historyLength(){return history.length;},get model(){return model;},get display(){return resultMesh;},change:fn=>change(()=>fn(project)),get uploads(){return uploads.bytes;},get picks(){return pickMeshes;},get scene(){return scene;},request,objectsPanel,tooltips,selection,load:p=>{project=loadProject(p);selected=project.objects.find(o=>layerOf(o)===project.activeLayer)?.id;refresh(true);},templates:{blank,plate,tray},exportMenu};
+const tooltips=installTooltips({commands});
+window.__cad={touch,get project(){return project;},get selected(){return selected;},get historyLength(){return history.length;},get model(){return model;},get display(){return resultMesh;},change:fn=>change(()=>fn(project)),get uploads(){return uploads.bytes;},get picks(){return pickMeshes;},get scene(){return scene;},request,objectsPanel,tooltips,commands,selection,load:p=>{project=loadProject(p);selected=project.objects.find(o=>layerOf(o)===project.activeLayer)?.id;refresh(true);},templates:{blank,plate,tray},exportMenu};
 refresh(true);
 
-// ADR unified-desktop-layout: the help line exists on every platform; CSS shows it only with a mouse or trackpad
+// ADR unified-desktop-layout: the help line exists on every platform (F1a appends the approved shortcuts hint to its text below); CSS shows it only with a mouse or trackpad
 // ((any-hover:hover) and (any-pointer:fine)). It sits 18 px right of the Objects toggle, centred on it, or 18 px right
 // of the open Objects panel at the same top; at widths where that would overlap a viewport control it is hidden.
-{const help=document.createElement('div');help.id='desktopHelp';help.textContent='Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom';$('viewport').appendChild(help);
+{const help=document.createElement('div');help.id='desktopHelp';help.textContent='Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom · ? for shortcuts';$('viewport').appendChild(help);
  const CONTROLS='#objectsToggle,#objectsPanel:not([hidden]),.views,.axis,#bounds,#liveMeasure:not([hidden]),#empty:not([hidden])>*';
  const place=()=>{if(getComputedStyle(help).display==='none')return;const vp=$('viewport').getBoundingClientRect(),t=$('objectsToggle').getBoundingClientRect(),panel=$('objectsPanel'),h=help.offsetHeight,w=help.offsetWidth;
   const left=(panel.hidden?t.right:panel.getBoundingClientRect().right)-vp.left+18,top=Math.round(t.top-vp.top+(t.height-h)/2);help.style.left=left+'px';help.style.top=top+'px';
@@ -243,15 +268,11 @@ refresh(true);
  globalThis.__placeHelp=place;place();}
 
 if(window.AvalonDesktop){
- const action=command=>{if(panelBusy||touch.isDragging()||touch.isCommitting())return;const focused=document.activeElement,isInput=focused?.matches('input,textarea,[contenteditable=true]');if(['undo','redo'].includes(command)&&isInput){document.execCommand(command);return;}
-  if(command==='open')return importDialog();if(command==='save'){saveProject();closeSheet();return;}if(command==='backup')return saveFile(JSON.stringify(forWrite(project),null,2),safeName()+'.tcad','application/json');
-  if(command==='new'){projectMenu();document.querySelector('[data-template="blank"]').click();return;}if(command.startsWith('view:'))return document.querySelector('[data-view="'+command.slice(5)+'"]')?.click();
-  const id={add:'addBtn',edit:'editBtn',clear:'deselectBtn',fit:'fit',export:'exportBtn',undo:'undo',redo:'redo',help:'helpBtn'}[command];if(id)$(id).click();
+ // The Electron menu bridge (ADR-0001 §2.3): menu actions run through the registry. The menu sends view:iso for 3D.
+ const action=command=>{if(busy())return;const focused=document.activeElement,isInput=focused?.matches('input,textarea,[contenteditable=true]');if(['undo','redo'].includes(command)&&isInput){document.execCommand(command);return;}
+  commands.run(command==='view:iso'?'view:3d':command);
  };
  AvalonDesktop.onAction(action);AvalonDesktop.onFile(file=>importDesktopFile(file).catch(e=>toast(e.message,true)));AvalonDesktop.onNotice(message=>toast(message,true));
- document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('sheet').hidden)closeSheet();else touch.deselect();e.preventDefault();return;}if(document.activeElement?.matches('input,textarea,select,[contenteditable=true]')||e.metaKey||e.ctrlKey||e.altKey)return;
-  // ADR-0001 F6 (Master Chief, 18:35 CT): F opens the Edge ▾ dropdown (touch-tools, every platform); Fit moves to 0 / Home (F1a's approved keys).
-  const command={a:'add',0:'fit',home:'fit',v:'clear'}[e.key.toLowerCase()];if(command){e.preventDefault();action(command);}});
  const updateHint=()=>{const label={select:'Click a face · double-click for the whole shape · click an edge to round · Ctrl/Shift-click to multi-select',move:'Drag the object or X/Y/Z handles · centers snap',stretch:'Click a face to pull · double-click for the whole shape',round:'Edge clicks: 1 edge · 2 face perimeter · 3 all edges · drag to round'}[touch.getState().mode];if($('touchHint').textContent!==label)$('touchHint').textContent=label;};
  const hintObserver=new MutationObserver(updateHint);hintObserver.observe($('touchHint'),{childList:true});window.addEventListener('beforeunload',()=>{if(keepV1){try{localStorage.setItem(BACKUP,localStorage.getItem('tristancad.autosave'));keepV1=false;}catch{return;}}try{writeAutosave(localStorage,JSON.parse(touch.snapshotForSave()),undefined,keepV3Backup);}catch{}});
  new MutationObserver(updateHint).observe($('touchModes'),{attributes:true,subtree:true});updateHint();
