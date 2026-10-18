@@ -13,7 +13,7 @@ if [ "${1:-}" != "--skip-web" ]; then
 fi
 # WS7: the Pyodide assets ship only when web/perf-flags.mjs has JS_ENGINE=false.
 # WS13 (D6): app/assets is not tracked; this list matches desktop/stage.mjs REQUIRED_ASSETS.
-ASSETS="index.html style.css main.js worker.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt"
+ASSETS="index.html style.css main.js worker.js worker-sidecar.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt"
 grep -q "JS_ENGINE=false" "$ROOT/web/perf-flags.mjs" && ASSETS="$ASSETS python/pyodide.mjs python/pyodide.asm.wasm python/python_stdlib.zip python/model_jobs.py"
 for f in $ASSETS; do
   [ -f "$ROOT/app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
