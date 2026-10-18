@@ -160,7 +160,7 @@ export function installTouch(S){
   // with Round and Chamfer; picking one starts that tool (edge mode, shown as Edge ▾ active); outside tap or Esc
   // closes it with no mode change. The running tool also shows in the hint, the Radius/Distance button and the sheet.
   let edgeTool=null;// the loaded edge-tool chunk
-  async function chooseEdgeTool(){if(gesture||committing||!$('sheet').hidden)return false;const m=edgeTool=await import('./edge-tool.mjs');edgeText=m.CHAMFER;
+  async function chooseEdgeTool(){if(gesture||committing||!$('sheet').hidden)return false;const m=edgeTool=await import('./edge-tool.mjs');m.useUnits({fmtLen,unitLabel});edgeText=m.CHAMFER;
    m.chooser(roundButton,mode==='round'?edgeKind:null,kind=>{edgeKind=kind;if(mode!=='round')setMode('round');else{update();draw();}});return true;}
   $('touchModes').querySelectorAll('button[data-mode]').forEach(b=>b.onclick=()=>b===roundButton?chooseEdgeTool():setMode(b.dataset.mode));
   // F opens the dropdown on every platform (web, Electron, Android hardware keyboards): no modifier, not while typing.

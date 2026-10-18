@@ -5,9 +5,12 @@
 // pattern: the button has aria-haspopup="menu", aria-expanded and aria-controls; the menu has role="menu" with
 // role="menuitem" buttons and roving focus. Styled inline so style.css and index.html stay byte-identical (DOM/static
 // gate) and it looks the same on every platform. UI-safe (no engine imports).
-import {fmtLen,unitLabel} from './units.mjs';
-export const CHAMFER={hint:'Edge taps: 1 edge · 2 face perimeter · 3 all edges · drag to chamfer',set:'Distance',live:d=>`Chamfer ${fmtLen(d,2)} ${unitLabel()}`,applied:'Chamfer applied.',
- title:'Chamfer selected edges',intro:n=>`${n} selected edge(s). Drag up/down in Edge mode for live adjustment, or enter an exact distance.`,label:()=>'Chamfer distance · '+unitLabel(),
+// F1c merge: the unit helpers are handed in by touch-tools (useUnits) instead of imported here. main.js also uses
+// units.mjs, so a shared import makes esbuild split it into a chunk that main.js imports statically (startup-split,
+// apk-package). Same texts, same units.
+let U=null;export function useUnits(units){U=units;}
+export const CHAMFER={hint:'Edge taps: 1 edge · 2 face perimeter · 3 all edges · drag to chamfer',set:'Distance',live:d=>`Chamfer ${U.fmtLen(d,2)} ${U.unitLabel()}`,applied:'Chamfer applied.',
+ title:'Chamfer selected edges',intro:n=>`${n} selected edge(s). Drag up/down in Edge mode for live adjustment, or enter an exact distance.`,label:()=>'Chamfer distance · '+U.unitLabel(),
  apply:'Apply chamfer',remove:'Remove selected chamfers',invalid:'Enter a non-negative distance.'};
 const ITEMS=[['round','Round'],['chamfer','Chamfer']];
 let menu=null,anchor=null;
