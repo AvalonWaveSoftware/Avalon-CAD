@@ -2,9 +2,14 @@
 // (1440x900). STL stays the default and synchronous with no chunk loaded; choosing 3MF loads the 3MF texts chunk through
 // import(), keeps the quality and Z = 0 settings, and saves a valid .3mf (model/3mf) of the same mesh as the STL; the
 // choice is remembered only once a 3MF is exported, and switching back to STL gives the same STL bytes.
+// Option A: the 3MF is encoded by the worker pool, started from the page under the app's CSP like worker.js
+// (export-pool.js, never nested), at most 2 workers with the Android bridge present, logged on one debug line, kept for
+// the session, terminated when the project is replaced (New project), and recreated on the next 3MF export.
 import assert from 'node:assert/strict';import * as H from '../tools/readme-shots/harness.mjs';import {read3MF,meshRules,sameAsSTL} from './three-mf-reader.mjs';
 const env=await H.start();const out=[];
 try{for(const desktop of [false,true]){const page=await H.open(env,{desktop});
+ const workers=[],logs=[];page.on('worker',w=>{const rec={url:w.url().split('/').pop(),closed:false};workers.push(rec);w.on('close',()=>rec.closed=true);});
+ page.on('console',m=>{if(m.text().startsWith('[Avalon 3MF] '))logs.push(JSON.parse(m.text().slice(13)));});
  const chunks=()=>page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name).filter(n=>/\/chunk-[^/]*\.js/.test(n)).map(n=>n.split('/').pop()));
  const state=()=>page.evaluate(()=>({title:document.querySelector('#sheetTitle')?.textContent,format:document.querySelector('#exportFormat')?.value,quality:document.querySelector('#quality')?.value,ground:document.querySelector('#ground')?.checked,button:document.querySelector('#downloadSTL')?.textContent,stored:localStorage.getItem('tristancad.exportFormat')}));
  const save=async()=>{await page.evaluate(()=>{window.savedFile=null;document.querySelector('#downloadSTL').click();});await page.waitForFunction(()=>window.savedFile?.done,null,{timeout:120000});
@@ -23,12 +28,24 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop});
  const loaded=await chunks();assert.equal(loaded.length,1);assert.match(loaded[0],/^chunk-export-3mf-sheet-/);
  const mf=await save();assert.ok(mf.name.endsWith('.3mf'),mf.name);assert.equal(mf.mime,'model/3mf');assert.match(mf.metrics,/3MF · compressed · millimeters/);
  assert.equal((await state()).stored,'3mf');
+ const cores=await page.evaluate(()=>navigator.hardwareConcurrency),size=Math.max(1,Math.min(cores-1,2)),pool=()=>workers.filter(w=>w.url.startsWith('export-pool.js?v='));
+ const enc=await page.evaluate(()=>window.__avalon3MF);assert.deepEqual([enc.path,enc.workers,enc.cold],['pool',size,true],'3MF encoded by a cold pool: '+JSON.stringify(enc));
+ assert.equal(pool().length,size,'pool workers started from the page with the asset path');assert.ok(pool().every(w=>!w.closed));assert.deepEqual(logs.at(-1),enc,'one debug line');
  const model=read3MF(bytes(mf));sameAsSTL(bytes(stl),model,'UI 3MF vs STL');meshRules(model.vertices,model.triangles,'UI 3MF');
  await page.click('#closeSheet');await page.click('#exportBtn');await page.waitForFunction(()=>document.querySelector('#sheetTitle')?.textContent==='Export a printable 3MF');
  assert.equal((await state()).format,'3mf','remembered');
  await page.selectOption('#exportFormat','stl');await page.waitForFunction(()=>document.querySelector('#sheetTitle').textContent==='Export a printable STL');
  assert.equal((await state()).stored,'3mf','switching alone stores nothing');await page.selectOption('#quality','maximum');
  const again=await save();assert.ok(bytes(again).equals(bytes(stl)),'STL bytes unchanged after a 3MF export');assert.equal((await state()).stored,'stl');
- out.push(`${desktop?'desktop':'phone'}: STL default (no chunk), ${loaded[0]} on 3MF, ${model.triangles.length/3} triangles, ${bytes(mf).length} B 3MF vs ${bytes(stl).length} B STL`);await page.context().close();}}
+ // Warm: the same pool, same bytes.
+ await page.selectOption('#exportFormat','3mf');await page.waitForFunction(()=>document.querySelector('#sheetTitle').textContent==='Export a printable 3MF');
+ const warm=await save();assert.ok(bytes(warm).equals(bytes(mf)),'warm pool: same 3MF bytes');assert.deepEqual(await page.evaluate(()=>[window.__avalon3MF.path,window.__avalon3MF.cold]),['pool',false]);assert.equal(pool().length,size,'pool kept');
+ // Project close (New project → blank, through the replace guard): the pool is terminated.
+ await page.click('#closeSheet');await page.click('#projectMenu');await page.click('[data-template="blank"]');await page.click('#replaceCurrent').catch(()=>{});
+ await page.waitForFunction(()=>window.__cad.picks!==undefined);await page.waitForTimeout(500);assert.ok(pool().every(w=>w.closed),'pool terminated on project close: '+JSON.stringify(pool()));
+ await page.evaluate(()=>window.__cad.load(window.__cad.templates.plate()));await page.waitForFunction(()=>window.__cad.model?.triangles?.length>0,null,{timeout:90000});
+ await page.click('#exportBtn');await page.waitForFunction(()=>document.querySelector('#sheetTitle')?.textContent==='Export a printable 3MF');await page.selectOption('#quality','maximum');
+ const after=await save();assert.ok(bytes(after).equals(bytes(mf)),'new pool: same 3MF bytes');assert.deepEqual(await page.evaluate(()=>[window.__avalon3MF.path,window.__avalon3MF.cold]),['pool',true],'a new pool after close');assert.equal(pool().filter(w=>!w.closed).length,size);
+ out.push(`${desktop?'desktop':'phone'}: STL default (no chunk), ${loaded[0]} on 3MF, ${model.triangles.length/3} triangles, ${bytes(mf).length} B 3MF vs ${bytes(stl).length} B STL, pool of ${size} (cold ${enc.ms} ms), closed with the project`);await page.context().close();}}
 finally{await env.close();}
 console.log('PASS: export sheet STL/3MF: '+out.join('; '));
