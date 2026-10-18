@@ -1,0 +1,26 @@
+{
+ "note": "Branch export-3mf: the ONLY differences allowed against the read-only baseline perf-baseline-v3-foundation (never --update'd). Boxes are the exact CSS-px bounding box of the format-selector field (.field holding #exportFormat: label + select) as rendered in the scene; strip is that field's exact outerHTML, removed from the captured DOM before it is compared.",
+ "baseline": "perf-baseline-v3-foundation",
+ "allowBoxes": {
+  "sheet-export@phone": {
+   "box": [
+    18,
+    500.8125,
+    394,
+    565.8125
+   ],
+   "strip": "<div class=\"field\"><label for=\"exportFormat\">File format</label><select id=\"exportFormat\"><option value=\"stl\">STL · binary · most compatible</option><option value=\"3mf\">3MF · compressed · smaller file</option></select></div>",
+   "approval": "ADR-0001 Architect ruling 2 (F2a option A result, 2026-10-17 19:55 CT): sheet-export pixel diffs limited to the format-selector box; the File format selector is the approved F2a Export-sheet change (c60c94c)."
+  },
+  "sheet-export@desktop": {
+   "box": [
+    468,
+    500.8125,
+    972,
+    565.8125
+   ],
+   "strip": "<div class=\"field\"><label for=\"exportFormat\">File format</label><select id=\"exportFormat\"><option value=\"stl\">STL · binary · most compatible</option><option value=\"3mf\">3MF · compressed · smaller file</option></select></div>",
+   "approval": "ADR-0001 Architect ruling 2 (F2a option A result, 2026-10-17 19:55 CT): sheet-export pixel diffs limited to the format-selector box; the File format selector is the approved F2a Export-sheet change (c60c94c)."
+  }
+ }
+}

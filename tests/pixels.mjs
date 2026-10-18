@@ -8,7 +8,7 @@
 //      PIXEL_JOBS (parallel browser contexts in the one shared browser, default 4), AVALON_PIXEL_BASELINE (baseline dir).
 // Same setup as tools/readme-shots/harness.mjs (served app, open(), tap()); one shared browser, PIXEL_JOBS contexts; toasts and #busy are hidden as capture.mjs does.
 import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import {createRequire} from 'node:module';
-import {diffPixels,decodePNG} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {execSync} from 'node:child_process';
+import {diffPixels,decodePNG} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE,approvedDiffs} from './perf/dom-baseline.mjs';import {execSync} from 'node:child_process';
 
 const require=createRequire(import.meta.url);const {chromium}=require(process.env.AVALON_PLAYWRIGHT||'playwright');
 // open()/tap() mirror tools/readme-shots/harness.mjs exactly (inlined since before harness.mjs honoured
@@ -34,8 +34,17 @@ const H={
  tap:(page,mode,points,times=1)=>page.evaluate(([mode,points,times])=>{const t=window.__cad.touch;if(mode)t.setMode(mode);const c=document.querySelector('#scene');for(const p of points){const at=t.pointScreen(p);for(let i=0;i<times;i++)for(const type of ['pointerdown','pointerup'])c.dispatchEvent(new PointerEvent(type,{clientX:at[0],clientY:at[1],pointerId:1,pointerType:'touch',bubbles:true}));}},[mode,points,times]),
 };
 const args=process.argv.slice(2),update=args.includes('--update'),outI=args.indexOf('--out');
-const OUT=outI>=0?path.resolve(args[outI+1]):path.join(process.env.TMPDIR||'/tmp','avalon-pixel-run');const only=args.filter((a,i)=>!a.startsWith('--')&&i!==outI+1);
+const OUT=outI>=0?path.resolve(args[outI+1]):path.join(process.env.TMPDIR||'/tmp','avalon-pixel-run');const only=args.filter((a,i)=>!a.startsWith('--')&&i!==outI+1&&!process.argv.slice(2).some((x,j)=>(x==='--allow-box'||x==='--approved')&&j+1===i));
 const JOBS=Number(process.env.PIXEL_JOBS||4);
+// Branch-specific approved diffs against a read-only baseline (approvedDiffs in dom-baseline.mjs): a scene with an
+// allow box may differ ONLY inside that box ([left,top,right,bottom] in CSS px, exact, no margin); every pixel outside
+// must be identical, and the DOM must be identical once the box's element (allowBoxes[id].strip, an exact outerHTML
+// string) is removed. --allow-box <scene id>=<left>,<top>,<right>,<bottom> adds a box from the command line.
+const APPROVED=approvedDiffs(),ALLOW={...APPROVED.allowBoxes};
+args.forEach((a,i)=>{if(a==='--allow-box'){const [id,b]=args[i+1].split('=');ALLOW[id]={...(ALLOW[id]||{}),box:b.split(',').map(Number)};}});
+function outsideExact(basePng,png,[l,t,r,b],dpr){const A=decodePNG(basePng),B=decodePNG(png);if(A.width!==B.width||A.height!==B.height)return A.width*A.height;
+ const [x0,y0,x1,y1]=[Math.floor(l*dpr),Math.floor(t*dpr),Math.ceil(r*dpr),Math.ceil(b*dpr)];let n=0;
+ for(let y=0;y<A.height;y++)for(let x=0;x<A.width;x++){if(x>=x0&&x<x1&&y>=y0&&y<y1)continue;const i=(y*A.width+x)*4;if(A.data.readUInt32BE(i)!==B.data.readUInt32BE(i))n++;}return n;}
 // Same server as the harness (harness.start() launches its own bundled browser; we need AVALON_CHROMIUM, so we start our own).
 async function start(){const server=http.createServer((req,res)=>{const name=new URL(req.url,'http://localhost').pathname.slice(1)||'index.html';const file=path.resolve(ASSETS,name);
   if(!file.startsWith(ASSETS+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}
@@ -170,10 +179,12 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
    // the approved-area check (ADR-0001 W0 re-baseline). Capture only; nothing is compared here.
    if(process.env.AVALON_PIXEL_RECTS&&!update)fs.writeFileSync(path.join(OUT,id+'.rects.json'),JSON.stringify(await page.evaluate(()=>{const box=e=>{if(!e)return null;const r=e.getBoundingClientRect(),c=getComputedStyle(e);return r.width&&r.height&&c.visibility!=='hidden'&&c.display!=='none'?[r.left,r.top,r.right,r.bottom]:null;};
     const help5=[...document.querySelectorAll('#sheet:not([hidden]) .helpitem')].find(e=>/^5\. Export for printing/.test(e.textContent));
-    return {dpr:devicePixelRatio,modebar:box(document.getElementById('touchModes')),dock:box(document.querySelector('.dock')),toolbar:box(document.querySelector('.toolbar')),help5:box(help5),pill:box(document.getElementById('desktopHelp'))};})));
+    return {dpr:devicePixelRatio,modebar:box(document.getElementById('touchModes')),dock:box(document.querySelector('.dock')),toolbar:box(document.querySelector('.toolbar')),help5:box(help5),pill:box(document.getElementById('desktopHelp')),formatField:box(document.getElementById('exportFormat')?.closest('.field'))};})));
    caps.push(id);if(!update){const bp=path.join(PX,id+'.png'),bd=path.join(DOM,id+'.json');const r={id,errors:[]};
-    if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
-    if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');
+    if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;const allow=ALLOW[id];if(allow&&d.differing&&!d.sizeMismatch){r.outsideBox=outsideExact(fs.readFileSync(bp),png,allow.box,desktop?1:2);if(r.outsideBox)r.errors.push(`${r.outsideBox} px differ outside the approved box [${allow.box}]`);else{r.accepted=d.differing;console.log(`approved ${id}: ${d.differing} px, all inside [${allow.box}] (${APPROVED.file||'--allow-box'})`);}}
+     else if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
+    const strip=ALLOW[id]?.strip,dom2=strip?{...dom,html:dom.html.replace(strip,'')}:dom;if(strip&&dom2.html===dom.html)r.errors.push('approved element to strip not found');
+    if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom2));else r.errors.push('no DOM baseline');
     if(MASK_BASE){const help=await page.evaluate(()=>{const e=document.getElementById('desktopHelp');if(!e||getComputedStyle(e).display==='none'||getComputedStyle(e).visibility==='hidden')return null;const b=e.getBoundingClientRect();return {left:b.left,top:b.top,right:b.right,bottom:b.bottom};});
      const mp=path.join(MASK_BASE,'pixels',id+'.png'),md=path.join(MASK_BASE,'dom',id+'.json');if(!fs.existsSync(mp))r.errors.push('no mask baseline');else{r.helpBox=help;r.outsideHelp=outsideBox(fs.readFileSync(mp),png,help,desktop?1:2);if(r.outsideHelp)r.errors.push(`${r.outsideHelp} px differ outside the help line vs ${path.basename(MASK_BASE)}`);if(!desktop&&help)r.errors.push('help line visible on phone');}
      if(fs.existsSync(md))r.errors.push(...compareDom(stripHelp(JSON.parse(fs.readFileSync(md,'utf8'))),stripHelp(dom)).map(e=>'vs '+path.basename(MASK_BASE)+' without #desktopHelp: '+e));}

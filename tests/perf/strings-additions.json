@@ -43,5 +43,11 @@
   ".3mf",
   "tristancad.exportFormat",
   "Export…"
+ ],
+ "approvedRemovals": [
+  {
+   "string": "Export STL…",
+   "approval": "ADR-0001 F2a: the Electron File menu 'Export STL…' becomes 'Export…' (with the new 'Export 3MF…' item and the READ-ME-FIRST line 'Cmd+E: Export (STL or 3MF).'), covered by Master Chief's help-text approval (\"Sean approval — help text\", 2026-10-17 ~16:10 CT) as confirmed by First Sergeant at 18:22 CT; recorded as an approved removal by Architect ruling 2 (F2a option A result, 19:55 CT)."
+  }
  ]
 }

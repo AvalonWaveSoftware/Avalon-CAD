@@ -23,6 +23,15 @@ export function extractStrings(){const set=new Set();
 // ADR new-primitives-polyhedra-text §5.12: the string table may differ from the baseline only by the additions listed
 // in tests/perf/strings-additions.json (each one approved with the feature); a baseline string may never be removed
 // or edited, and any other new string still fails.
+// Branch-specific approved diffs against a READ-ONLY baseline (never --update'd for them):
+//  - approved string removals: strings-additions.json "approvedRemovals" [{string, approval}];
+//  - approved pixel areas: tests/perf/approved-pixel-diffs.json {baseline, allowBoxes: {scene id: {box, strip, approval}}},
+//    applied only when the baseline in use is the one it names (AVALON_APPROVED_DIFFS=<json> selects another file).
+export function approvedDiffs(){
+ const sa=path.join(HERE,'strings-additions.json'),removedStrings=fs.existsSync(sa)?JSON.parse(fs.readFileSync(sa,'utf8')).approvedRemovals||[]:[];
+ const f=process.env.AVALON_APPROVED_DIFFS?path.resolve(process.env.AVALON_APPROVED_DIFFS):path.join(HERE,'approved-pixel-diffs.json');
+ const j=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,'utf8')):null;
+ return {file:j&&path.basename(BASE)===j.baseline?path.relative(REPO,f):null,removedStrings,allowBoxes:j&&path.basename(BASE)===j.baseline?j.allowBoxes||{}:{}};}
 export const APPROVED_ADDITIONS=()=>{const f=path.join(HERE,'strings-additions.json');return fs.existsSync(f)?new Set(JSON.parse(fs.readFileSync(f,'utf8')).strings):new Set();};
 export function staticState(){return Object.fromEntries(STATIC_FILES.map(f=>[f,sha(fs.readFileSync(path.join(ASSETS,f)))]));}
 // Runs in the page: outerHTML of body (id/class/style/text and all other attributes) with the #scene canvas size
@@ -47,8 +56,9 @@ function main(){const update=process.argv.includes('--update');fs.mkdirSync(BASE
  if(update){fs.writeFileSync(fS,JSON.stringify(st,null,1)+'\n');fs.writeFileSync(fT,JSON.stringify(strings,null,1)+'\n');console.log('wrote',fS,'and',fT,strings.length,'strings');return;}
  const bs=JSON.parse(fs.readFileSync(fS,'utf8')),bt=new Set(JSON.parse(fs.readFileSync(fT,'utf8'))),now=new Set(strings);let bad=0;
  for(const f of STATIC_FILES)if(bs[f]!==st[f]){bad++;console.error(`FAIL ${f} is not byte-identical to the baseline (${bs[f]} → ${st[f]})`);}
- const approved=APPROVED_ADDITIONS(),added=strings.filter(s=>!bt.has(s)&&!approved.has(s)),removed=[...bt].filter(s=>!now.has(s)),approvedSeen=strings.filter(s=>!bt.has(s)&&approved.has(s)).length;
+ const approved=APPROVED_ADDITIONS(),added=strings.filter(s=>!bt.has(s)&&!approved.has(s)),approvedRemoved=new Set(approvedDiffs().removedStrings.map(r=>r.string)),removedApproved=[...bt].filter(s=>!now.has(s)&&approvedRemoved.has(s)),removed=[...bt].filter(s=>!now.has(s)&&!approvedRemoved.has(s)),approvedSeen=strings.filter(s=>!bt.has(s)&&approved.has(s)).length;
  for(const s of added){bad++;console.error('FAIL new/changed user-visible string:',JSON.stringify(s));}
  for(const s of removed){bad++;console.error('FAIL string missing vs baseline:',JSON.stringify(s));}
- if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length-approvedSeen} baseline strings identical${approvedSeen?`, ${approvedSeen} approved addition(s)`:''}`);}
+ for(const s of approvedRemoved)if(now.has(s)||!bt.has(s)){bad++;console.error('FAIL approved removal does not apply (still present, or not in the baseline):',JSON.stringify(s));}
+ if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length-approvedSeen} baseline strings identical${approvedSeen?`, ${approvedSeen} approved addition(s)`:''}${removedApproved.length?`, ${removedApproved.length} approved removal(s) (${removedApproved.map(x=>JSON.stringify(x)).join(', ')}; strings-additions.json)`:''}`);}
 if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname)main();
