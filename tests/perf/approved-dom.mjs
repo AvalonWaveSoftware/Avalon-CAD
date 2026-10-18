@@ -18,8 +18,18 @@
 // ([a-z][a-z0-9-]*); 'style' and 'class' are rejected (layout state, not approvable strings).
 //
 // expected must be exactly a string in the active baseline's strings-baseline.json (AVALON_PIXEL_BASELINE) or in
-// tests/perf/strings-additions.json; loadDomEntries throws with the offending entry otherwise.
-import fs from 'node:fs';import path from 'node:path';
+// tests/perf/strings-additions.json (plain strings, or the exact text of a runtime entry {text, runtime:true, source,
+// approval}); loadDomEntries throws with the offending entry otherwise.
+//
+// Box and structure (ADR-0001 box ruling). Computed style is compared in two parts (dom-baseline.mjs domSnapshot split):
+// the non-layout style and the box (rect + layout results). A STYLE change always fails. A BOX change (style equal) passes
+// only (i) on the exact element an attribute/text entry matched in that capture, or (ii) when the element's old and new
+// boxes both lie entirely inside an approved pixel area for that scene (the box / overlay / per-scene areas of
+// approved-areas.json, measured in the page at capture time). An added element passes only with an "added" entry
+// {scene, selector, kind:"added", expected?: its full text, approval} and only when its box and every descendant's box lie
+// entirely inside an approved pixel area for that scene. Removed elements always fail. Without split data (a baseline
+// captured before the split, with no AVALON_PIXEL_SPLIT_REF), every computed-style/box change fails as before.
+import fs from 'node:fs';import path from 'node:path';import {readAdditions,additionTexts} from './dom-baseline.mjs';
 const IDENT='-?[_a-zA-Z][_a-zA-Z0-9-]*',VAL=`(?:"[^"\\\\]*"|'[^'\\\\]*'|${IDENT})`;
 const PART=new RegExp(`^(?:#${IDENT}|\\.${IDENT}|\\[${IDENT}=${VAL}\\])`),TAG=new RegExp(`^[a-z][a-z0-9-]*`);
 // Returns null when valid, else the reason.
@@ -41,57 +51,87 @@ export function validSelector(sel){
   if(!tag&&!parts)return `empty compound in "${sel}"`;last={tag,parts};}
  if(!last.parts)return `the last compound "${compounds.at(-1)}" needs an #id, .class or [attr="value"] (bare tag selectors match broadly)`;
  return null;}
-export function validKind(kind){if(kind==='text')return null;if(typeof kind!=='string'||!/^[a-z][a-z0-9-]*$/.test(kind))return 'kind must be "text" or an attribute name';if(kind==='style'||kind==='class')return `kind "${kind}" is not approvable`;return null;}
-// Strings an entry may expect: the active baseline's strings-baseline.json and tests/perf/strings-additions.json.
-export function approvedStrings(base,additionsFile=path.join(path.dirname(new URL(import.meta.url).pathname),'strings-additions.json')){
- const s=new Set();const f=path.join(base,'strings-baseline.json');if(fs.existsSync(f))for(const x of JSON.parse(fs.readFileSync(f,'utf8')))s.add(x);
- if(fs.existsSync(additionsFile))for(const x of JSON.parse(fs.readFileSync(additionsFile,'utf8')).strings)s.add(x);return s;}
+export function validKind(kind){if(kind==='text'||kind==='added')return null;if(typeof kind!=='string'||!/^[a-z][a-z0-9-]*$/.test(kind))return 'kind must be "text" or an attribute name';if(kind==='style'||kind==='class')return `kind "${kind}" is not approvable`;return null;}
+// Strings an entry may expect: the active baseline's strings-baseline.json and tests/perf/strings-additions.json (plain
+// strings and runtime texts; the file is validated, so a bad runtime entry fails here too).
+export function approvedStrings(base,additionsFile){const s=new Set();const f=path.join(base,'strings-baseline.json');if(fs.existsSync(f))for(const x of JSON.parse(fs.readFileSync(f,'utf8')))s.add(x);
+ for(const x of additionTexts(additionsFile?readAdditions(additionsFile):readAdditions()))s.add(x);return s;}
 // Validates the "dom" list; throws one Error listing every bad entry.
 export function loadDomEntries(list,strings){
  if(list==null)return [];if(!Array.isArray(list))throw Error('approved-areas.json "dom" must be a list');const bad=[];
  list.forEach((e,i)=>{const at=`dom[${i}] ${JSON.stringify(e)}`;
   if(!e||typeof e!=='object'){bad.push(at+': not an object');return;}
-  for(const k of ['scene','selector','kind','expected','approval'])if(typeof e[k]!=='string'||(!e[k]&&k!=='expected'))bad.push(`${at}: "${k}" must be a non-empty string`);
+  const added=e.kind==='added';
+  for(const k of ['scene','selector','kind','approval'])if(typeof e[k]!=='string'||!e[k])bad.push(`${at}: "${k}" must be a non-empty string`);
+  if(!added&&typeof e.expected!=='string')bad.push(`${at}: "expected" must be a string`);
+  if(added&&e.expected!=null&&typeof e.expected!=='string')bad.push(`${at}: "expected" (optional for added) must be a string`);
   const s=validSelector(e.selector);if(s)bad.push(`${at}: invalid selector: ${s}`);
   const k=validKind(e.kind);if(k)bad.push(`${at}: ${k}`);
   if(typeof e.expected==='string'&&!strings.has(e.expected))bad.push(`${at}: expected ${JSON.stringify(e.expected)} is not in strings-baseline.json or tests/perf/strings-additions.json`);});
  if(bad.length)throw Error('approved-areas.json dom entries rejected:\n  '+bad.join('\n  '));
- return list.map(e=>({scene:e.scene,selector:e.selector,kind:e.kind,expected:e.expected,approval:e.approval}));}
-// Runs IN THE PAGE (page.evaluate(domChanges,[baseHtml,nowHtml,entries,scene,id])): parses both body snapshots, aligns
-// elements (children by tag#id, LCS), and lists every change with its element path; each change is matched or unmatched.
-export function domChanges([baseHtml,nowHtml,entries,scene,id]){
+ return list.map(e=>({scene:e.scene,selector:e.selector,kind:e.kind,expected:e.expected??null,approval:e.approval}));}
+// Runs IN THE PAGE: page.evaluate(domChanges,[base,now,ctx]); base/now = {html,styles,split?} snapshots, ctx = {entries,
+// scene, id, areas: [selector...]} (areas are measured in the live page). Parses both bodies, aligns elements (children by
+// tag#id, LCS) and lists every change as matched or unmatched.
+export function domChanges([base,now,ctx]){
+ const {entries,scene,id}=ctx;const sceneOk=e=>e.scene==='*'||e.scene===scene||e.scene===id;
  const parse=h=>new DOMParser().parseFromString('<!doctype html><html>'+h+'</html>','text/html').body;
- const A=parse(baseHtml),B=parse(nowHtml),changes=[];
+ const A=parse(base.html),B=parse(now.html),changes=[],pairs=[],addedTop=[];
  const label=e=>e.tagName.toLowerCase()+(e.id?'#'+e.id:'');
- const own=e=>[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.data).join('');// raw: any whitespace change is a change too
+ const pathOf=(e,body)=>{const p=[];for(;e&&e!==body;e=e.parentElement)p.unshift(e.tagName.toLowerCase()+(e.id?'#'+e.id:'')+':'+[...e.parentElement.children].indexOf(e));return p.join('>');};
+ const own=e=>[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.data).join('');
  const key=e=>label(e);
  const lcs=(a,b)=>{const n=a.length,m=b.length,L=Array.from({length:n+1},()=>new Int32Array(m+1));
   for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)L[i][j]=key(a[i])===key(b[j])?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
-  const pairs=[],da=[],db=[];let i=0,j=0;while(i<n&&j<m){if(key(a[i])===key(b[j])){pairs.push([a[i],b[j]]);i++;j++;}else if(L[i+1][j]>=L[i][j+1])da.push(a[i++]);else db.push(b[j++]);}
-  while(i<n)da.push(a[i++]);while(j<m)db.push(b[j++]);return {pairs,da,db};};
+  const pr=[],da=[],db=[];let i=0,j=0;while(i<n&&j<m){if(key(a[i])===key(b[j])){pr.push([a[i],b[j]]);i++;j++;}else if(L[i+1][j]>=L[i][j+1])da.push(a[i++]);else db.push(b[j++]);}
+  while(i<n)da.push(a[i++]);while(j<m)db.push(b[j++]);return {pairs:pr,da,db};};
  const walk=(a,b,p)=>{
   const names=new Set([...a.getAttributeNames(),...b.getAttributeNames()]);
   for(const n of [...names].sort()){const x=a.getAttribute(n),y=b.getAttribute(n);if(x!==y)changes.push({path:p,el:b,kind:n,old:x,now:y});}
   const ta=own(a),tb=own(b);if(ta!==tb)changes.push({path:p,el:b,kind:'text',old:ta,now:tb});
-  const {pairs,da,db}=lcs([...a.children],[...b.children]);
-  for(const e of da)changes.push({path:p+'>'+label(e),el:null,kind:'element removed',old:label(e),now:null});
-  for(const e of db)changes.push({path:p+'>'+label(e),el:null,kind:'element added',old:null,now:label(e)});
-  for(const [x,y] of pairs)walk(x,y,p+'>'+label(y));};
+  const r=lcs([...a.children],[...b.children]);
+  for(const e of r.da)changes.push({path:p+'>'+label(e),el:null,kind:'element removed',old:label(e),now:null});
+  for(const e of r.db)addedTop.push({path:p+'>'+label(e),el:e});
+  for(const [x,y] of r.pairs){pairs.push([x,y]);walk(x,y,p+'>'+label(y));}};
  walk(A,B,'body');
- const out={matched:[],unmatched:[]};
- for(const c of changes){const e=c.el&&typeof c.now==='string'?entries.find(e=>(e.scene==='*'||e.scene===scene||e.scene===id)&&e.kind===c.kind&&e.expected===(c.kind==='text'?c.now.trim():c.now)&&c.el.matches(e.selector)):null;
-  const rec={path:c.path,kind:c.kind,old:c.old,now:c.now};if(e){rec.approval=e.approval;out.matched.push(rec);}else out.unmatched.push(rec);}
+ // live-page boxes of the approved pixel areas (CSS px); an element box is inside when it lies entirely within one
+ const areas=(ctx.areas||[]).map(s=>{const e=document.querySelector(s);if(!e)return null;const r=e.getBoundingClientRect();return [r.left,r.top,r.right,r.bottom];}).filter(Boolean);
+ const EPS=0.01,inside=b=>!!b&&areas.some(([l,t,r,bt])=>b[0]>=l-EPS&&b[1]>=t-EPS&&b[0]+b[2]<=r+EPS&&b[1]+b[3]<=bt+EPS);
+ const out={matched:[],unmatched:[]},rec=(c,extra)=>({path:c.path,kind:c.kind,old:c.old,now:c.now,...extra});
+ const matchedEls=new Set();
+ for(const c of changes){const v=c.kind==='text'&&typeof c.now==='string'?c.now.trim():c.now;
+  const e=c.el&&typeof c.now==='string'?entries.find(e=>e.kind!=='added'&&sceneOk(e)&&e.kind===c.kind&&e.expected===v&&c.el.matches(e.selector)):null;
+  if(e){matchedEls.add(c.el);out.matched.push(rec(c,{approval:e.approval}));}else out.unmatched.push(rec(c));}
+ // added elements: an "added" entry, and the element's and all descendants' new boxes inside an approved area
+ const ns=now.split,bs=base.split,acceptedAdded=new Set();
+ for(const a of addedTop){const sub=[a.el,...a.el.querySelectorAll('*')],boxes=sub.map(x=>ns?.box?.[pathOf(x,B)]);
+  const txt=a.el.textContent.trim(),e=entries.find(e=>e.kind==='added'&&sceneOk(e)&&a.el.matches(e.selector)&&(e.expected==null||e.expected===txt));
+  const c={path:a.path,kind:'element added',old:null,now:label(a.el)+(txt?' "'+txt.slice(0,60)+'"':'')};
+  if(e&&boxes.every(inside)){for(const x of sub)acceptedAdded.add(x);out.matched.push(rec(c,{approval:e.approval}));}
+  else out.unmatched.push(rec(c,{why:!e?'no matching "added" entry':'box not entirely inside an approved pixel area'}));}
+ // computed style / box of every aligned element pair
+ for(const [a,b] of pairs){const pa=pathOf(a,A),pb=pathOf(b,B),x=base.styles[pa],y=now.styles[pb];if(x===y)continue;
+  const c={path:pb,kind:'computed style/box',old:x??null,now:y??null};
+  if(!bs?.style||!ns?.style||bs.style[pa]==null||ns.style[pb]==null){out.unmatched.push(rec(c,{why:'no style/box split data'}));continue;}
+  if(bs.style[pa]!==ns.style[pb]){out.unmatched.push(rec({...c,kind:'computed style'},{}));continue;}
+  const cb={...c,kind:'box',old:bs.box[pa],now:ns.box[pb]};
+  if(matchedEls.has(b))out.matched.push(rec(cb,{approval:'box of an element matched by an approved DOM entry'}));
+  else if(inside(bs.box[pa])&&inside(ns.box[pb]))out.matched.push(rec(cb,{approval:'box inside an approved pixel area'}));
+  else out.unmatched.push(rec(cb,{why:'box change outside the approved areas on an unmatched element'}));}
  return out;}
-// Node side: computed-style/box changes (never approvable) as unmatched changes.
-export function styleChanges(a,b){const out=[];for(const k of new Set([...Object.keys(a.styles),...Object.keys(b.styles)]))if(a.styles[k]!==b.styles[k])out.push({path:k,kind:'computed style/box',old:a.styles[k]??null,now:b.styles[k]??null});return out;}
-export const fmtChange=c=>`${c.kind} at ${c.path}: ${JSON.stringify(c.old)} → ${JSON.stringify(c.now)}`.slice(0,300);
-// One capture: page = a Playwright page (domChanges runs in it), base/now = {html,styles} snapshots, compareDom = the
-// old message builder. Returns {matched:[…], unmatched:[…], errors:[…]}; errors is empty exactly when nothing is unmatched,
-// and with no entries it fails exactly the captures the old check failed, with the same messages.
-export async function checkCapture(page,{name,id,base,now,entries,compareDom}){
- const st=styleChanges(base,now);
- const res=base.html===now.html?{matched:[],unmatched:[]}:await page.evaluate(domChanges,[base.html,now.html,entries,name,id]);
- if(base.html!==now.html&&!res.matched.length&&!res.unmatched.length)res.unmatched.push({path:'body',kind:'outerHTML',old:'(baseline)',now:'differs with no element-level change (attribute order or serialisation)'});
- const unmatched=[...res.unmatched,...st];
- const errors=unmatched.length?compareDom(base,now).filter(e=>res.unmatched.length||!e.startsWith('outerHTML differs')):[];
+export const fmtChange=c=>`${c.kind} at ${c.path}: ${JSON.stringify(c.old)} → ${JSON.stringify(c.now)}${c.why?' ('+c.why+')':''}`.slice(0,300);
+// One capture. page = a Playwright page (domChanges runs in it); base/now = snapshots; splitRef = an optional capture of
+// the baseline's own build with split data, used only when the baseline snapshot has none and the reference's html and
+// combined styles are identical to the baseline's. Returns {matched, unmatched, errors}; errors are the old messages
+// (outerHTML line when an HTML-level change is unmatched; 'computed style/box differs: <path>' for unmatched style/box
+// changes, first 5 then a count), so with no entries and no areas the result is exactly the old one.
+export async function checkCapture(page,{name,id,base,now,entries,areas=[],splitRef=null,compareDom}){
+ if(base.html===now.html&&JSON.stringify(base.styles)===JSON.stringify(now.styles))return {matched:[],unmatched:[],errors:[]};
+ if(!base.split&&splitRef&&splitRef.split&&splitRef.html===base.html&&JSON.stringify(splitRef.styles)===JSON.stringify(base.styles))base={...base,split:splitRef.split};
+ const res=await page.evaluate(domChanges,[{html:base.html,styles:base.styles,split:base.split||null},{html:now.html,styles:now.styles,split:now.split||null},{entries,scene:name,id,areas}]);
+ const htmlUn=res.unmatched.filter(c=>!/^(computed style|box)/.test(c.kind)),styleUn=res.unmatched.filter(c=>/^(computed style|box)/.test(c.kind));
+ if(base.html!==now.html&&!res.matched.length&&!htmlUn.length&&!res.unmatched.some(c=>c.kind==='element added'))htmlUn.push({path:'body',kind:'outerHTML',old:'(baseline)',now:'differs with no element-level change (attribute order or serialisation)'});
+ const unmatched=[...htmlUn,...styleUn],errors=[];
+ if(htmlUn.length)errors.push(...compareDom(base,{html:now.html,styles:base.styles}));
+ styleUn.slice(0,5).forEach(c=>errors.push('computed style/box differs: '+c.path));if(styleUn.length>5)errors.push(`…${styleUn.length} elements with style differences`);
  return {matched:res.matched,unmatched,errors};}

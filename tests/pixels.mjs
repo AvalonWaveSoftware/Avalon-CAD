@@ -13,6 +13,8 @@
 //   Approved DOM entries (ADR-0001 approved-dom-areas): the "dom" list of tests/perf/approved-areas.json approves exact
 //        DOM changes (see tests/perf/approved-dom.mjs); every capture prints its matched/unmatched DOM-change counts and
 //        lists unmatched changes; any unmatched change fails. With no entries the result is the same as before.
+//        Box changes and added elements are accepted only as tests/perf/approved-dom.mjs describes (matched element, or
+//        inside an approved pixel area); style changes and removed elements always fail. AVALON_PIXEL_SPLIT_REF: see below.
 // Env: AVALON_PLAYWRIGHT (playwright module path), AVALON_CHROMIUM (browser executable), AVALON_ASSETS (served build),
 //      PIXEL_JOBS (parallel browser contexts in the one shared browser, default 4), AVALON_PIXEL_BASELINE (baseline dir).
 // Same setup as tools/readme-shots/harness.mjs (served app, open(), tap()); one shared browser, PIXEL_JOBS contexts; toasts and #busy are hidden as capture.mjs does.
@@ -57,12 +59,18 @@ if(ALLOW_BOX&&update)throw Error('--allow-box is a compare-only check; it never 
 // AVALON_PIXEL_APPROVED=0 switch) approve exact DOM changes; see tests/perf/approved-dom.mjs. Validated here, at load:
 // an invalid selector/kind or an expected value missing from the strings tables stops the run before any capture.
 const DOM_ENTRIES=loadDomEntries(APPROVED?.dom,approvedStrings(BASE));
+// AVALON_PIXEL_SPLIT_REF=<dir>: captures (pixels.mjs --out) of the baseline's own build taken with the split snapshot. A
+// baseline captured before the style/box split has none; the reference's split is used for a capture only when its html
+// and combined styles equal the baseline's exactly (same state), so box changes can be told from style changes.
+const SPLIT_REF=process.env.AVALON_PIXEL_SPLIT_REF?path.resolve(process.env.AVALON_PIXEL_SPLIT_REF):null;
 if(APPROVED)console.log(`approved DOM entries (${APPROVED.baseline}): ${DOM_ENTRIES.length}`);
 // Compares a capture's DOM with its baseline snapshot. Every DOM change is listed as matched (by an approved DOM
 // entry) or unmatched; any unmatched change fails with the same messages as before (compareDom), and with no entries
 // the pass/fail result is exactly the old one. Computed-style/box changes are never matched.
 async function checkDom(page,name,id,bd,dom,r){if(!fs.existsSync(bd)){r.errors.push('no DOM baseline');return;}
- const c=await checkCapture(page,{name,id,base:JSON.parse(fs.readFileSync(bd,'utf8')),now:dom,entries:DOM_ENTRIES,compareDom});
+ const sr=SPLIT_REF&&path.join(SPLIT_REF,id+'.json'),splitRef=sr&&fs.existsSync(sr)?JSON.parse(fs.readFileSync(sr,'utf8')):null;
+ const areas=[ALLOW_BOX,ALLOW_OVERLAY,...(SCENE_AREAS[name]||[])].filter(Boolean);
+ const c=await checkCapture(page,{name,id,base:JSON.parse(fs.readFileSync(bd,'utf8')),now:dom,entries:DOM_ENTRIES,areas,splitRef,compareDom});
  r.dom={matched:c.matched.length,unmatched:c.unmatched.length};r.errors.push(...c.errors);
  if(c.matched.length||c.unmatched.length){r.domMatched=c.matched;r.domUnmatched=c.unmatched.map(fmtChange);
   console.log(`  ${id} DOM changes: ${c.matched.length} matched, ${c.unmatched.length} unmatched${c.unmatched.length?':\n    '+r.domUnmatched.slice(0,20).join('\n    ')+(c.unmatched.length>20?`\n    …${c.unmatched.length-20} more (report.json)`:''):''}`);}}

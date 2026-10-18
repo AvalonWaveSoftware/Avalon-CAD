@@ -45,20 +45,42 @@ export function extractStrings(){const set=new Set();
 // ADR new-primitives-polyhedra-text §5.12: the string table may differ from the baseline only by the additions listed
 // in tests/perf/strings-additions.json (each one approved with the feature); a baseline string may never be removed
 // or edited, and any other new string still fails.
-export const APPROVED_ADDITIONS=()=>{const f=path.join(HERE,'strings-additions.json');return fs.existsSync(f)?new Set(JSON.parse(fs.readFileSync(f,'utf8')).strings):new Set();};
+// ADR-0001 approved-dom-areas (runtime ruling): an entry of "strings" is either a plain string (extracted from source) or
+// a runtime text {text, runtime:true, source:"file:line", approval}: the exact rendered text of a title/label the
+// extractor cannot see (composed at runtime). No templates, no patterns. All four fields are required and source must be
+// an existing file (relative to the repo) with that line; validateAdditions throws otherwise.
+export function checkSource(src,repo=REPO){const m=typeof src==='string'&&src.match(/^([^:]+):(\d+)$/);if(!m)return 'source must be "file:line"';
+ const f=path.join(repo,m[1]);if(!fs.existsSync(f))return `source file ${m[1]} does not exist`;if(+m[2]<1||+m[2]>fs.readFileSync(f,'utf8').split('\n').length)return `${m[1]} has no line ${m[2]}`;return null;}
+export function validateAdditions(a,repo=REPO){const bad=[];
+ if(!a||!Array.isArray(a.strings))bad.push('"strings" must be a list');
+ for(const [i,s] of (a?.strings||[]).entries()){if(typeof s==='string')continue;const at=`strings[${i}] ${JSON.stringify(s)}`;
+  if(!s||typeof s!=='object'){bad.push(at+': must be a string or a runtime entry');continue;}
+  if(s.runtime!==true)bad.push(at+': an object entry needs runtime:true');
+  for(const k of ['text','source','approval'])if(typeof s[k]!=='string'||!s[k])bad.push(`${at}: "${k}" must be a non-empty string`);
+  const e=checkSource(s.source,repo);if(e)bad.push(`${at}: ${e}`);}
+ for(const [i,c] of (a?.extractorCorrections||[]).entries()){const at=`extractorCorrections[${i}] ${JSON.stringify(c)}`;for(const k of ['string','reason','source'])if(!c||typeof c[k]!=='string'||!c[k])bad.push(`${at}: "${k}" must be a non-empty string`);const e=c&&checkSource(c.source,repo);if(e)bad.push(`${at}: ${e}`);}
+ if(a?.extractorCorrections!=null&&!Array.isArray(a.extractorCorrections))bad.push('"extractorCorrections" must be a list');
+ if(bad.length)throw Error('tests/perf/strings-additions.json rejected:\n  '+bad.join('\n  '));return a;}
+const ADDITIONS_FILE=path.join(HERE,'strings-additions.json');
+export const readAdditions=(f=ADDITIONS_FILE)=>fs.existsSync(f)?validateAdditions(JSON.parse(fs.readFileSync(f,'utf8'))):{strings:[]};
+export const additionTexts=a=>a.strings.map(s=>typeof s==='string'?s:s.text);
+export const APPROVED_ADDITIONS=()=>new Set(additionTexts(readAdditions()));
 // ADR-0001 approved-dom-areas (a): strings-additions.json may also list approved removals, "removals": [{string, approval}].
 // A baseline string missing from the build passes only if it is listed there (exact string); unlisted removals fail.
 // Like additions, an entry is dropped when the baseline rolls forward without that string.
-export const APPROVED_REMOVALS=(f=path.join(HERE,'strings-additions.json'))=>fs.existsSync(f)?JSON.parse(fs.readFileSync(f,'utf8')).removals||[]:[];
+export const APPROVED_REMOVALS=(f=ADDITIONS_FILE)=>fs.existsSync(f)?JSON.parse(fs.readFileSync(f,'utf8')).removals||[]:[];
+// Extractor corrections {string, reason, source}: a baseline string that the corrected extractor no longer sees because
+// its only source was never UI text (e.g. comment-only). Accepted as missing, kept apart from approved removals.
+export const EXTRACTOR_CORRECTIONS=(f=ADDITIONS_FILE)=>fs.existsSync(f)?readAdditions(f).extractorCorrections||[]:[];
 // Pure comparison of a baseline string list with the extracted one (testable): returns the failures and the counts.
-export function compareStrings(baseline,strings,approved,removals){const bt=new Set(baseline),now=new Set(strings),errors=[];
+export function compareStrings(baseline,strings,approved,removals,corrections=[]){const bt=new Set(baseline),now=new Set(strings),errors=[];
  if(!Array.isArray(removals))errors.push('strings-additions.json "removals" must be a list');
  const ok=new Map();for(const [i,r] of (Array.isArray(removals)?removals:[]).entries()){if(!r||typeof r.string!=='string'||!r.string||typeof r.approval!=='string'||!r.approval)errors.push(`removals[${i}] ${JSON.stringify(r)}: needs a non-empty "string" and "approval"`);else ok.set(r.string,r.approval);}
- const added=strings.filter(s=>!bt.has(s)&&!approved.has(s)),missing=[...bt].filter(s=>!now.has(s)),removed=missing.filter(s=>!ok.has(s)),removedApproved=missing.filter(s=>ok.has(s));
+ const corr=new Set(corrections.map(c=>c.string)),added=strings.filter(s=>!bt.has(s)&&!approved.has(s)),missing=[...bt].filter(s=>!now.has(s)),removed=missing.filter(s=>!ok.has(s)&&!corr.has(s)),removedApproved=missing.filter(s=>ok.has(s)),corrected=missing.filter(s=>corr.has(s)&&!ok.has(s));
  const stale=[...ok.keys()].filter(s=>!bt.has(s)||now.has(s));
  for(const s of added)errors.push('new/changed user-visible string: '+JSON.stringify(s));
  for(const s of removed)errors.push('string missing vs baseline: '+JSON.stringify(s));
- return {errors,added,removed,removedApproved,stale,approvedSeen:strings.filter(s=>!bt.has(s)&&approved.has(s)).length};}
+ return {errors,added,removed,removedApproved,corrected,stale,approvedSeen:strings.filter(s=>!bt.has(s)&&approved.has(s)).length};}
 export function staticState(){return Object.fromEntries(STATIC_FILES.map(f=>[f,sha(fs.readFileSync(path.join(ASSETS,f)))]));}
 // Runs in the page: outerHTML of body (id/class/style/text and all other attributes) with the #scene canvas size
 // attributes dropped and random object ids normalised; computed styles hashed per element.
@@ -71,10 +93,17 @@ export async function domSnapshot(page){return page.evaluate(async()=>{
  html=html.replace(/\b[a-z0-9]{6,10}-[a-z0-9]+-[a-z0-9]{5}\b/g,'{uid}');
  const enc=new TextEncoder(),hex=async s=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(s)))].map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,16);
  const pathOf=e=>{const p=[];for(;e&&e!==document.body;e=e.parentElement){p.unshift(e.tagName.toLowerCase()+(e.id?'#'+e.id:'')+':'+[...e.parentElement.children].indexOf(e));}return p.join('>');};
+ // ADR-0001 approved-dom-areas (box ruling): besides the unchanged combined hash (styles), each element's computed style
+ // is split into its non-layout part (split.style) and its box: the rect (split.box) plus the computed values that are
+ // layout results (split.layout: width/height/inset/origins). A change of the combined hash with split.style equal is a
+ // box change; anything else is a style change. Baselines captured before this have no split.
+ const LAYOUT=new Set(['width','height','inline-size','block-size','top','right','bottom','left','inset-block-start','inset-block-end','inset-inline-start','inset-inline-end','transform-origin','perspective-origin']);
+ const split={style:{},box:{},layout:{}};
  const styles={};for(const e of document.body.querySelectorAll('*')){if(e.id==='scene')continue;const cs=getComputedStyle(e);let s='';const names=[];for(let i=0;i<cs.length;i++)names.push(cs[i]);names.sort();// custom-property enumeration order is not stable across runs
-  for(const k of names){if(k==='display'&&e.id==='toast')continue;s+=k+':'+cs.getPropertyValue(k)+';';}
-  const r=e.getBoundingClientRect();styles[pathOf(e)]=await hex(s+'|'+[r.x,r.y,r.width,r.height].join(','));}
- return {html,styles};});}
+  let sv='',sl='';for(const k of names){if(k==='display'&&e.id==='toast')continue;const v=k+':'+cs.getPropertyValue(k)+';';s+=v;if(LAYOUT.has(k))sl+=v;else sv+=v;}
+  const r=e.getBoundingClientRect(),p=pathOf(e);styles[p]=await hex(s+'|'+[r.x,r.y,r.width,r.height].join(','));
+  split.style[p]=await hex(sv);split.box[p]=[r.x,r.y,r.width,r.height];split.layout[p]=await hex(sl);}
+ return {html,styles,split};});}
 export function compareDom(a,b){const out=[];if(a.html!==b.html){let i=0;while(i<a.html.length&&a.html[i]===b.html[i])i++;out.push(`outerHTML differs at char ${i}: baseline …${a.html.slice(Math.max(0,i-60),i+60)}… now …${b.html.slice(Math.max(0,i-60),i+60)}…`);}
  const keys=new Set([...Object.keys(a.styles),...Object.keys(b.styles)]);let n=0;for(const k of keys)if(a.styles[k]!==b.styles[k]){if(n++<5)out.push('computed style/box differs: '+k);}if(n>5)out.push(`…${n} elements with style differences`);return out;}
 function main(){const update=process.argv.includes('--update');fs.mkdirSync(BASE,{recursive:true});
@@ -82,8 +111,8 @@ function main(){const update=process.argv.includes('--update');fs.mkdirSync(BASE
  if(update){fs.writeFileSync(fS,JSON.stringify(st,null,1)+'\n');fs.writeFileSync(fT,JSON.stringify(strings,null,1)+'\n');console.log('wrote',fS,'and',fT,strings.length,'strings');return;}
  const bs=JSON.parse(fs.readFileSync(fS,'utf8')),bt=new Set(JSON.parse(fs.readFileSync(fT,'utf8'))),now=new Set(strings);let bad=0;
  for(const f of STATIC_FILES)if(bs[f]!==st[f]){bad++;console.error(`FAIL ${f} is not byte-identical to the baseline (${bs[f]} → ${st[f]})`);}
- const c=compareStrings([...bt],strings,APPROVED_ADDITIONS(),APPROVED_REMOVALS()),approvedSeen=c.approvedSeen;
+ const c=compareStrings([...bt],strings,APPROVED_ADDITIONS(),APPROVED_REMOVALS(),EXTRACTOR_CORRECTIONS()),approvedSeen=c.approvedSeen;
  for(const e of c.errors){bad++;console.error('FAIL '+e);}
  for(const s of c.stale)console.log('note: listed removal not needed (string still present, or not in this baseline):',JSON.stringify(s));
- if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length-approvedSeen} baseline strings identical${approvedSeen?`, ${approvedSeen} approved addition(s)`:''}${c.removedApproved.length?`, ${c.removedApproved.length} approved removal(s)`:''}`);}
+ if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length-approvedSeen} baseline strings identical${approvedSeen?`, ${approvedSeen} approved addition(s)`:''}${c.removedApproved.length?`, ${c.removedApproved.length} approved removal(s)`:''}${c.corrected.length?`, ${c.corrected.length} extractor correction(s)`:''}`);}
 if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname)main();

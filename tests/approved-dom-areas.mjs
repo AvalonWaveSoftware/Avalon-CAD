@@ -1,7 +1,7 @@
 // ADR-0001 approved-dom-areas: unit tests for tests/perf/approved-dom.mjs (the "dom" entries of approved-areas.json
 // used by tests/pixels.mjs). Runs domChanges in a blank Chromium page; no app, no baseline folder is written.
 import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
-import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture} from './perf/approved-dom.mjs';import {compareDom,compareStrings,stripComments,extractStrings} from './perf/dom-baseline.mjs';
+import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture} from './perf/approved-dom.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions} from './perf/dom-baseline.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const STR=new Set(['Edge (F)','Move (M)','Project menu','Ready · millimeters','Fit model (0)']);
 const E=(o)=>({scene:'*',kind:'title',approval:'test',...o});
@@ -50,6 +50,29 @@ const S=approvedStrings(tmp,add);assert.ok(S.has('Base string')&&S.has('Added st
  // at this tree: the comment-only string is gone from the extracted set, the UI error text is still there
  const S=new Set(extractStrings());assert.ok(!S.has('The modeling engine could not start'));assert.ok(S.has('The modeling engine could not start. Close and reopen the app.'));}
 
+// 7. Runtime texts in strings-additions.json and extractor corrections (ADR-0001 rulings).
+{const R=path.resolve(path.dirname(new URL(import.meta.url).pathname),'..');
+ const ok={text:'Layers · Layer 1',runtime:true,source:'web/main.mjs:1',approval:'ruling X'};
+ assert.doesNotThrow(()=>validateAdditions({strings:['Plain.',ok]},R));
+ for(const [bad,re] of [[{...ok,runtime:undefined},/needs runtime:true/],[{...ok,text:''},/"text" must be a non-empty string/],[{...ok,approval:undefined},/"approval" must be a non-empty string/],
+  [{...ok,source:undefined},/"source" must be a non-empty string/],[{...ok,source:'web/main.mjs'},/source must be "file:line"/],[{...ok,source:'web/nope.mjs:3'},/source file web\/nope.mjs does not exist/],[{...ok,source:'web/main.mjs:999999'},/web\/main.mjs has no line 999999/]])
+  assert.throws(()=>validateAdditions({strings:[bad]},R),re,JSON.stringify(bad));
+ // a dom entry may cite a runtime text by its exact text, never by a pattern
+ const tmpA=fs.mkdtempSync(path.join(os.tmpdir(),'ada-'));const af=path.join(tmpA,'additions.json');fs.writeFileSync(af,JSON.stringify({strings:['Plain.',ok]}));
+ const S2=approvedStrings(tmpA,af);assert.ok(S2.has('Layers · Layer 1')&&S2.has('Plain.'));
+ assert.equal(loadDomEntries([E({selector:'#layersBtn',expected:'Layers · Layer 1'})],S2).length,1);
+ assert.throws(()=>loadDomEntries([E({selector:'#layersBtn',expected:'Layers · Layer 2'})],S2),/not in strings-baseline/);
+ fs.writeFileSync(af,JSON.stringify({strings:[{...ok,source:'web/nope.mjs:1'}]}));assert.throws(()=>approvedStrings(tmpA,af),/does not exist/);fs.rmSync(tmpA,{recursive:true});
+ // extractor corrections: accepted as missing, kept apart from removals; fields and source validated
+ const c=compareStrings(['A b.','Comment only.'],['A b.'],new Set(),[],[{string:'Comment only.',reason:'comment-only',source:'web/main.mjs:1'}]);
+ assert.deepEqual([c.errors,c.corrected,c.removedApproved],[[],['Comment only.'],[]]);
+ assert.equal(compareStrings(['A b.','Comment only.'],['A b.'],new Set(),[],[]).errors.length,1);
+ assert.throws(()=>validateAdditions({strings:[],extractorCorrections:[{string:'x',reason:'r'}]},R),/"source" must be a non-empty string/);
+ assert.throws(()=>validateAdditions({strings:[],extractorCorrections:[{string:'x',reason:'r',source:'web/nope.mjs:1'}]},R),/does not exist/);
+ // the committed file is valid and lists the comment-only string as a correction, not a removal
+ const cur=JSON.parse(fs.readFileSync(new URL('./perf/strings-additions.json',import.meta.url),'utf8'));validateAdditions(cur,R);
+ assert.ok(cur.extractorCorrections.some(x=>x.string==='The modeling engine could not start'&&x.source==='web/perf-flags.mjs:72'));assert.ok(!cur.removals.some(x=>x.string==='The modeling engine could not start'));}
+
 // 3. Matching in a page, and per-capture counts.
 const browser=await chromium.launch({executablePath:process.env.AVALON_CHROMIUM,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
 try{const page=await browser.newPage();
@@ -89,5 +112,47 @@ try{const page=await browser.newPage();
  assert.ok(r.errors.some(e=>e.startsWith('computed style/box differs'))&&!r.errors.some(e=>e.startsWith('outerHTML')),'only the style message when every HTML change matched');
  // whitespace-only text change is still a change
  r=await run('<button id="projectMenu" aria-label="Project menu">P </button><button data-mode="round">Edge ▾</button><span id="busy">Ready</span>',[]);assert.equal(r.unmatched.length,1);
+ // 6. Box and structure (ADR-0001 box ruling). Live page with an approved pixel area #area at [100,100]-[300,200] (CSS px).
+ await page.setContent('<div id="area" style="position:absolute;left:100px;top:100px;width:200px;height:100px"></div>');
+ const P='div#app:0>',S=(o)=>({html:`<body><div id="app">${o.body}</div></body>`,styles:o.styles,split:o.split});
+ const st=(h,box)=>({style:h,box,layout:'L'});
+ const mk=(body,els)=>S({body,styles:Object.fromEntries(Object.entries(els).map(([k,v])=>[P+k,v.comb])),split:{style:Object.fromEntries(Object.entries(els).map(([k,v])=>[P+k,v.style])),box:Object.fromEntries(Object.entries(els).map(([k,v])=>[P+k,v.box])),layout:{}}});
+ const IN1=[110,110,50,20],IN2=[110,110,80,20],OUT1=[10,10,50,20],OUT2=[10,10,80,20];
+ const chk=(b,n,entries,areas=['#area'])=>checkCapture(page,{name:'s',id:'s@desktop',base:b,now:n,entries,areas,compareDom});
+ const pill=E({selector:'#pill',kind:'text',expected:'Ready · millimeters'});
+ // a box change on the element an entry matched passes (even outside every area)
+ let b6=mk('<div id="pill">Ready</div>',{'div#pill:0':{comb:'c1',style:'s',box:OUT1}}),n6=mk('<div id="pill">Ready · millimeters</div>',{'div#pill:0':{comb:'c2',style:'s',box:OUT2}});
+ r=await chk(b6,n6,[pill]);assert.deepEqual([r.matched.map(c=>c.kind),r.unmatched.length,r.errors.length],[['text','box'],0,0],'box change on a matched element passes');
+ // the same box change on an unmatched element outside the areas fails
+ b6=mk('<div id="pill">Ready</div><div id="other">x</div>',{'div#pill:0':{comb:'c1',style:'s',box:IN1},'div#other:1':{comb:'o1',style:'s',box:OUT1}});
+ n6=mk('<div id="pill">Ready</div><div id="other">x</div>',{'div#pill:0':{comb:'c1',style:'s',box:IN1},'div#other:1':{comb:'o2',style:'s',box:OUT2}});
+ r=await chk(b6,n6,[]);assert.deepEqual([r.unmatched.map(c=>c.kind),r.errors],[['box'],['computed style/box differs: div#app:0>div#other:1']],'box change outside the areas on an unmatched element fails');
+ // a box change on an unmatched element whose old and new boxes lie inside an approved area passes; one corner out fails
+ n6=mk('<div id="pill">Ready</div><div id="other">x</div>',{'div#pill:0':{comb:'c2',style:'s',box:IN2},'div#other:1':{comb:'o1',style:'s',box:OUT1}});
+ r=await chk(b6,n6,[]);assert.deepEqual([r.matched.map(c=>c.kind+':'+c.approval),r.unmatched.length],[['box:box inside an approved pixel area'],0],'box inside an area passes');
+ r=await chk(b6,n6,[],[]);assert.equal(r.unmatched.length,1,'no areas: the same box change fails');
+ n6=mk('<div id="pill">Ready</div><div id="other">x</div>',{'div#pill:0':{comb:'c2',style:'s',box:[110,110,250,20]},'div#other:1':{comb:'o1',style:'s',box:OUT1}});
+ r=await chk(b6,n6,[]);assert.equal(r.unmatched.length,1,'box partly outside the area fails');
+ // a style change on a matched element fails, inside an area too
+ b6=mk('<div id="pill">Ready</div>',{'div#pill:0':{comb:'c1',style:'s1',box:IN1}});n6=mk('<div id="pill">Ready · millimeters</div>',{'div#pill:0':{comb:'c2',style:'s2',box:IN1}});
+ r=await chk(b6,n6,[pill]);assert.deepEqual([r.matched.map(c=>c.kind),r.unmatched.map(c=>c.kind),r.errors],[['text'],['computed style'],['computed style/box differs: div#app:0>div#pill:0']],'style change on a matched element fails');
+ // no split data: every combined-hash change fails as before
+ r=await chk({...b6,split:undefined},{...n6,split:undefined},[pill]);assert.equal(r.unmatched[0].why,'no style/box split data');
+ // added element: inside an area with an "added" entry passes; outside fails; wrong text fails; no entry fails
+ const add=E({selector:'#unitSwitch',kind:'added',expected:'Ready · millimeters'}),addNoText=E({selector:'#unitSwitch',kind:'added',expected:undefined});
+ b6=mk('<div id="hdr">D</div>',{'div#hdr:0':{comb:'h',style:'s',box:IN1}});
+ const withAdd=(box,txt='Ready · millimeters',kid=box)=>mk(`<div id="hdr">D</div><div id="unitSwitch"><b>${txt}</b></div>`,{'div#hdr:0':{comb:'h',style:'s',box:IN1},'div#unitSwitch:1':{comb:'u',style:'s',box},'div#unitSwitch:1>b:0':{comb:'k',style:'s',box:kid}});
+ r=await chk(b6,withAdd(IN2),[add]);assert.deepEqual([r.matched.map(c=>c.kind),r.unmatched.length,r.errors.length],[['element added'],0,0],'added inside an area passes');
+ r=await chk(b6,withAdd(IN2),[addNoText]);assert.equal(r.unmatched.length,0,'added without expected text passes inside an area');
+ r=await chk(b6,withAdd(OUT2),[add]);assert.deepEqual([r.matched.length,r.unmatched[0].kind,r.unmatched[0].why],[0,'element added','box not entirely inside an approved pixel area'],'added outside fails');
+ r=await chk(b6,withAdd(IN2,'Ready · millimeters',OUT1),[add]);assert.equal(r.unmatched.length,1,'added with a descendant outside the area fails');
+ r=await chk(b6,withAdd(IN2,'Ready'),[add]);assert.deepEqual([r.matched.length,r.unmatched[0].why],[0,'no matching "added" entry'],'added with the wrong text fails');
+ r=await chk(b6,withAdd(IN2),[]);assert.equal(r.unmatched.length,1,'added without an entry fails');assert.match(r.errors[0],/^outerHTML differs/);
+ // removed element still fails, even inside an area with an "added" entry for it
+ r=await chk(withAdd(IN2),b6,[add]);assert.deepEqual(r.unmatched.map(c=>c.kind),['element removed']);
+ // "added" entries are validated like the others; expected is optional
+ assert.equal(loadDomEntries([{scene:'*',selector:'#unitSwitch',kind:'added',approval:'x'}],STR).length,1);
+ assert.throws(()=>loadDomEntries([{scene:'*',selector:'div',kind:'added',approval:'x'}],STR),/bare tag/);
+ assert.throws(()=>loadDomEntries([{scene:'*',selector:'#u',kind:'added',expected:'nope',approval:'x'}],STR),/not in strings-baseline/);
 }finally{await browser.close();}
-console.log('PASS approved-dom-areas: selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor');
+console.log('PASS approved-dom-areas: selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor; box on matched element / inside area pass, outside fails, style change fails, added inside passes / outside / wrong text fail, removed fails; runtime texts and extractor corrections validated');
