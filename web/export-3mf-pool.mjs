@@ -6,7 +6,7 @@
 // parts and joins them. If the pool cannot start or fails at any point, the geometry worker encodes the same parts
 // itself ('encode3mf', identical bytes): export never fails because of the pool. One debug line per export goes to
 // the console (and globalThis.__avalon3MF); there is no visible UI.
-import {PARTS_3MF,partRange3MF} from './three-mf-parts.mjs';
+import {parts3MF,partRange3MF} from './three-mf-parts.mjs';
 
 export function poolSize(cores=globalThis.navigator?.hardwareConcurrency||2,android=!!globalThis.Android){return Math.max(1,Math.min(cores-1,android?2:4));}
 
@@ -34,10 +34,10 @@ export function createPool({size=poolSize(),script,wasm,binary,makeWorker=defaul
   /** The 3MF package of a validated mesh ({vertices, triangles, minZ}) from PARTS_3MF parts, in a fixed round-robin. */
   async encode({vertices,triangles,minZ}){
    // Part k always goes to worker k % size, so every worker meets its memory peak on the first export.
-   const points=vertices.length/3,tris=triangles.length/3,parts=new Array(PARTS_3MF);
-   const loop=async(w,j)=>{for(let k=j;k<PARTS_3MF;k+=workers.length){const [a,b]=partRange3MF(points,tris,k);
-    const v=k<4?vertices.slice(a*3,b*3):new Float32Array(0),t=k<4?new Uint32Array(0):triangles.slice(a*3,b*3);
-    const r=await call(w,{op:'part',k,minZ,vertices:v,triangles:t},[v.buffer,t.buffer]);parts[k]={bytes:r.bytes,crc:r.crc,size:r.size};}};
+   const points=vertices.length/3,tris=triangles.length/3,n=parts3MF(tris),parts=new Array(n);
+   const loop=async(w,j)=>{for(let k=j;k<n;k+=workers.length){const [[va,vb],[ta,tb]]=partRange3MF(points,tris,k,n);
+    const v=vertices.slice(va*3,vb*3),t=triangles.slice(ta*3,tb*3);
+    const r=await call(w,{op:'part',k,parts:n,minZ,vertices:v,triangles:t},[v.buffer,t.buffer]);parts[k]={bytes:r.bytes,crc:r.crc,size:r.size};}};
    await Promise.all(workers.map((w,j)=>loop(w,j)));
    return (await call(workers[0],{op:'package',parts},parts.map(p=>p.bytes))).buffer;
   },
@@ -50,23 +50,34 @@ let current=null,broken='';
 export function dispose3MFPool(){current?.dispose();current=null;broken='';}
 export function current3MFPool(){return current;}
 
+/** The session pool, started if needed (cold=true when this call started it). */
+export function ensure3MFPool({assetURL,options={}}){
+ if(broken)return {pool:null,cold:false};let cold=false;
+ if(!current){current=createPool({size:options.size,script:assetURL('export-pool.js'),wasm:assetURL('mesh-core.wasm'),binary:options.binary,makeWorker:options.makeWorker,timeout:options.timeout});cold=true;}
+ return {pool:current,cold};}
+
 /**
  * Runs a 3MF export. `request(type, data, transfer)` talks to the geometry worker; `payload` is the export job
  * (project, tolerance, ground); `assetURL(name)` resolves an app asset with its ?v= token, as main.mjs does for
- * worker.js. `options`: forceFallback, size, makeWorker, binary, timeout, log.
+ * worker.js. `options`: forceFallback, size, makeWorker, binary, timeout, encodeTimeout, log.
+ * Architect ruling 3: a mesh below 65,536 triangles is one part; the geometry worker encodes it on the plain single
+ * path (path 'single') and the pool is neither used nor started for it.
  */
 export async function export3MF({request,payload,assetURL,options={}}){
- const t0=performance.now(),log=options.log===undefined?console.info:options.log;let pool=null,cold=false,reason=options.forceFallback?'forced':broken;
- if(!reason){if(!current){current=createPool({size:options.size,script:assetURL('export-pool.js'),wasm:assetURL('mesh-core.wasm'),binary:options.binary,makeWorker:options.makeWorker,timeout:options.timeout});cold=true;}pool=current;}
+ const t0=performance.now(),log=options.log===undefined?console.info:options.log;
  const data=await request('export',{...payload,format:'3mf-mesh'});
- const mesh=data.mesh3mf;delete data.mesh3mf;
- let buffer=null;
- if(pool){try{if(!await pool.ready)throw Error(pool.error||'not-ready');
-  // Watchdog: a pool that stops answering falls back too.
-  buffer=await Promise.race([pool.encode(mesh),new Promise((_,reject)=>setTimeout(()=>reject(Error('encode-timeout')),options.encodeTimeout||60000))]);}
-  catch(e){reason=String(e?.message||e);broken=reason;pool.dispose();if(current===pool)current=null;}}
- if(!buffer)buffer=(await request('encode3mf',{vertices:mesh.vertices,triangles:mesh.triangles,ground:payload.ground},[mesh.vertices.buffer,mesh.triangles.buffer])).buffer;
- const encoder={path:buffer&&pool&&!reason?'pool':'fallback',workers:pool&&!reason?pool.size:0,cold,ms:Math.round(performance.now()-t0),...(reason?{reason}:{})};
+ let buffer=data.buffer||null,pool=null,cold=false,reason='',path='single';
+ if(!buffer){
+  const mesh=data.mesh3mf;delete data.mesh3mf;
+  reason=options.forceFallback?'forced':broken;
+  if(!reason){({pool,cold}=ensure3MFPool({assetURL,options}));
+   try{if(!await pool.ready)throw Error(pool.error||'not-ready');
+    // Watchdog: a pool that stops answering falls back too.
+    buffer=await Promise.race([pool.encode(mesh),new Promise((_,reject)=>setTimeout(()=>reject(Error('encode-timeout')),options.encodeTimeout||60000))]);path='pool';}
+   catch(e){reason=String(e?.message||e);broken=reason;pool.dispose();if(current===pool)current=null;}}
+  if(!buffer){buffer=(await request('encode3mf',{vertices:mesh.vertices,triangles:mesh.triangles,ground:payload.ground},[mesh.vertices.buffer,mesh.triangles.buffer])).buffer;path='fallback';}
+ }
+ const encoder={path,workers:path==='pool'?pool.size:0,cold,ms:Math.round(performance.now()-t0),...(reason?{reason}:{})};
  globalThis.__avalon3MF=encoder;log?.('[Avalon 3MF] '+JSON.stringify(encoder));
  return {...data,buffer,format:'3mf',encoder};
 }

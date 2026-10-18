@@ -61,19 +61,19 @@ export async function initRustMesh({binary,url,streaming}={}){
     return new Float64Array(core.memory.buffer,zp,1)[0];
    });
   },
-  encode3MFPart(vertices,triangles,minZ,k){
+  encode3MFPart(vertices,triangles,minZ,k,parts=PARTS_3MF){
    return withBuffers((allocate,input)=>{const vp=input(vertices),tp=input(triangles),rp=allocate(16);
-    if(core.encode_3mf_part(vp,vertices.length,tp,triangles.length,minZ,k,LEVEL_3MF,rp))throw Error('The model contains invalid 3MF geometry.');
+    if(core.encode_3mf_part(vp,vertices.length,tp,triangles.length,minZ,k,parts,LEVEL_3MF,rp))throw Error('The model contains invalid 3MF geometry.');
     const [ptr,size,crc,text]=new Uint32Array(core.memory.buffer,rp,4);
     try{return {bytes:new Uint8Array(core.memory.buffer,ptr,size).slice().buffer,crc,size:text};}finally{core.free_bytes(ptr,size);}
    });
   },
   package3MF(parts){
-   if(parts.length!==PARTS_3MF)throw Error('The model contains invalid 3MF geometry.');
+   if(parts.length!==1&&parts.length!==PARTS_3MF)throw Error('The model contains invalid 3MF geometry.');
    // Rust writes only the zip frame (about 1 KB); the parts are spliced in here, outside wasm memory.
-   const total=parts.reduce((n,p)=>n+p.bytes.byteLength,0),meta=new Uint32Array(2*PARTS_3MF);parts.forEach((p,i)=>{meta[2*i]=p.crc;meta[2*i+1]=p.size;});
+   const total=parts.reduce((n,p)=>n+p.bytes.byteLength,0),meta=new Uint32Array(2*parts.length);parts.forEach((p,i)=>{meta[2*i]=p.crc;meta[2*i+1]=p.size;});
    const [frame,split]=withBuffers((allocate,input)=>{const mp=input(meta),rp=allocate(12);
-    const code=core.package_3mf(total,mp,LEVEL_3MF,LIMIT_3MF,rp),[ptr,size,split]=new Uint32Array(core.memory.buffer,rp,3);
+    const code=core.package_3mf(total,mp,parts.length,LEVEL_3MF,LIMIT_3MF,rp),[ptr,size,split]=new Uint32Array(core.memory.buffer,rp,3);
     if(code===4)throw Error('This 3MF exceeds the 50 MB file transfer limit.');if(code)throw Error('The model contains invalid 3MF geometry.');
     try{return [new Uint8Array(core.memory.buffer,ptr,size).slice(),split];}finally{core.free_bytes(ptr,size);}
    });

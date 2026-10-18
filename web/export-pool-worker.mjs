@@ -8,7 +8,7 @@ self.onmessage=async({data})=>{
  const {op,id}=data;
  if(op==='init'){try{rust=await initRustMesh(data.binary?{binary:data.binary}:{url:data.wasm,streaming:true});self.postMessage({op:'ready',memory:rust.memoryBytes()});}catch(e){self.postMessage({op:'failed',error:String(e?.message||e)});}return;}
  try{
-  if(op==='part'){const r=rust.encode3MFPart(data.vertices,data.triangles,data.minZ,data.k);self.postMessage({op:'part',id,k:data.k,...r,memory:rust.memoryBytes()},[r.bytes]);}
+  if(op==='part'){const r=rust.encode3MFPart(data.vertices,data.triangles,data.minZ,data.k,data.parts);self.postMessage({op:'part',id,k:data.k,...r,memory:rust.memoryBytes()},[r.bytes]);}
   else if(op==='package'){const buffer=rust.package3MF(data.parts);self.postMessage({op:'package',id,buffer,memory:rust.memoryBytes()},[buffer]);}
   else if(op==='memory')self.postMessage({op:'memory',id,memory:rust.memoryBytes()});
  }catch(e){fail(id,e);}

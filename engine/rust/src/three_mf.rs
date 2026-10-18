@@ -248,11 +248,17 @@ pub const CHUNK: usize = 256 * 1024;
 /// is an independent raw DEFLATE stream ending in a sync flush (byte-aligned, non-final); only part 7 ends with the
 /// final block, so the concatenation is one valid DEFLATE stream. The CRCs combine with crc32_combine. The bytes are
 /// therefore the same whether one thread encodes all parts or eight workers encode one each.
+/// Architect ruling 3: the part count depends ONLY on the triangle count. Below SPLIT_TRIANGLES triangles the model is
+/// ONE part (a single DEFLATE stream, the c60c94c bytes); at or above it, PARTS parts.
 pub const PARTS: usize = 8;
-/// Record range [start, end) of part `k`: vertices (points) for k < 4, triangles for k >= 4.
-pub fn part_range(points: usize, triangles: usize, k: usize) -> (usize, usize) {
-    let (n, j) = if k < 4 { (points, k) } else { (triangles, k - 4) };
-    (n * j / 4, n * (j + 1) / 4)
+pub const SPLIT_TRIANGLES: usize = 65_536;
+pub fn parts_for(triangles: usize) -> usize { if triangles < SPLIT_TRIANGLES { 1 } else { PARTS } }
+/// Record range [start, end) of part `k` of `n`: with n = 1 the whole mesh (vertices and triangles); with n = PARTS,
+/// vertices (points) for k < 4, triangles for k >= 4.
+pub fn part_range(points: usize, triangles: usize, k: usize, n: usize) -> ((usize, usize), (usize, usize)) {
+    if n == 1 { return ((0, points), (0, triangles)); }
+    let q = |m: usize, j: usize| (m * j / 4, m * (j + 1) / 4);
+    if k < 4 { (q(points, k), (0, 0)) } else { ((0, 0), q(triangles, k - 4)) }
 }
 
 /// Generates one part's text (prefix, vertex lines, triangle lines, suffix) in one pass, handing it to `sink` in
@@ -296,16 +302,25 @@ pub fn text_stream(v: &[f32], t: &[u32], min_z: f64, prefix: &[u8], suffix: &[u8
     Ok(())
 }
 
-/// Appends part `k` (its vertices `v` or triangles `t`, already sliced) to `out` as raw DEFLATE: sync flush, or the
-/// final block for the last part. Returns the part's text CRC-32 (continuing from `crc`) and text size.
+/// Appends part `k` of `n` (its records `v` / `t`, already sliced with `part_range`) to `out` as raw DEFLATE: sync
+/// flush, or the final block for the last part. With n = 1 the part is the whole model in one stream. Returns the
+/// part's text CRC-32 (continuing from `crc`) and text size.
 #[inline(never)]
-pub fn deflate_part(out: &mut Vec<u8>, v: &[f32], t: &[u32], min_z: f64, k: usize, level: u8, limit: usize, crc: u32) -> Result<(u32, u64), i32> {
-    let prefix: &[u8] = if k == 0 { MODEL_HEAD } else { b"" };
-    let suffix: &[u8] = match k { 3 => MODEL_MID, 7 => MODEL_TAIL, _ => b"" };
+pub fn deflate_part(out: &mut Vec<u8>, v: &[f32], t: &[u32], min_z: f64, k: usize, n: usize, level: u8, limit: usize, crc: u32) -> Result<(u32, u64), i32> {
     let mut p = new_part(out, level, limit, crc);
     let mut chunk = Vec::new();
-    text_stream(v, t, min_z, prefix, suffix, &mut chunk, &mut |text| { p.feed(text, TDEFLFlush::None); p.failed == 0 })?;
-    p.feed(&[], if k == PARTS - 1 { TDEFLFlush::Finish } else { TDEFLFlush::Sync });
+    {
+        let mut sink = |text: &[u8]| { p.feed(text, TDEFLFlush::None); p.failed == 0 };
+        if n == 1 {
+            text_stream(v, &t[..0], min_z, MODEL_HEAD, MODEL_MID, &mut chunk, &mut sink)?;
+            text_stream(&v[..0], t, min_z, b"", MODEL_TAIL, &mut chunk, &mut sink)?;
+        } else {
+            let prefix: &[u8] = if k == 0 { MODEL_HEAD } else { b"" };
+            let suffix: &[u8] = match k { 3 => MODEL_MID, 7 => MODEL_TAIL, _ => b"" };
+            text_stream(v, t, min_z, prefix, suffix, &mut chunk, &mut sink)?;
+        }
+    }
+    p.feed(&[], if k == n - 1 { TDEFLFlush::Finish } else { TDEFLFlush::Sync });
     if p.failed != 0 { Err(p.failed) } else { Ok((p.crc, p.size)) }
 }
 
@@ -356,7 +371,7 @@ fn package(level: u8, limit: usize, reserve: usize, body: &mut Body) -> Result<(
 
 pub fn min_z(v: &[f32], ground: bool) -> f64 { if ground { v.chunks_exact(3).map(|p| p[2] as f64).fold(f64::INFINITY, f64::min) } else { 0.0 } }
 
-/// Builds the whole 3MF package on this thread: all PARTS in order straight into the package buffer (the reference
+/// Builds the whole 3MF package on this thread: all parts_for(triangles) parts in order straight into the package buffer (the reference
 /// bytes; also the fallback when workers are unavailable). `v`/`t` must already be validated.
 pub fn encode(v: &[f32], t: &[u32], ground: bool, level: u8, limit: usize) -> Result<Vec<u8>, i32> {
     let mz = min_z(v, ground);
@@ -364,12 +379,11 @@ pub fn encode(v: &[f32], t: &[u32], ground: bool, level: u8, limit: usize) -> Re
     // The package is about 0.28x the binary STL (50 B per triangle) on typical meshes; reserve a bit more than that
     // so the output buffer normally never reallocates (a doubling would briefly need 3x its size).
     package(level, limit, tris * 16 + 4096, &mut |out| {
-        let (mut crc, mut size) = (0u32, 0u64);
-        for k in 0..PARTS {
-            let (a, b) = part_range(points, tris, k);
-            let (pv, pt) = if k < 4 { (&v[a * 3..b * 3], &t[..0]) } else { (&v[..0], &t[a * 3..b * 3]) };
-            let (c, n) = deflate_part(out, pv, pt, mz, k, level, limit, crc)?;
-            crc = c; size += n;
+        let (mut crc, mut size, n) = (0u32, 0u64, parts_for(tris));
+        for k in 0..n {
+            let ((va, vb), (ta, tb)) = part_range(points, tris, k, n);
+            let (c, m) = deflate_part(out, &v[va * 3..vb * 3], &t[ta * 3..tb * 3], mz, k, n, level, limit, crc)?;
+            crc = c; size += m;
         }
         Ok((crc, size, 0))
     }).map(|(out, _)| out)
@@ -380,7 +394,7 @@ pub fn encode(v: &[f32], t: &[u32], ground: bool, level: u8, limit: usize) -> Re
 /// package is frame[..split] + the parts' data + frame[split..], identical bytes to `encode` for the same parts. So
 /// the joining worker never holds the parts and the package together in wasm memory.
 pub fn frame(data_len: usize, parts: &[(u32, u64)], level: u8, limit: usize) -> Result<(Vec<u8>, usize), i32> {
-    if parts.len() != PARTS { return Err(BROKEN); }
+    if parts.len() != 1 && parts.len() != PARTS { return Err(BROKEN); }
     package(level, limit, 1024, &mut |_| {
         let (c, n) = parts.iter().fold((0u32, 0u64), |(c, n), &(pc, pn)| (crc32_combine(c, pc, pn), n + pn));
         Ok((c, n, data_len))
@@ -530,17 +544,18 @@ mod tests {
         (v, t)
     }
     #[test] fn parts_assembled_elsewhere_give_identical_bytes() {
-        for n in [3usize, 5, 9, 40_000] {
+        for n in [3usize, 5, 9, 32_767, 32_768, 40_000] {
             let (v, t) = sphere_like(n);
             for ground in [true, false] {
                 let reference = encode(&v, &t, ground, 2, usize::MAX).unwrap();
                 let mz = min_z(&v, ground);
                 let (mut data, mut meta) = (vec![], vec![]);
-                for k in 0..PARTS {
-                    let (a, b) = part_range(v.len() / 3, t.len() / 3, k);
-                    let (pv, pt) = if k < 4 { (&v[a * 3..b * 3], &t[..0]) } else { (&v[..0], &t[a * 3..b * 3]) };
+                let parts = parts_for(t.len() / 3);
+                assert_eq!(parts, if 2 * n < 65_536 { 1 } else { 8 });
+                for k in 0..parts {
+                    let ((va, vb), (ta, tb)) = part_range(v.len() / 3, t.len() / 3, k, parts);
                     let mut out = vec![];
-                    meta.push(deflate_part(&mut out, pv, pt, mz, k, 2, usize::MAX, 0).unwrap());
+                    meta.push(deflate_part(&mut out, &v[va * 3..vb * 3], &t[ta * 3..tb * 3], mz, k, parts, 2, usize::MAX, 0).unwrap());
                     data.extend_from_slice(&out);
                 }
                 assert_eq!(assemble(&data, &meta, 2, usize::MAX).unwrap(), reference, "n {n} ground {ground}");
@@ -549,6 +564,21 @@ mod tests {
                 assert_eq!(model.matches("<vertex ").count(), n + 2); assert_eq!(model.matches("<triangle ").count(), 2 * n);
                 assert!(model.starts_with("<?xml") && model.ends_with("</model>\n") && model.contains("</vertices>\n<triangles>\n<triangle "));
             }
+        }
+    }
+    /// Below 65,536 triangles: one part, the same bytes as a single uninterrupted DEFLATE stream of the whole model
+    /// (the c60c94c encoder); 65,535 -> 1 part, 65,536 -> 8 parts.
+    #[test] fn split_threshold_and_single_stream_bytes() {
+        assert_eq!((parts_for(0), parts_for(65_535), parts_for(65_536), parts_for(1 << 20)), (1, 1, 8, 8));
+        for extra in [false, true] {
+            let (v, mut t) = sphere_like(32_767); // 65,534 triangles
+            t.extend_from_slice(&[0, 2, 3]); if extra { t.extend_from_slice(&[1, 3, 2]); }
+            let pkg = encode(&v, &t, true, 2, usize::MAX).unwrap();
+            let model = unzip(&pkg).data[2].clone();
+            let mut d = CompressorOxide::new(create_comp_flags_from_zip_params(2, 0, 0)); let mut raw = vec![];
+            compress_to_output(&mut d, &model, TDEFLFlush::Finish, |b| { raw.extend_from_slice(b); true });
+            let found = pkg.windows(raw.len()).any(|w| w == &raw[..]);
+            assert_eq!(found, !extra, "65,535 triangles is one stream; 65,536 is split");
         }
     }
     #[test] fn degenerate_index_triangles_are_skipped_and_limit_is_enforced() {

@@ -22,11 +22,11 @@ try {
  await page.locator('#exportBtn').click();await page.locator('#ground').uncheck();await page.locator('#downloadSTL').click();
  for(let i=0;i<100;i++){if(await fs.stat(path.join(root,'My_model.stl')).catch(()=>false))break;await new Promise(r=>setTimeout(r,50));}
  const stl=await fs.readFile(path.join(root,'My_model.stl'));assert.equal(stl.readUInt32LE(80),12);assert.equal(stl.length,684);for(let i=84;i<stl.length;i+=50)for(let j=0;j<3;j++)assert.ok(stl.readFloatLE(i+20+j*12)>=0);await page.locator('#closeSheet').click();
- // ADR-0001 F2a option A: 3MF through the worker pool on the app:// protocol under the app's CSP, saved over real IPC.
+ // ADR-0001 F2a: 3MF of the 12-triangle box (1 part: plain single path, Architect ruling 3), saved over real IPC.
  await page.locator('#exportBtn').click();await page.locator('#exportFormat').selectOption('3mf');await page.waitForFunction(()=>document.querySelector('#sheetTitle').textContent==='Export a printable 3MF');await page.locator('#downloadSTL').click();
  for(let i=0;i<200;i++){if(await fs.stat(path.join(root,'My_model.3mf')).catch(()=>false))break;await new Promise(r=>setTimeout(r,50));}
  const mf=await fs.readFile(path.join(root,'My_model.3mf'));assert.equal(mf.readUInt32LE(0),0x04034b50);const enc=await page.evaluate(()=>window.__avalon3MF);
- assert.deepEqual([enc.path,enc.workers],['pool',Math.max(1,Math.min(await page.evaluate(()=>navigator.hardwareConcurrency)-1,4))],'Electron 3MF pool: '+JSON.stringify(enc));
+ assert.deepEqual([enc.path,enc.workers],['single',0],'Electron 3MF (12 triangles: 1 part, plain single path): '+JSON.stringify(enc));
  await page.locator('#exportFormat').selectOption('stl');await page.waitForFunction(()=>document.querySelector('#sheetTitle').textContent==='Export a printable STL');await page.locator('#closeSheet').click();
  await page.screenshot({path:'build/desktop-window.png'});
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.send('avalon:action','save'));await page.waitForFunction(()=>Object.keys(JSON.parse(localStorage.getItem('tristancad.projects')||'{}')).length===1);
