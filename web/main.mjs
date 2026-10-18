@@ -26,6 +26,10 @@ import {dimensions} from './operations.mjs';
 import {UNITS,loadUnit,setUnit,getUnit,unitLabel,fmtLen,readLen,fieldLen,byUnit,stepOptions,snapSketch,unitMessage} from './units.mjs';
 import {GLYPH_CHARS,GLYPH_METRICS} from './glyph-metrics.mjs';
 const $=id=>document.getElementById(id),escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// ADR-0001 sidecar-apply-perf ruling 1: the desktop app (Electron, identified by its AvalonDesktop preload bridge as
+// everywhere in this file) opens sheets without the 180 ms rise animation, as 2.7.2 did (desktop.css .desktop .sheet
+// {animation:none}). Web and Android keep it. Inline style, so every platform still ships byte-identical assets.
+if(window.AvalonDesktop)$('sheet').style.animation='none';
 let invalidate=()=>{},touch=null,prefabs=null,objectsPanel=null,smoothNewShapes=true,panelBusy=false,panelControls=[];
 try{smoothNewShapes=localStorage.getItem('tristancad.smoothNewShapes')!=='false';}catch(e){}
 let project={...blank(),buildPlaneEnabled:true},selected=null,history=[],future=[],dirty=false,model=null,previewId=0,sequence=0,wireframe=false,pickMeshes=[],overlay=new THREE.Group(),saved={},toastTimer,saveTimer;
