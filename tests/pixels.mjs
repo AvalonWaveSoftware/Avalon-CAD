@@ -6,15 +6,20 @@
 //   node tests/pixels.mjs [--out DIR] [scene-name-substring ...]
 //   node tests/pixels.mjs --allow-box SELECTOR [...]   ADR-0001 F6 ruling 5 check (compare only, never with --update):
 //        differing pixels are allowed only inside SELECTOR's box (e.g. '[data-mode=round]'), measured in the page at
-//        capture time; any differing pixel outside it fails. DOM/style differences are listed but not failed in this
-//        mode (the label change is a DOM change by design; the DOM baseline is re-taken with the pixels after approval).
+//        capture time; any differing pixel outside it fails. Approved boxes cover pixels only: every DOM/style
+//        difference against the baseline FAILS in this mode too (ADR-0001 ruling, blank-scene-flake follow-up).
 //   --allow-overlay SELECTOR (with --allow-box): also allows SELECTOR's box, only in captures where that element is
 //        present (e.g. '#edgeToolMenu', the Edge ▾ dropdown, only while it is open).
+//   Approved DOM entries (ADR-0001 approved-dom-areas): the "dom" list of tests/perf/approved-areas.json approves exact
+//        DOM changes (see tests/perf/approved-dom.mjs); every capture prints its matched/unmatched DOM-change counts and
+//        lists unmatched changes; any unmatched change fails. With no entries the result is the same as before.
+//        Box changes and added elements are accepted only as tests/perf/approved-dom.mjs describes (matched element, or
+//        inside an approved pixel area); style changes and removed elements always fail. AVALON_PIXEL_SPLIT_REF: see below.
 // Env: AVALON_PLAYWRIGHT (playwright module path), AVALON_CHROMIUM (browser executable), AVALON_ASSETS (served build),
 //      PIXEL_JOBS (parallel browser contexts in the one shared browser, default 4), AVALON_PIXEL_BASELINE (baseline dir).
 // Same setup as tools/readme-shots/harness.mjs (served app, open(), tap()); one shared browser, PIXEL_JOBS contexts; toasts and #busy are hidden as capture.mjs does.
 import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import {createRequire} from 'node:module';
-import {diffPixels,diffOutside,decodePNG} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {execSync} from 'node:child_process';
+import {diffPixels,diffOutside,decodePNG,diffIn,regionDiff} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {execSync} from 'node:child_process';
 
 const require=createRequire(import.meta.url);const {chromium}=require(process.env.AVALON_PLAYWRIGHT||'playwright');
 // open()/tap() mirror tools/readme-shots/harness.mjs exactly (inlined since before harness.mjs honoured
@@ -42,12 +47,45 @@ const H={
 // Approved diff areas (committed, tests/perf/approved-areas.json): when the baseline in use is the one named there and no
 // --allow-box is given, its button box / overlay / per-scene areas apply exactly as the flags would (compare-only; never
 // with --update; AVALON_PIXEL_APPROVED=0 turns it off for a strict run). Per-scene areas are extra allowed boxes.
+// They are for in-flight, unmerged changes only and approve PIXELS only: DOM/style differences always fail. Any other
+// baseline (e.g. AVALON_PIXEL_BASELINE=.../perf-baseline-release-3.0-6892eb7) is compared strictly, with no areas.
 const args=process.argv.slice(2),update=args.includes('--update'),outI=args.indexOf('--out'),boxI=args.indexOf('--allow-box'),ovI=args.indexOf('--allow-overlay');
 const APPROVED=(()=>{const f=path.join(path.dirname(new URL(import.meta.url).pathname),'perf/approved-areas.json');if(update||boxI>=0||process.env.AVALON_PIXEL_APPROVED==='0'||!fs.existsSync(f))return null;
  const a=JSON.parse(fs.readFileSync(f,'utf8'));return path.basename(BASE)===a.baseline?a:null;})();
 const ALLOW_BOX=boxI>=0?args[boxI+1]:APPROVED?.box??null,ALLOW_OVERLAY=ovI>=0?args[ovI+1]:APPROVED?.overlay??null,SCENE_AREAS=APPROVED?.scenes||{};
-if(APPROVED)console.log(`approved areas (${APPROVED.baseline}): ${APPROVED.box}${APPROVED.overlay?' + overlay '+APPROVED.overlay:''}; scenes: ${Object.keys(SCENE_AREAS).join(', ')||'none'}`);
+if(APPROVED)console.log(`approved areas (${APPROVED.baseline}): ${APPROVED.box||"no box"}${APPROVED.dom?.length?` + ${APPROVED.dom.length} dom entr${APPROVED.dom.length===1?"y":"ies"}`:""}${APPROVED.overlay?' + overlay '+APPROVED.overlay:''}; scenes: ${Object.keys(SCENE_AREAS).join(', ')||'none'}`);
 if(ALLOW_BOX&&update)throw Error('--allow-box is a compare-only check; it never writes baselines');
+// ADR-0001 approved-dom-areas: the "dom" entries of the same approved-areas.json (same baseline rule, same
+// AVALON_PIXEL_APPROVED=0 switch) approve exact DOM changes; see tests/perf/approved-dom.mjs. Validated here, at load:
+// an invalid selector/kind or an expected value missing from the strings tables stops the run before any capture.
+const DOM_ENTRIES=loadDomEntries(APPROVED?.dom,approvedStrings(BASE));
+// AVALON_PIXEL_SPLIT_REF=<dir>: captures (pixels.mjs --out) of the baseline's own build taken with the split snapshot. A
+// baseline captured before the style/box split has none; the reference's split is used for a capture only when its html
+// and combined styles equal the baseline's exactly (same state), so box changes can be told from style changes.
+const SPLIT_REF=process.env.AVALON_PIXEL_SPLIT_REF?path.resolve(process.env.AVALON_PIXEL_SPLIT_REF):null;
+if(APPROVED)console.log(`approved DOM entries (${APPROVED.baseline}): ${DOM_ENTRIES.length}`);
+// Compares a capture's DOM with its baseline snapshot. Every DOM change is listed as matched (by an approved DOM
+// entry) or unmatched; any unmatched change fails with the same messages as before (compareDom), and with no entries
+// the pass/fail result is exactly the old one. Computed-style/box changes are never matched.
+// Hidden entries (ADR-0001 hidden ruling): the region of a non-rendered container is its box (same path) in the BASELINE
+// snapshot of the entry's regionFrom capture (its own split data, or the split reference's when that is the same state);
+// the capture must show 0 differing px there against its baseline png. Either missing fails loudly.
+function regionOf(rf,container){const f=path.join(DOM,rf+'.json');if(!fs.existsSync(f))return {error:`no DOM baseline for ${rf}`};
+ const j=JSON.parse(fs.readFileSync(f,'utf8'));let split=j.split;
+ if(!split&&SPLIT_REF){const sr=path.join(SPLIT_REF,rf+'.json');if(fs.existsSync(sr)){const x=JSON.parse(fs.readFileSync(sr,'utf8'));if(x.split&&x.html===j.html&&JSON.stringify(x.styles)===JSON.stringify(j.styles))split=x.split;}}
+ if(!split)return {error:`the baseline snapshot of ${rf} has no style/box split data (set AVALON_PIXEL_SPLIT_REF)`};
+ const b=split.box?.[container];if(!b)return {error:`no element ${container} in ${rf}`};if(!(b[2]>0&&b[3]>0))return {error:`${container} is not rendered in ${rf} either (${JSON.stringify(b)})`};
+ return {rect:b};}
+async function checkDom(page,name,id,bd,dom,r,px={}){if(!fs.existsSync(bd)){r.errors.push('no DOM baseline');return;}
+ // ruling (a) on 4f9392c: region px inside another approved area of THIS capture (box, overlay, scene areas, as measured
+ // for its pixel check) are covered; every other differing region px fails the hidden match.
+ const pxIn=rect=>{if(!px.bp||!fs.existsSync(px.bp)||!px.png)return {error:'no baseline png'};const d=regionDiff({base:fs.readFileSync(px.bp),now:px.png,dpr:px.dpr||1,capture:id,areas:(px.areas||[]).map(box=>({capture:id,box}))},rect);return d==null?{error:'image size mismatch'}:d;};
+ const sr=SPLIT_REF&&path.join(SPLIT_REF,id+'.json'),splitRef=sr&&fs.existsSync(sr)?JSON.parse(fs.readFileSync(sr,'utf8')):null;
+ const areas=[ALLOW_BOX,ALLOW_OVERLAY,...(SCENE_AREAS[name]||[])].filter(Boolean);
+ const c=await checkCapture(page,{name,id,base:JSON.parse(fs.readFileSync(bd,'utf8')),now:dom,entries:DOM_ENTRIES,areas,splitRef,compareDom,regionOf,pxIn});
+ r.dom={matched:c.matched.length,unmatched:c.unmatched.length};r.errors.push(...c.errors);
+ if(c.matched.length||c.unmatched.length){r.domMatched=c.matched;r.domUnmatched=c.unmatched.map(fmtChange);
+  console.log(`  ${id} DOM changes: ${c.matched.length} matched, ${c.unmatched.length} unmatched${c.unmatched.length?':\n    '+r.domUnmatched.slice(0,20).join('\n    ')+(c.unmatched.length>20?`\n    …${c.unmatched.length-20} more (report.json)`:''):''}`);}}
 const OUT=outI>=0?path.resolve(args[outI+1]):path.join(process.env.TMPDIR||'/tmp','avalon-pixel-run');const only=args.filter((a,i)=>!a.startsWith('--')&&i!==outI+1&&i!==boxI+1&&i!==ovI+1);
 const JOBS=Number(process.env.PIXEL_JOBS||4);
 // Same server as the harness (harness.start() launches its own bundled browser; we need AVALON_CHROMIUM, so we start our own).
@@ -75,10 +113,21 @@ async function settle(page){await idle(page);await page.waitForFunction(()=>!win
 // worker job running, camera stable, and then two consecutive captures (screenshot + DOM snapshot) taken ≥250 ms and
 // several frames apart are identical. A frame that is still changing is retried, never compared; the app is untouched.
 async function frames(page,n){await page.evaluate(n=>new Promise(r=>{const f=k=>k?requestAnimationFrame(()=>f(k-1)):r();f(n);}),n);}
+// blank@desktop flake (ADR-0001 blank-scene-flake): Chromium can leave a root-layer tile holding a raster from an earlier
+// paint-invalidation state. That raster differs from a fresh full raster of the same page by 1 LSB at one gradient pixel
+// ((1162,241) in #viewport's radial-gradient, blue 50 instead of 51). Nothing invalidates it later, so two identical
+// captures do not prove the frame is the page's settled raster. The WebGL canvas is transparent there in every frame.
+// Before EVERY screenshot of the still-shot loop (the only capture path: every scene, step and viewport goes through
+// stillShot, including its retries), the root layer is fully re-rasterized: the base background colour is overridden
+// over CDP and then cleared, so each capture comes from a full raster of the final state. DOM and app are untouched,
+// and no pixel is allowed.
+async function fullRaster(page){const c=await page.context().newCDPSession(page);
+ try{await c.send('Emulation.setDefaultBackgroundColorOverride',{color:{r:255,g:0,b:255,a:1}});await frames(page,2);
+  await c.send('Emulation.setDefaultBackgroundColorOverride',{});await frames(page,2);}finally{await c.detach().catch(()=>{});}}
 async function stillShot(page){
  await page.evaluate(()=>document.fonts.ready.then(()=>{}));await settle(page);
  let prev=null,prevDom=null;
- for(let i=0;i<40;i++){await frames(page,3);await page.waitForTimeout(250);await idle(page);
+ for(let i=0;i<40;i++){await frames(page,3);await page.waitForTimeout(250);await idle(page);await fullRaster(page);
   const png=await page.screenshot({animations:'disabled',caret:'hide'}),dom=JSON.stringify(await domSnapshot(page));
   if(prev&&png.equals(prev)&&dom===prevDom&&await page.evaluate(()=>document.fonts.status==='loaded'))return {png,dom:JSON.parse(dom),tries:i+1};
   prev=png;prevDom=dom;}
@@ -200,9 +249,10 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
      for(const sel of areaSel){const a=await boxOf(sel);if(a)areas.push(a);else r.errors.push(`no element ${sel} (approved area of ${name})`);}
      const d=box?diffOutside(fs.readFileSync(bp),png,[box,...(overlay?[overlay]:[]),...areas]):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
      if(!box)r.errors.push(`no element ${ALLOW_BOX}`);else if(d.outside)r.errors.push(`${d.outside} differing pixels outside ${ALLOW_BOX} box ${box}${overlay?' or overlay '+overlay:''} (outside diffs span ${d.outsideBox})${d.sizeMismatch?' (size mismatch)':''}`);
-     if(fs.existsSync(bd)){const dd=compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom);if(dd.length)console.log(`  ${id} DOM differs (listed, not failed with --allow-box): ${dd.join(' | ').slice(0,300)}`);}results.push(r);}
+     // Approved areas are pixel boxes only: no DOM allowance inside them (ADR-0001 ruling); every DOM/style difference fails.
+     await checkDom(page,name,id,bd,dom,r,{bp,png,dpr:desktop?1:2,areas:[box,overlay,...areas].filter(Boolean)});results.push(r);}
     else{if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}
-    if(fs.existsSync(bd))r.errors.push(...compareDom(JSON.parse(fs.readFileSync(bd,'utf8')),dom));else r.errors.push('no DOM baseline');
+    await checkDom(page,name,id,bd,dom,r,{bp,png,dpr:desktop?1:2});
     if(MASK_BASE){const help=await page.evaluate(()=>{const e=document.getElementById('desktopHelp');if(!e||getComputedStyle(e).display==='none'||getComputedStyle(e).visibility==='hidden')return null;const b=e.getBoundingClientRect();return {left:b.left,top:b.top,right:b.right,bottom:b.bottom};});
      const mp=path.join(MASK_BASE,'pixels',id+'.png'),md=path.join(MASK_BASE,'dom',id+'.json');if(!fs.existsSync(mp))r.errors.push('no mask baseline');else{r.helpBox=help;r.outsideHelp=outsideBox(fs.readFileSync(mp),png,help,desktop?1:2);if(r.outsideHelp)r.errors.push(`${r.outsideHelp} px differ outside the help line vs ${path.basename(MASK_BASE)}`);if(!desktop&&help)r.errors.push('help line visible on phone');}
      if(fs.existsSync(md))r.errors.push(...compareDom(stripHelp(JSON.parse(fs.readFileSync(md,'utf8'))),stripHelp(dom)).map(e=>'vs '+path.basename(MASK_BASE)+' without #desktopHelp: '+e));}
@@ -222,4 +272,6 @@ if(!only.length){const m=JSON.parse(fs.readFileSync(path.join(BASE,'manifest.jso
 const bad=results.filter(r=>r.errors.length);fs.writeFileSync(path.join(OUT,'report.json'),JSON.stringify({secs,results},null,1));
 for(const r of bad)console.error('FAIL',r.id,'—',r.errors.join(' | '));
 const accs=results.filter(r=>r.accepted&&!r.errors.length),acc=accs.length,total=results.reduce((n,r)=>n+(r.differing||0),0);
-console.log(`test:pixels: ${results.length-bad.length-acc}/${results.length} captures at 0 px, ${acc} accepted exception(s)${acc?' ('+accs.map(r=>r.id+' '+r.accepted+' px').join(', ')+')':''}, ${bad.length} failed; ${total} differing px in total; DOM/styles ${results.some(r=>r.errors.some(e=>!/pixels|baseline/.test(e)))?'DIFFER':'equal'} in ${secs}s`);process.exit(bad.length?1:0);
+const dm=results.reduce((n,r)=>n+(r.dom?.matched||0),0),du=results.reduce((n,r)=>n+(r.dom?.unmatched||0),0);
+console.log(`DOM changes: ${dm} matched by approved DOM entries, ${du} unmatched, in ${results.filter(r=>r.dom?.unmatched).length} capture(s) with unmatched changes`);
+console.log(`test:pixels: ${results.length-bad.length-acc}/${results.length} captures at 0 px, ${acc} accepted exception(s)${acc?' ('+accs.map(r=>r.id+' '+r.accepted+' px').join(', ')+')':''}, ${bad.length} failed; ${total} differing px in total; DOM/styles ${results.some(r=>r.errors.some(e=>/^(outerHTML differs|computed style|…\d+ elements|vs )/.test(e)))?'DIFFER':'equal'} in ${secs}s`);process.exit(bad.length?1:0);
