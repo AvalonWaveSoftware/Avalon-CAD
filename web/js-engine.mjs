@@ -22,7 +22,7 @@ function validateObjects(objects){
 }
 export function jsJobs(native){
  function buildModel(project,tolerance,individual=false){
-  if(field(project,'format')!=='tristancad'||field(project,'version')!==2)throw Error('This is not a supported AvalonCad project.');
+  if(field(project,'format')!=='tristancad'||![2,3].includes(field(project,'version')))throw Error('This is not a supported AvalonCad project.');
   validateObjects(project.objects);native.validate_layers(project);
   const owned=[],parts=[],solids=[],cuts=[],adjustments=[],styles=individual?native.styles():undefined,own=s=>(owned.push(s),s);
   try{

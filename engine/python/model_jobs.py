@@ -28,7 +28,7 @@ def validate_objects(objects):
                 raise ValueError("Invalid object coordinates.")
 
 def build_model(project, tolerance, individual=False):
-    if field(project, "format") != "tristancad" or field(project, "version") != 2:
+    if field(project, "format") != "tristancad" or field(project, "version") not in (2, 3):
         raise ValueError("This is not a supported AvalonCad project.")
     validate_objects(project.objects)
     native.validate_layers(project)

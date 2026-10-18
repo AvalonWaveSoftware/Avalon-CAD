@@ -6,7 +6,19 @@ import {uid} from './templates.mjs';
 // (joined objects with params.operation==='subtract'); each one is split into
 // top-level solids plus top-level Subtract cutouts that reproduce the same geometry
 // through per-solid excludedCutouts. Pure JSON work; no geometry is evaluated.
-export const PROJECT_VERSION=2;
+export const PROJECT_VERSION=3;
+// Save format v3 (ADR-0001 §2.2): v3 is a superset of v2. The writer stamps version 3 only when some object, at any depth
+// (prefab and joined children included), uses a v3 field; every other project is written as version 2, byte-identical to
+// 2.7.x JSON. Groups alone stay v2 (Q13). The fields' validators land with their F-workstreams.
+const GLYPH_FINISH=['bevel','bevelProfile','plate','plateMargin','engrave'];
+const needsV3=o=>!!o&&(o.mirrored===true||o.shell!=null||(Array.isArray(o.fillets)&&o.fillets.some(f=>f?.kind==='chamfer'))||(o.type==='glyph'&&GLYPH_FINISH.some(k=>o.params?.[k]!=null))||(o.params?.children||[]).some(needsV3));
+export function requiredVersion(p){return (p?.objects||[]).some(needsV3)?3:2;}
+// The object to serialise: the same object when its version is already right (so v2 output is byte-identical), else a
+// shallow copy with only "version" changed (key order kept).
+export function forWrite(p){const v=requiredVersion(p);return p.version===v?p:{...p,version:v};}
+// .avprefab records: version 2 only when the content needs v3, else 1 (ADR §2.2).
+export function requiredPrefabVersion(record){return needsV3(record?.object)?2:1;}
+export function prefabForWrite(r){const v=requiredPrefabVersion(r);return r.version===v?r:{...r,version:v};}
 const LIMIT=100;
 const euler=r=>new T.Euler(...r.map(T.MathUtils.degToRad),'ZYX');
 const unscaled=o=>!o.scale||o.scale.every(v=>Math.abs(v-1)<=1e-8);
@@ -69,15 +81,16 @@ function migrateList(objects,warn){
 }
 function containsSubtract(o){return (o.params?.children||[]).some(c=>isSubtract(c)||c.type==='joined'&&containsSubtract(c));}
 
-// migrateProject(raw, warnings?) → a v2 project (deep copy) for v1 input; anything else passes through unchanged.
+// migrateProject(raw, warnings?) → a v2 project (deep copy) for v1 input; anything else (v2, v3) passes through unchanged:
+// 2 → 3 is the identity and the stored version is kept.
 export function migrateProject(p,warnings=[]){
  if(!p||p.format!=='tristancad'||p.version!==1||!Array.isArray(p.objects))return p;
  const out=structuredClone(p),seen=new Set(),warn=m=>{if(!seen.has(m)){seen.add(m);warnings.push(m);console.warn(m);}};
  for(const o of out.objects)o.layerId??=DEFAULT_LAYER;
- out.objects=migrateList(out.objects,warn);out.version=PROJECT_VERSION;
+ out.objects=migrateList(out.objects,warn);out.version=2;
  return out;
 }
-// Prefab records keep avaloncad-prefab version 1; only their embedded content is migrated.
+// Prefab records keep their avaloncad-prefab version (1, or 2 for v3 content); only their embedded content is migrated.
 export function migratePrefabRecord(record,warnings=[]){
  if(record?.format!=='avaloncad-prefab'||record.object?.type!=='prefab'||!Array.isArray(record.object.params?.children))return record;
  const copy=structuredClone(record),seen=new Set();copy.object.params.children=migrateList(copy.object.params.children,m=>{if(!seen.has(m)){seen.add(m);warnings.push(m);}});return copy;

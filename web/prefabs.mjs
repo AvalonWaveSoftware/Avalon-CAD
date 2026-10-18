@@ -1,3 +1,4 @@
+import {prefabForWrite} from './migrate.mjs';
 import {validateProject} from './kernel-ui.mjs';
 import {DEFAULT_LAYER,booleanProject,layerOf} from './layers.mjs';
 import {uid} from './templates.mjs';
@@ -17,10 +18,10 @@ export function makePrefab(objects,name,bounds,layers,{pruneLayers=false}={}){
  if(pruneLayers){const used=new Set(objects.map(layerOf)),kept=layers.filter(l=>used.has(l.id));if(kept.length)layers=kept;}
  const center=bounds.min.map((v,i)=>(v+bounds.max[i])/2),id=uid(),children=freshComponents(objects).map(o=>({...o,position:o.position.map((v,i)=>v-center[i])}));
  const shape={id:uid(),name,type:'prefab',mode:'solid',enabled:true,layerId:DEFAULT_LAYER,position:[0,0,0],rotation:[0,0,0],localBounds:{min:bounds.min.map((v,i)=>v-center[i]),max:bounds.max.map((v,i)=>v-center[i])},params:{children,layers:structuredClone(layers)}};
- return validatePrefab({format:'avaloncad-prefab',version:1,id,name,createdAt:Date.now(),object:shape});
+ return validatePrefab(prefabForWrite({format:'avaloncad-prefab',version:1,id,name,createdAt:Date.now(),object:shape}));
 }
 export function validatePrefab(value){
- if(!value||value.format!=='avaloncad-prefab'||value.version!==1||typeof value.id!=='string'||!value.id.length||value.id.length>100||typeof value.name!=='string'||!value.name.trim()||value.name.length>60||value.object?.type!=='prefab')throw Error('This is not a supported AvalonCad prefab.');
+ if(!value||value.format!=='avaloncad-prefab'||(value.version!==1&&value.version!==2)||typeof value.id!=='string'||!value.id.length||value.id.length>100||typeof value.name!=='string'||!value.name.trim()||value.name.length>60||value.object?.type!=='prefab')throw Error('This is not a supported AvalonCad prefab.');
  const copy=structuredClone(value);copy.name=copy.name.trim();copy.object.name=copy.name;copy.object.mode='solid';copy.object.enabled=true;
  copy.object=validateProject(booleanProject([copy.object])).objects[0];
  const b=copy.object.localBounds;if(!b||!['min','max'].every(k=>Array.isArray(b[k])&&b[k].length===3&&b[k].every(Number.isFinite))||b.max.some((v,i)=>v<=b.min[i]))throw Error('The prefab is missing valid size information.');
