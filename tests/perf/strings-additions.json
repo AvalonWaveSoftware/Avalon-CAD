@@ -146,13 +146,13 @@
   {
    "text": "Bottom-center placement · millimeters",
    "runtime": true,
-   "source": "web/main.mjs:170",
+   "source": "web/main.mjs:174",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   },
   {
    "text": "Object center position · millimeters",
    "runtime": true,
-   "source": "web/main.mjs:170",
+   "source": "web/main.mjs:174",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   },
   "Bevel",
@@ -166,14 +166,10 @@
   {
    "text": "Overall size 17.59 × 24.99 × 7.00 mm (X × Y × Z).",
    "runtime": true,
-   "source": "web/main.mjs:160",
+   "source": "web/main.mjs:164",
    "approval": "F7 batch (pending Master Chief)"
   },
-  {
-   "text": "Engrave needs a plate thicker than 0.039 in.",
-   "source": "web/units.mjs:32",
-   "approval": "F7 batch (pending Master Chief)"
-  }
+  "Engrave needs a plate thicker than 0.039 in."
  ],
  "removals": [
   {
