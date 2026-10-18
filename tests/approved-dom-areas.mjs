@@ -1,7 +1,7 @@
 // ADR-0001 approved-dom-areas: unit tests for tests/perf/approved-dom.mjs (the "dom" entries of approved-areas.json
 // used by tests/pixels.mjs). Runs domChanges in a blank Chromium page; no app, no baseline folder is written.
 import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
-import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn,regionDiff} from './perf/png.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds} from './perf/dom-baseline.mjs';
+import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn,regionDiff} from './perf/png.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions,correctionSource,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds} from './perf/dom-baseline.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const STR=new Set(['Edge (F)','Move (M)','Project menu','Ready · millimeters','Fit model (0)']);
 const E=(o)=>({scene:'*',kind:'title',approval:'test',...o});
@@ -109,6 +109,27 @@ const S=approvedStrings(tmp,add);assert.ok(S.has('Base string')&&S.has('Added st
  assert.deepEqual(compareStrings(['A b.'],['A b.'],new Set(),[],cr).staleCorrections,['Comment only.'],'a correction for a string not in the baseline is stale');
  assert.throws(()=>validateAdditions({strings:[],extractorCorrections:[{string:'x',reason:'r'}]},R),/"source" must be a non-empty string/);
  assert.throws(()=>validateAdditions({strings:[],extractorCorrections:[{string:'x',reason:'r',source:'web/nope.mjs:1'}]},R),/does not exist/);
+ // extractor corrections get the contains-or-builds check on the cited line (QA N3, ADR-0001 3:46 AM): the string must be
+ // quoted in a comment within ±3 lines, and the code there must not contain or build it
+ fs.writeFileSync(path.join(R,'web/cm.mjs'),["// every job would fail with","// 'Engine down' when the worker dies.","const shown='Shown text.'; // 'Shown text.' also noted",
+  "/* block: \"Block quoted.\" */","// mentions Bare unquoted text",...Array(9).fill(''),"// 'Far comment.'"].join('\n')+'\n');
+ fs.writeFileSync(path.join(R,'web/s.css'),"/* 'CSS note.' */\n.a{content:'x'}\n");fs.writeFileSync(path.join(R,'web/p.py'),"# 'Py note.'\n");
+ const cs=(t,src)=>correctionSource(t,src,R),vc=(string,source)=>validateAdditions({strings:[],extractorCorrections:[{string,reason:'comment-only',source}]},R);
+ for(const [t,src] of [['Engine down','web/cm.mjs:2'],['Engine down','web/cm.mjs:1'],['Block quoted.','web/cm.mjs:4'],['CSS note.','web/s.css:1'],['Comment text only.','web/fx.mjs:5']])
+  assert.deepEqual(cs(t,src),{ok:true,how:'quoted in a comment'},'correction verified: '+t+' @ '+src);
+ assert.doesNotThrow(()=>vc('Engine down','web/cm.mjs:2'));
+ for(const [t,src,re] of [['Shown text.','web/cm.mjs:3',/also contains or builds "Shown text\." in code \(literal\): not comment-only/],
+   ['Plain literal text.','web/cm.mjs:2',/no comment at web\/cm\.mjs:2 \(±3 lines\) quotes "Plain literal text\."/],
+   ['Plain literal text.','web/fx.mjs:1',/no comment at web\/fx\.mjs:1/],
+   ['Bare unquoted text','web/cm.mjs:5',/no comment at web\/cm\.mjs:5/],['Engine','web/cm.mjs:2',/no comment/],
+   ['Far comment.','web/cm.mjs:2',/no comment at web\/cm\.mjs:2/],
+   ['Py note.','web/p.py:1',/web\/p\.py is not a JS or CSS source/],['x','web/bad.mjs:1',/cannot scan web\/bad\.mjs: stripComments: unterminated string/]]){
+  assert.match(cs(t,src).why,re,'correction not verified: '+t+' @ '+src);
+  assert.throws(()=>vc(t,src),new RegExp('extractorCorrections\\[0\\] .*: cannot verify the source: .*'+re.source),'validateAdditions fails loudly: '+t);}
+ assert.ok(cs('Far comment.','web/cm.mjs:15').ok,'within the window');
+ // the committed correction passes
+ const RR0=path.resolve(path.dirname(new URL(import.meta.url).pathname),'..');
+ assert.deepEqual(correctionSource('The modeling engine could not start','web/perf-flags.mjs:72',RR0),{ok:true,how:'quoted in a comment'});
  fs.rmSync(R,{recursive:true});
  // the committed file is valid and lists the comment-only string as a correction, not a removal
  const RR=path.resolve(path.dirname(new URL(import.meta.url).pathname),'..');

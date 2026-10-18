@@ -26,8 +26,8 @@ export function stripComments(src,{line=true,tok=null}={}){let out='',i=0;const 
  const where=k=>{const b=src.slice(0,k).split('\n');return `${b.length}:${b.at(-1).length+1}`},fail=(k,what)=>{throw Error(`stripComments: unterminated ${what} at ${where(k)}`)};
  const blank=s=>s.replace(/[^\n]/g,' ');const regexOk=()=>prev===''||/[(,=:[!&|?{};+\-*%<>~^]$/.test(prev)||/(?:^|[^\w$])(?:return|typeof|case|in|of|void|delete|new|throw|yield|await|else|do)$/.test(prev);
  while(i<n){const c=src[i],d=src[i+1];
-  if(c==='/'&&d==='*'){const j=src.indexOf('*/',i+2);if(j<0)fail(i,'/* comment');const e=j+2;out+=blank(src.slice(i,e));i=e;continue;}
-  if(line&&c==='/'&&d==='/'){let e=src.indexOf('\n',i);if(e<0)e=n;out+=blank(src.slice(i,e));i=e;continue;}
+  if(c==='/'&&d==='*'){const j=src.indexOf('*/',i+2);if(j<0)fail(i,'/* comment');const e=j+2;tok?.({k:'cmt',s:src.slice(i+2,j),a:i+2,b:j});out+=blank(src.slice(i,e));i=e;continue;}
+  if(line&&c==='/'&&d==='/'){let e=src.indexOf('\n',i);if(e<0)e=n;tok?.({k:'cmt',s:src.slice(i+2,e),a:i+2,b:e});out+=blank(src.slice(i,e));i=e;continue;}
   if(c==="'"||c==='"'){let j=i+1;while(j<n&&src[j]!==c&&src[j]!=='\n'){if(src[j]==='\\')j++;j++;}if(src[j]!==c)fail(i,'string');tok?.({k:'str',s:src.slice(i+1,j),a:i,b:j+1,depth:stack.length});out+=src.slice(i,j+1);i=j+1;prev='a';continue;}
   if(!line){out+=c;i++;continue;}// CSS: strings (above) and /* */ only
   if((c==='+'||c==='-')&&d===c){const post=prev!==''&&!regexOk();out+=c+d;i+=2;prev=post?'a':c;continue;}// x++ / 2: operand ends
@@ -104,6 +104,21 @@ export function sourceBuilds(text,src,repo=REPO){const m=src.match(/^([^:]+):(\d
   if(!parts.some(p=>!p.gap&&p.s)||!parts.some(p=>p.gap))continue;
   if(new RegExp('^'+parts.map(p=>p.gap?'([\\s\\S]+?)':esc(p.s)).join('')+'$').test(text))return {ok:true,how:`static parts of a template or '+' chain (${parts.filter(p=>p.gap).length} dynamic part(s) not traced)`};}
  return {ok:false,why:`${m[1]}:${L} (±${SOURCE_WINDOW} lines) neither contains nor builds ${JSON.stringify(text)} (as a literal, a concatenation of literals, or the static parts of a template or '+' chain)`};}
+// QA N3 / ADR-0001 (3:46 AM Oct 18): an extractor correction gets the same contains-or-builds check on its cited line as a
+// runtime entry, applied to what a correction claims: the string was only ever seen by the old extractor inside a COMMENT.
+// Verified when a comment (// or /* */; CSS /* */ only) within ±SOURCE_WINDOW lines of the cited line contains the string
+// as a quoted literal ('…', "…" or `…`, exactly what the pre-correction extractor matched there). It fails loudly when:
+// the file is not a JS (.mjs/.cjs/.js) or CSS source (other sources keep their comments, so a correction cannot apply);
+// the scanner cannot read it; no such quoted literal is in a comment nearby; or the code there (comments stripped)
+// contains or builds the string (sourceBuilds), since then it is not comment-only.
+export function correctionSource(text,src,repo=REPO){const m=src.match(/^([^:]+):(\d+)$/),L=+m[2],js=/\.(mjs|cjs|js)$/.test(m[1]),css=m[1].endsWith('.css');
+ if(!js&&!css)return {ok:false,why:`${m[1]} is not a JS or CSS source: comments are not stripped there, so no extractor correction can apply`};
+ let raw;const cm=[];try{raw=fs.readFileSync(path.join(repo,m[1]),'utf8');stripComments(raw,{line:js,tok:t=>{if(t.k==='cmt')cm.push(t);}});}catch(e){return {ok:false,why:`cannot scan ${m[1]}: ${e.message}`};}
+ const lineOf=k=>raw.slice(0,k).split('\n').length;let found=false;
+ for(const c of cm)for(const q of c.s.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g))if((q[1]??q[2]??q[3])===text&&Math.abs(lineOf(c.a+q.index)-L)<=SOURCE_WINDOW)found=true;
+ if(!found)return {ok:false,why:`no comment at ${m[1]}:${L} (±${SOURCE_WINDOW} lines) quotes ${JSON.stringify(text)}`};
+ if(js){const v=sourceBuilds(text,src,repo);if(v.ok)return {ok:false,why:`${m[1]}:${L} also contains or builds ${JSON.stringify(text)} in code (${v.how}): not comment-only`};}
+ return {ok:true,how:'quoted in a comment'};}
 export function validateAdditions(a,repo=REPO){const bad=[];
  if(!a||!Array.isArray(a.strings))bad.push('"strings" must be a list');
  for(const [i,s] of (a?.strings||[]).entries()){if(typeof s==='string')continue;const at=`strings[${i}] ${JSON.stringify(s)}`;
@@ -113,7 +128,8 @@ export function validateAdditions(a,repo=REPO){const bad=[];
   const e=checkSource(s.source,repo);if(e)bad.push(`${at}: ${e}`);
   if(typeof s.text==='string'){const x=runtimeSyntax(s.text);if(x.length)bad.push(`${at}: template/pattern syntax ${x.map(v=>JSON.stringify(v)).join(', ')} is not allowed in a runtime text (exact rendered text only)`);
    else if(!e&&s.text){const v=sourceBuilds(s.text,s.source,repo);if(!v.ok)bad.push(`${at}: cannot verify the source: ${v.why}`);}}}
- for(const [i,c] of (a?.extractorCorrections||[]).entries()){const at=`extractorCorrections[${i}] ${JSON.stringify(c)}`;for(const k of ['string','reason','source'])if(!c||typeof c[k]!=='string'||!c[k])bad.push(`${at}: "${k}" must be a non-empty string`);const e=c&&checkSource(c.source,repo);if(e)bad.push(`${at}: ${e}`);}
+ for(const [i,c] of (a?.extractorCorrections||[]).entries()){const at=`extractorCorrections[${i}] ${JSON.stringify(c)}`;for(const k of ['string','reason','source'])if(!c||typeof c[k]!=='string'||!c[k])bad.push(`${at}: "${k}" must be a non-empty string`);const e=c&&checkSource(c.source,repo);if(e)bad.push(`${at}: ${e}`);
+  else if(typeof c.string==='string'&&c.string){const v=correctionSource(c.string,c.source,repo);if(!v.ok)bad.push(`${at}: cannot verify the source: ${v.why}`);}}
  if(a?.extractorCorrections!=null&&!Array.isArray(a.extractorCorrections))bad.push('"extractorCorrections" must be a list');
  if(bad.length)throw Error('tests/perf/strings-additions.json rejected:\n  '+bad.join('\n  '));return a;}
 const ADDITIONS_FILE=path.join(HERE,'strings-additions.json');
