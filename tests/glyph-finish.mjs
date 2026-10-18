@@ -42,6 +42,10 @@ assert.deepEqual(glyphBevelPart(g('A',{bevel:.5,plate:2,plateMargin:2})),glyphBe
 {const o=g('R',{bevel:.25}),s=baseShapeForTest(o);try{assert.equal(s.bevelUsed,.125,'R at 0.25 mm only bevels at 0.125 mm');}finally{s.delete();}
  const m=solidMesh(glyphBevelPart(o),.15,false);assert.equal(m.bevelUsed,.125);assert.equal(glyphBevelNote(o),.125);assert.equal(glyphBevelNote(g('A',{bevel:.25})),null);
  const full=baseShapeForTest(g('A',{bevel:.25}));try{assert.equal(full.bevelUsed,undefined);}finally{full.delete();}checks+=5;}
+// A valid OCCT bevel whose mesh is open (round 'm' at 0.5 mm, default size) counts as failed: half-size retry + note;
+// round 'j' fails at both sizes and gives the bevel error (glyph-chamfer-robustness.md).
+{const o=g('m',{bevel:.5,bevelProfile:'round'}),s=makeObject(K,o,.15);try{assert.ok(s.volume()>0);}finally{s.delete();}assert.equal(glyphBevelNote(o),.25,"open 'm' mesh retried at half");
+ assert.throws(()=>makeObject(K,g('j',{bevel:.5,bevelProfile:'round'}),.15),{message:"Bevel not possible on 'j' at this size"});checks+=3;}
 for(const o of [g('R',{bevel:.5}),g('B',{bevel:.5,plate:2,plateMargin:1}),g('A',{bevel:20})]){
  assert.throws(()=>finishedShapeForTest(o),{message:`Bevel not possible on '${o.params.char}' at this size`});assert.throws(()=>makeObject(K,o,.05),{message:`Bevel not possible on '${o.params.char}' at this size`});checks+=2;}
 // 5. Validators ('Invalid dimensions.'), minimum version, stretch.
