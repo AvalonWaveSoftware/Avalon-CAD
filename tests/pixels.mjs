@@ -53,7 +53,7 @@ const args=process.argv.slice(2),update=args.includes('--update'),outI=args.inde
 const APPROVED=(()=>{const f=path.join(path.dirname(new URL(import.meta.url).pathname),'perf/approved-areas.json');if(update||boxI>=0||process.env.AVALON_PIXEL_APPROVED==='0'||!fs.existsSync(f))return null;
  const a=JSON.parse(fs.readFileSync(f,'utf8'));return path.basename(BASE)===a.baseline?a:null;})();
 const ALLOW_BOX=boxI>=0?args[boxI+1]:APPROVED?.box??null,ALLOW_OVERLAY=ovI>=0?args[ovI+1]:APPROVED?.overlay??null,SCENE_AREAS=APPROVED?.scenes||{};
-if(APPROVED)console.log(`approved areas (${APPROVED.baseline}): ${APPROVED.box}${APPROVED.overlay?' + overlay '+APPROVED.overlay:''}; scenes: ${Object.keys(SCENE_AREAS).join(', ')||'none'}`);
+if(APPROVED)console.log(`approved areas (${APPROVED.baseline}): ${APPROVED.box||"no box"}${APPROVED.dom?.length?` + ${APPROVED.dom.length} dom entr${APPROVED.dom.length===1?"y":"ies"}`:""}${APPROVED.overlay?' + overlay '+APPROVED.overlay:''}; scenes: ${Object.keys(SCENE_AREAS).join(', ')||'none'}`);
 if(ALLOW_BOX&&update)throw Error('--allow-box is a compare-only check; it never writes baselines');
 // ADR-0001 approved-dom-areas: the "dom" entries of the same approved-areas.json (same baseline rule, same
 // AVALON_PIXEL_APPROVED=0 switch) approve exact DOM changes; see tests/perf/approved-dom.mjs. Validated here, at load:

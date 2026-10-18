@@ -47,6 +47,16 @@ const S=approvedStrings(tmp,add);assert.ok(S.has('Base string')&&S.has('Added st
  for(const k of ["'Kept string.'",'"Also kept."',"'http://x.y/z'","/\\/\\/ not a comment/g","x/2/3","`Tpl // not a comment ${a+'Inner kept.'} done`","'a /* not a comment */ b'"])assert.ok(out.includes(k),'kept: '+k);
  for(const k of ['Comment string.','Block comment.','After division.','Doc comment.'])assert.ok(!out.includes(k),'stripped: '+k);
  assert.equal(stripComments("a{color:red} /* 'x y.' */ b{content:'// kept'}",{line:false}),'a{color:red} '+' '.repeat("/* 'x y.' */".length)+" b{content:'// kept'}");
+ // QA §3 (i): '/' after a postfix ++/-- is division, so the comment after it is stripped and a later string is kept intact;
+ // a prefix ++ before a regex still reads the regex.
+ {const o=stripComments("const d=i++ / 2 + 'it/'; const s='Hidden // text.'; // 'Gone.'\nlet k=j-- / 4; // 'Gone too.'\nx=++y; const r=/a\\/b/; return /q/.test(z);");
+  for(const k of ["'Hidden // text.'","'it/'","j-- / 4","/a\\/b/","/q/.test"])assert.ok(o.includes(k),'postfix kept: '+k);for(const k of ['Gone.','Gone too.'])assert.ok(!o.includes(k),'postfix stripped: '+k);}
+ // QA §3 (ii): CSS strings are tracked, so '/*' inside content:'…' is not a comment and the rest of the file survives.
+ {const css="a{content:'/* x'} b{content:\"*/ y\"} /* real */ c{color:red}",o=stripComments(css,{line:false});
+  assert.equal(o,css.replace('/* real */',' '.repeat(10)),'css string with /* kept');}
+ // Never silently: whatever the scanner cannot close throws with line:col (extractStrings prefixes the file).
+ for(const [src,css,re] of [["a=1;\n/* open",false,/unterminated \/\* comment at 2:1/],["x{content:'open}",true,/unterminated string at 1:11/],["a=1;\nb='open\n",false,/unterminated string at 2:3/],["t=`open",false,/unterminated template literal at 1:3/],["a=(/open\n)",false,/unterminated regex literal .* at 1:4/],["a{} /* open",true,/unterminated \/\* comment at 1:5/]])
+  assert.throws(()=>stripComments(src,{line:!css}),re,'throws: '+JSON.stringify(src));
  // at this tree: the comment-only string is gone from the extracted set, the UI error text is still there
  const S=new Set(extractStrings());assert.ok(!S.has('The modeling engine could not start'));assert.ok(S.has('The modeling engine could not start. Close and reopen the app.'));}
 

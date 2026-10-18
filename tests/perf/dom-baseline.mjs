@@ -19,26 +19,33 @@ const STRING_SOURCES=()=>[...fs.readdirSync(path.join(REPO,'web')).filter(f=>/\.
 // regular-expression literals untouched. A '/' starts a regex literal where an expression may start (after one of
 // ( , = : [ ! & | ? { } ; + - * % < > ~ ^, at the start, or after return/typeof/case/in/of/void/delete/new/throw/yield/await).
 // line:false (CSS) strips only block comments.
+// approved-dom-areas-2 (QA §3 edge cases): '/' after a postfix ++/-- is division, not a regex start; CSS strings are
+// tracked, so '/*' inside content:'…' is not a comment. Anything the scanner cannot close (an unterminated /* */, string,
+// template or regex) throws with line:col instead of silently blanking the rest of the file; extractStrings adds the file.
 export function stripComments(src,{line=true}={}){let out='',i=0;const n=src.length,stack=[];let prev='';// last significant token char/word
+ const where=k=>{const b=src.slice(0,k).split('\n');return `${b.length}:${b.at(-1).length+1}`},fail=(k,what)=>{throw Error(`stripComments: unterminated ${what} at ${where(k)}`)};
  const blank=s=>s.replace(/[^\n]/g,' ');const regexOk=()=>prev===''||/[(,=:[!&|?{};+\-*%<>~^]$/.test(prev)||/(?:^|[^\w$])(?:return|typeof|case|in|of|void|delete|new|throw|yield|await|else|do)$/.test(prev);
  while(i<n){const c=src[i],d=src[i+1];
-  if(c==='/'&&d==='*'){const j=src.indexOf('*/',i+2),e=j<0?n:j+2;out+=blank(src.slice(i,e));i=e;continue;}
+  if(c==='/'&&d==='*'){const j=src.indexOf('*/',i+2);if(j<0)fail(i,'/* comment');const e=j+2;out+=blank(src.slice(i,e));i=e;continue;}
   if(line&&c==='/'&&d==='/'){let e=src.indexOf('\n',i);if(e<0)e=n;out+=blank(src.slice(i,e));i=e;continue;}
-  if(!line){out+=c;i++;continue;}// CSS: nothing else to track except strings
-  if(c==="'"||c==='"'){let j=i+1;while(j<n&&src[j]!==c&&src[j]!=='\n'){if(src[j]==='\\')j++;j++;}out+=src.slice(i,j+1);i=j+1;prev='a';continue;}
+  if(c==="'"||c==='"'){let j=i+1;while(j<n&&src[j]!==c&&src[j]!=='\n'){if(src[j]==='\\')j++;j++;}if(src[j]!==c)fail(i,'string');out+=src.slice(i,j+1);i=j+1;prev='a';continue;}
+  if(!line){out+=c;i++;continue;}// CSS: strings (above) and /* */ only
+  if((c==='+'||c==='-')&&d===c){const post=prev!==''&&!regexOk();out+=c+d;i+=2;prev=post?'a':c;continue;}// x++ / 2: operand ends
   if(c==='`'||(c==='}'&&stack.length&&stack.at(-1)===0)){// template literal body (start, or resume after ${ … })
    if(c==='}')stack.pop();let j=i+1,interp=false;while(j<n&&src[j]!=='`'){if(src[j]==='\\'){j+=2;continue;}if(src[j]==='$'&&src[j+1]==='{'){j+=2;stack.push(0);interp=true;break;}j++;}
+   if(!interp&&j>=n)fail(i,'template literal');
    if(interp){out+=src.slice(i,j);i=j;prev='{';}else{out+=src.slice(i,j+1);i=j+1;prev='a';}continue;}
   if(c==='{'&&stack.length){stack[stack.length-1]++;}else if(c==='}'&&stack.length){stack[stack.length-1]--;}
   if(c==='/'&&regexOk()){let j=i+1,cls=false;while(j<n&&src[j]!=='\n'){if(src[j]==='\\'){j+=2;continue;}if(src[j]==='[')cls=true;else if(src[j]===']')cls=false;else if(src[j]==='/'&&!cls)break;j++;}
-   if(src[j]==='/'){j++;while(j<n&&/[a-z]/.test(src[j]))j++;out+=src.slice(i,j);i=j;prev='a';continue;}}
+   if(src[j]==='/'){j++;while(j<n&&/[a-z]/.test(src[j]))j++;out+=src.slice(i,j);i=j;prev='a';continue;}
+   fail(i,'regex literal (or a / the scanner misread as one)');}
   out+=c;i++;if(!/\s/.test(c))prev=/[\w$]/.test(c)?(/[\w$]$/.test(prev)?prev+c:c).slice(-8):c;}
  return out;}
 export function extractStrings(){const set=new Set();
  for(const f of STRING_SOURCES()){const raw=fs.readFileSync(path.join(REPO,f),'utf8');
   // ADR-0001 approved-dom-areas (b): // and /* */ comments are not UI text. JS sources (.mjs/.cjs) lose both, CSS loses
   // /* */; Python and HTML are read as before (// is floor division in Python).
-  const src=/\.(mjs|cjs|js)$/.test(f)?stripComments(raw):f.endsWith('.css')?stripComments(raw,{line:false}):raw;
+  let src;try{src=/\.(mjs|cjs|js)$/.test(f)?stripComments(raw):f.endsWith('.css')?stripComments(raw,{line:false}):raw;}catch(e){throw Error(`${f}: ${e.message}`);}
   if(f.endsWith('.html')){for(const m of src.matchAll(/>([^<>]*[A-Za-z][^<>]*)</g))set.add(m[1].trim());for(const m of src.matchAll(/(?:title|aria-label|placeholder)="([^"]+)"/g))set.add(m[1]);continue;}
   for(const m of src.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)){const s=(m[1]??m[2]??m[3]);if(s.length>1&&!/[=(){};<>\[\]`$\\]/.test(s)&&!/^\.{0,2}\/|\.(m?js|cjs|wasm|py)$/.test(s)&&/[A-Za-z]/.test(s)&&/[ .!?…:·]|^[A-Z][a-z]+$/.test(s))set.add(s);}}
  return [...set].filter(Boolean).sort();}
