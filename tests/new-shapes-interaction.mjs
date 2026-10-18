@@ -67,7 +67,9 @@ h=hist();const autosaved=w.localStorage.getItem('tristancad.autosave');click('ca
 
 // Letters, numbers & symbols: 94 tiles drawn from the real outlines (asked once), rows of 6 at ≥44 px; tap 'g'.
 click('addBtn');click('lettersBtn');await wait(()=>$('sheetTitle').textContent==='Letters, numbers & symbols','letters sheet');
-const glyphs=qa('#sheetContent [data-glyph]');assert.equal(glyphs.length,94);assert.deepEqual(glyphs.map(b=>b.getAttribute('aria-label')).join(''),GLYPH_CHARS);
+const glyphs=qa('#sheetContent [data-glyph]');assert.equal(glyphs.length,94);// QA follow-up: each tile's accessible label is the object name it adds ('Letter g', 'Number 7', 'Symbol @').
+const tileName=c=>(/[A-Za-z]/.test(c)?'Letter ':/[0-9]/.test(c)?'Number ':'Symbol ')+c;assert.deepEqual(glyphs.map(b=>b.getAttribute('aria-label')),[...GLYPH_CHARS].map(tileName));
+for(const [c,l] of [['g','Letter g'],['7','Number 7'],['@','Symbol @'],['A','Letter A'],['&','Symbol &']])assert.equal(glyphs[GLYPH_CHARS.indexOf(c)].getAttribute('aria-label'),l);
 assert.ok(glyphs.every(b=>b.querySelector('svg path')?.getAttribute('d').startsWith('M')),'outline tiles');assert.equal(outlineRequests,1);
 assert.deepEqual(qa('#sheetContent .sectionlabel').map(e=>e.textContent),['Numbers','Capital letters','Small letters','Symbols']);
 assert.ok(qa('#sheetContent .shapegrid').every(g=>g.getAttribute('style')==='grid-template-columns:repeat(6,1fr)'));assert.ok(glyphs.every(b=>/height:52px/.test(b.getAttribute('style'))));

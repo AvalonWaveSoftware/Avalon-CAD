@@ -1,9 +1,10 @@
 // ADR-0001 UI round 2, ruling 3: F1b (and anything after it) never changes an existing accessible name. Every button's
 // name at startup, in each sheet and panel and in the action bars is compared with the same state in the 3.0 base
-// build (v3-foundation 8fa7115). Any change fails; a button that had no name in the base (or did not exist) is exempt.
-// The base build is made once from `git archive 8fa7115` in a temp folder (AVALON_A11Y_BASE overrides it).
+// build (v3-foundation; 8fa7115 when F1b was written, the final W0 0b97fac since the merge-forward). Any change fails; a
+// button that had no name in the base (or did not exist) is exempt. The base build is made once from `git archive <sha>`
+// in a temp folder (AVALON_A11Y_SHA picks another base, e.g. 8fa7115; AVALON_A11Y_BASE overrides the folder).
 import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {execSync} from 'node:child_process';
-const REPO=path.resolve(new URL('..',import.meta.url).pathname),BASE_SHA='8fa7115';
+const REPO=path.resolve(new URL('..',import.meta.url).pathname),BASE_SHA=process.env.AVALON_A11Y_SHA||'0b97fac';
 const base=process.env.AVALON_A11Y_BASE||path.join(os.tmpdir(),'avalon-a11y-base-'+BASE_SHA);
 if(!fs.existsSync(path.join(base,'app/assets/main.js'))){fs.mkdirSync(base,{recursive:true});execSync(`git archive ${BASE_SHA} | tar -x -C ${JSON.stringify(base)}`,{cwd:REPO,shell:'/bin/bash'});
  if(!fs.existsSync(path.join(base,'node_modules')))fs.symlinkSync(path.join(REPO,'node_modules'),path.join(base,'node_modules'));

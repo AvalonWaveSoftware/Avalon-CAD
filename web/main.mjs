@@ -40,7 +40,7 @@ let keepV3Backup=false,keepV1=false,v1Loaded=false,lastAutosaveWarning=0;const A
  if(v1){try{localStorage.setItem(BACKUP,raw);backedUp=true;}catch(e){console.warn(e);keepV1=true;pendingWarnings.push('Storage is full, so your older autosave could not be backed up. Autosave is paused to keep it; use Project → Export project or free space.');}}
  if(value){try{project=loadProject(value);v1Loaded=!!v1;}catch(e){console.warn(e);if(v1){keepV1=keepV1||!backedUp;const reason=String(e.message).replace(/[.\s]+$/,'');pendingWarnings.push(backedUp?'Your older autosave could not be opened ('+reason+'). A copy is kept under tristancad.autosave.v1-backup.':'Your older autosave could not be opened ('+reason+'). It was left untouched.');}}}
  try{saved=JSON.parse(localStorage.getItem('tristancad.projects')||'{}');}catch(e){console.warn(e);}}
-const worker=new Worker(new URL('worker.js?v=2.7.2',import.meta.url),{type:'module'}),requests=new Map(),topologies=TOPOLOGY_SERVICE?topologyClient():null;
+const worker=new Worker(OCCT_SIDECAR?new URL('worker-sidecar.js?v=2.7.2',import.meta.url):new URL('worker.js?v=2.7.2',import.meta.url),{type:'module'}),requests=new Map(),topologies=TOPOLOGY_SERVICE?topologyClient():null;
 function request(type,data,onInterim){return new Promise((resolve,reject)=>{const id=++sequence;requests.set(id,{resolve,reject,onInterim});worker.postMessage(topologies?topologies.outgoing({id,type,...data}):{id,type,...data});});}
 worker.onmessage=({data})=>{if(data.interim){requests.get(data.id)?.onInterim?.(data);return;}if(topologies)topologies.incoming(data);const r=requests.get(data.id);if(!r)return;requests.delete(data.id);data.error?r.reject(Error(data.error)):r.resolve(data);};
 // WS9: OCCT compiles off the startup path; ask the worker to start it once the first frame has been drawn.
@@ -134,13 +134,13 @@ function newShape(t,p,name=names[t],smooth=false){if(project.objects.length>=100
 function addMenu(){openSheet('Primitive Objects','<p class="subtle">Solid shapes add material on the active layer. Change a shape to a cutout to cut only that layer. New shapes go on the layer shown at the top.</p><label class="toggle"><input type="checkbox" id="smoothShape" '+(smoothNewShapes?'checked':'')+'>Smooth shape · high resolution</label><p class="inlinehelp">Keeps spheres round and curved surfaces smooth using 0.005 mm curve resolution. Applies only to the new shape. Existing objects keep their settings. Flat faces and sharp edges keep their shape. STL represents curves with triangles.</p><div class="shapegrid">'+Object.keys(defaults).map(tile).join('')+'</div><div class="sectionlabel">More shapes</div><button id="advancedBtn" class="full">Advanced shapes · 5 polyhedra</button><button id="lettersBtn" class="full">Letters, numbers &amp; symbols</button><div class="sectionlabel">Reusable shapes</div><button id="prefabsBtn" class="full">Prefabs · '+prefabs.count()+' saved</button><button id="sketchBtn" class="full">⌁ Draw a custom sketch</button><button id="importSTLBtn" class="full">Import an STL, project or prefab</button>');$('smoothShape').onchange=()=>{smoothNewShapes=$('smoothShape').checked;try{localStorage.setItem('tristancad.smoothNewShapes',String(smoothNewShapes));}catch(e){}};document.querySelectorAll('[data-shape]').forEach(b=>b.onclick=()=>newShape(b.dataset.shape,structuredClone(defaults[b.dataset.shape]),names[b.dataset.shape],$('smoothShape').checked));$('advancedBtn').onclick=advancedMenu;$('lettersBtn').onclick=lettersMenu;$('prefabsBtn').onclick=prefabs.menu;$('sketchBtn').onclick=sketchMenu;$('importSTLBtn').onclick=importDialog;}
 // Advanced shapes: flat-faced solids only, so the Smooth toggle is not shown.
 function advancedMenu(){openSheet('Advanced shapes','<p class="subtle">Regular solids that rest flat on one face and print without supports. Sizes are edge lengths.</p><div class="shapegrid">'+Object.keys(advancedDefaults).map(tile).join('')+'</div>');document.querySelectorAll('[data-shape]').forEach(b=>b.onclick=()=>newShape(b.dataset.shape,structuredClone(advancedDefaults[b.dataset.shape])));}
-// Letters, numbers & symbols: one Text tool. The picker shows the real Roboto Bold outlines, which the worker sends
+// Letters, numbers & symbols: 94 character tiles (Amendment A1; no Text tool). The picker shows the real Roboto Bold outlines, which the worker sends
 // once (main.js carries only metrics). Amendment A1: each character is its own shape tile, added like Box; the
 // character shows only in the object name (no field changes it; add another tile for another character).
 let glyphTiles=null;const glyphName=c=>(/[A-Za-z]/.test(c)?'Letter ':/[0-9]/.test(c)?'Number ':'Symbol ')+c;
 const GLYPH_ROWS=[['Numbers','0123456789'],['Capital letters','ABCDEFGHIJKLMNOPQRSTUVWXYZ'],['Small letters','abcdefghijklmnopqrstuvwxyz'],['Symbols',GLYPH_CHARS.slice(62)]];
 function glyphTile(c,outline){const i=GLYPH_CHARS.indexOf(c),a=GLYPH_METRICS.ascender,h=a-GLYPH_METRICS.descender;
- return `<button data-glyph="${i}" aria-label="${escape(c)}" style="height:52px;padding:0">${outline?`<svg viewBox="${outline[0]/2-h/2} ${-a} ${h} ${h}" style="width:30px;height:30px"><path d="${outline[1]}" style="fill:var(--cyan);stroke:none"/></svg>`:escape(c)}</button>`;}
+ return `<button data-glyph="${i}" aria-label="${escape(glyphName(c))}" style="height:52px;padding:0">${outline?`<svg viewBox="${outline[0]/2-h/2} ${-a} ${h} ${h}" style="width:30px;height:30px"><path d="${outline[1]}" style="fill:var(--cyan);stroke:none"/></svg>`:escape(c)}</button>`;}
 async function lettersMenu(){if(!glyphTiles)glyphTiles=(await loadGlyphTiles())||{};
  openSheet('Letters, numbers & symbols','<p class="subtle">Tap a character to add it as a solid lying flat. Letter height is the capital-letter height.</p>'+GLYPH_ROWS.map(([label,chars])=>`<div class="sectionlabel">${label}</div><div class="shapegrid" style="grid-template-columns:repeat(6,1fr)">${[...chars].map(c=>glyphTile(c,glyphTiles[c])).join('')}</div>`).join(''));
  document.querySelectorAll('[data-glyph]').forEach(b=>b.onclick=()=>{const c=GLYPH_CHARS[Number(b.dataset.glyph)];newShape('glyph',{...structuredClone(glyphDefaults.glyph),char:c},glyphName(c));});}
@@ -242,8 +242,21 @@ const tooltips=installTooltips({commands});
 window.__cad={touch,get project(){return project;},get selected(){return selected;},get historyLength(){return history.length;},get model(){return model;},get display(){return resultMesh;},change:fn=>change(()=>fn(project)),get uploads(){return uploads.bytes;},get picks(){return pickMeshes;},get scene(){return scene;},request,objectsPanel,tooltips,commands,selection,load:p=>{project=loadProject(p);selected=project.objects.find(o=>layerOf(o)===project.activeLayer)?.id;refresh(true);},templates:{blank,plate,tray},exportMenu};
 refresh(true);
 
+// ADR unified-desktop-layout: the help line exists on every platform (F1a adds the approved '· ? for shortcuts'); CSS shows it only with a mouse or trackpad
+// ((any-hover:hover) and (any-pointer:fine)). It sits 18 px right of the Objects toggle, centred on it, or 18 px right
+// of the open Objects panel at the same top; at widths where that would overlap a viewport control it is hidden.
+{const help=document.createElement('div');help.id='desktopHelp';help.textContent='Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom · ? for shortcuts';$('viewport').appendChild(help);
+ const CONTROLS='#objectsToggle,#objectsPanel:not([hidden]),.views,.axis,#bounds,#liveMeasure:not([hidden]),#empty:not([hidden])>*';
+ const place=()=>{if(getComputedStyle(help).display==='none')return;const vp=$('viewport').getBoundingClientRect(),t=$('objectsToggle').getBoundingClientRect(),panel=$('objectsPanel'),h=help.offsetHeight,w=help.offsetWidth;
+  const left=(panel.hidden?t.right:panel.getBoundingClientRect().right)-vp.left+18,top=Math.round(t.top-vp.top+(t.height-h)/2);help.style.left=left+'px';help.style.top=top+'px';
+  const r={left:vp.left+left,top:vp.top+top,right:vp.left+left+w,bottom:vp.top+top+h};
+  const clash=r.right>vp.right||[...$('viewport').querySelectorAll(CONTROLS)].some(e=>{const b=e.getBoundingClientRect();return b.width&&b.height&&b.left<r.right&&b.right>r.left&&b.top<r.bottom&&b.bottom>r.top;});
+  help.classList.toggle('clash',clash);};
+ const ro=new ResizeObserver(place);for(const e of [$('viewport'),$('objectsToggle'),$('objectsPanel'),help])ro.observe(e);
+ new MutationObserver(place).observe($('objectsPanel'),{attributes:true,attributeFilter:['hidden']});new MutationObserver(place).observe($('viewport'),{attributes:true,subtree:true,attributeFilter:['hidden']});
+ globalThis.__placeHelp=place;place();}
+
 if(window.AvalonDesktop){
- const legend=document.createElement('div');legend.id='desktopHelp';legend.textContent='Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom · ? for shortcuts';$('viewport').appendChild(legend);
  // The Electron menu bridge (ADR-0001 §2.3): menu actions run through the registry. The menu sends view:iso for 3D.
  const action=command=>{if(busy())return;const focused=document.activeElement,isInput=focused?.matches('input,textarea,[contenteditable=true]');if(['undo','redo'].includes(command)&&isInput){document.execCommand(command);return;}
   commands.run(command==='view:iso'?'view:3d':command);
