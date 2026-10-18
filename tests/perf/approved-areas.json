@@ -3,7 +3,14 @@
  "baseline": "perf-baseline-release-3.0-6892eb7",
  "box": "#desktopHelp",
  "overlay": null,
- "scenes": {},
+ "scenes": {
+  "edit-glyph": [
+   "#sheet"
+  ],
+  "sheet-edit-object": [
+   "#sheet"
+  ]
+ },
  "dom": [
   {
    "scene": "*",
@@ -109,6 +116,223 @@
    "kind": "title",
    "expected": "Duplicate (Cmd/Ctrl+D)",
    "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#unitSwitch",
+   "kind": "added",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)"
+  },
+  {
+   "scene": "*",
+   "selector": "#dimsTitle",
+   "kind": "added",
+   "expected": "Dimensions · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)"
+  },
+  {
+   "scene": "*",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Bottom-center placement · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)"
+  },
+  {
+   "scene": "*",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Object center position · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)"
+  },
+  {
+   "scene": "*",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.sectionlabel",
+   "newSelector": "#posTitle",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the position header gains id posTitle"
+  },
+  {
+   "scene": "*",
+   "selector": "#sheetContent>div.sectionlabel[style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\"]",
+   "kind": "text",
+   "expected": "",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle"
+  },
+  {
+   "scene": "prefab-x3@desktop",
+   "selector": "#unitSwitch",
+   "kind": "added",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "prefab-x3@desktop",
+   "selector": "#dimsTitle",
+   "kind": "added",
+   "expected": "Dimensions · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "prefab-x3@desktop",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Bottom-center placement · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "prefab-x3@desktop",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.sectionlabel",
+   "newSelector": "#posTitle",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the position header gains id posTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "prefab-x3@desktop",
+   "selector": "#sheetContent>div.sectionlabel[style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\"]",
+   "kind": "text",
+   "expected": "",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "prefab-x3@phone",
+   "selector": "#unitSwitch",
+   "kind": "added",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "prefab-x3@phone",
+   "selector": "#dimsTitle",
+   "kind": "added",
+   "expected": "Dimensions · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "prefab-x3@phone",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Bottom-center placement · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "prefab-x3@phone",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.sectionlabel",
+   "newSelector": "#posTitle",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the position header gains id posTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "prefab-x3@phone",
+   "selector": "#sheetContent>div.sectionlabel[style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\"]",
+   "kind": "text",
+   "expected": "",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "imported-stl@desktop",
+   "selector": "#unitSwitch",
+   "kind": "added",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "imported-stl@desktop",
+   "selector": "#dimsTitle",
+   "kind": "added",
+   "expected": "Dimensions · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "imported-stl@desktop",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Bottom-center placement · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "imported-stl@desktop",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.sectionlabel",
+   "newSelector": "#posTitle",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the position header gains id posTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "imported-stl@desktop",
+   "selector": "#sheetContent>div.sectionlabel[style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\"]",
+   "kind": "text",
+   "expected": "",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "imported-stl@phone",
+   "selector": "#unitSwitch",
+   "kind": "added",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "imported-stl@phone",
+   "selector": "#dimsTitle",
+   "kind": "added",
+   "expected": "Dimensions · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "imported-stl@phone",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Bottom-center placement · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "imported-stl@phone",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.sectionlabel",
+   "newSelector": "#posTitle",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the position header gains id posTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "imported-stl@phone",
+   "selector": "#sheetContent>div.sectionlabel[style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\"]",
+   "kind": "text",
+   "expected": "",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
   }
  ]
 }
