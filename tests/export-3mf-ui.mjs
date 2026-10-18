@@ -13,7 +13,12 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop});
  page.on('console',m=>{if(m.text().startsWith('[Avalon 3MF] '))logs.push(JSON.parse(m.text().slice(13)));});
  const chunks=()=>page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name).filter(n=>/\/chunk-[^/]*\.js/.test(n)).map(n=>n.split('/').pop()));
  const state=()=>page.evaluate(()=>({title:document.querySelector('#sheetTitle')?.textContent,format:document.querySelector('#exportFormat')?.value,quality:document.querySelector('#quality')?.value,ground:document.querySelector('#ground')?.checked,button:document.querySelector('#downloadSTL')?.textContent,stored:localStorage.getItem('tristancad.exportFormat')}));
- const save=async()=>{await page.evaluate(()=>{window.savedFile=null;document.querySelector('#downloadSTL').click();});await page.waitForFunction(()=>window.savedFile?.done,null,{timeout:120000});
+ // Option B debug line: the Android stub has no MainActivity, so the test answers its SAF-write callback itself.
+ const lines=[];page.on('console',m=>{if(m.text().startsWith('[Avalon export] '))lines.push(JSON.parse(m.text().slice(16)));});
+ const save=async()=>{await page.evaluate(()=>{window.savedFile=null;window.__avalonExport=null;document.querySelector('#downloadSTL').click();});await page.waitForFunction(()=>window.savedFile?.done,null,{timeout:120000});
+  await page.evaluate(()=>window.nativeSaved({stageMs:3,pickerMs:1,writeMs:7,bytes:1}));const line=await page.waitForFunction(()=>window.__avalonExport,null,{timeout:10000}).then(h=>h.jsonValue());
+  assert.equal(line.save,'android-saf');assert.equal(line.pickerMs,1);assert.equal(line.writeMs,7);assert.ok(line.totalMs>=line.encodeMs&&Math.abs(line.totalMs-line.encodeMs-line.saveMs)<=1,JSON.stringify(line));
+  assert.ok(['stl','3mf'].includes(line.fmt)&&line.bytes>0&&Number.isFinite(line.totalMs));assert.deepEqual(lines.at(-1),line);
   return page.evaluate(()=>({name:window.savedFile.name,mime:window.savedFile.mime,b64:window.savedFile.chunks,metrics:document.querySelector('#exportMetrics').textContent}));};
  const bytes=f=>Buffer.concat(f.b64.map(x=>Buffer.from(x,'base64')));
  await page.evaluate(()=>window.__cad.load(window.__cad.templates.plate()));await page.waitForFunction(()=>window.__cad.model?.triangles?.length>0,null,{timeout:90000});await page.waitForTimeout(300);
