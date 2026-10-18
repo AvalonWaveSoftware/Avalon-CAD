@@ -30,7 +30,8 @@ for(let i=0;i<stored.length;i++)assert.ok(Object.is(cur[i],stored[i]),'no drift 
 {let v=12.345678;for(let r=0;r<2;r++)v=U.parseLen(U.fmtLen(v));assert.notEqual(v,12.345678);}
 assert.equal(U.readLen('2.000','1.000',25.4),50.8);assert.equal(U.readLen(' 1.000','1.000 ',25.4),25.4);
 assert.throws(()=>U.setUnit('cm',s),RangeError);assert.equal(U.getUnit(),'in');
-U.setUnit('mm',s);assert.equal(U.fmtLen(12.345),'12.3');assert.equal(U.loadUnit(s),'mm');
+assert.equal(U.unitMessage('Dimension must be 0.05–10000 mm.'),'Dimension must be 0.002–393.7 in.');assert.equal(U.unitMessage('Face resolution must be from 0.005 to 2 mm.'),'Face resolution must be from 0.005 to 2 mm.','tolerances stay mm');
+U.setUnit('mm',s);assert.equal(U.fmtLen(12.345),'12.3');for(const m of ['Dimension must be 0.05–10000 mm.','Dimensions must be at least 0.05 mm.','Extrusion height must be 0.05–10000 mm.','Connecting bar diameter must be 0.5–10000 mm.','x'])assert.equal(U.unitMessage(m),m,'mm messages unchanged in mm');assert.equal(U.loadUnit(s),'mm');
 // Wired (UI round 1): only main.mjs reads or changes the preference; no file or export code touches it.
 for(const f of fs.readdirSync('web').filter(f=>f.endsWith('.mjs')&&!['units.mjs','main.mjs'].includes(f)))assert.ok(!/loadUnit|setUnit/.test(fs.readFileSync('web/'+f,'utf8')),f+' does not switch units');
 for(const f of ['kernel-ui.mjs','kernel.mjs','worker.mjs','autosave-store.mjs','operations.mjs','resolution-ui.mjs'].filter(f=>fs.existsSync('web/'+f)))assert.ok(!/units\.mjs/.test(fs.readFileSync('web/'+f,'utf8')),f+' does not import units');

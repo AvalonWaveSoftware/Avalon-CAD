@@ -1,7 +1,7 @@
 import {mergeResult,connectingBridges} from './operations.mjs';
 import {object,uid} from './templates.mjs';
 import {validateProject} from './kernel-ui.mjs';
-import {getUnit,fieldLen,readLen,byUnit} from './units.mjs';
+import {getUnit,fieldLen,readLen,byUnit,unitMessage} from './units.mjs';
 import {layerOf,layerName,assertSameLayer} from './layers.mjs';
 
 // Why a selection cannot be merged, or '' when it can.
@@ -38,7 +38,7 @@ export function installMergeTools(S,B){
     const next=structuredClone(S.project()),at=next.objects.findIndex(o=>selectedIds.has(o.id));next.objects=next.objects.filter(o=>!selectedIds.has(o.id)&&!removedCuts.has(o.id));next.objects.splice(Math.min(at,next.objects.length),0,result);
     validateProject(next);B.busy(false);S.change(()=>{S.project().objects=next.objects;});B.setIds([result.id]);S.closeSheet();
     S.toast('Shapes merged into one connected solid on '+layerName(S.project(),layer)+'.');
-   }catch(e){error.textContent=e.message;button.disabled=false;button.textContent=`Merge ${selected.length} shapes`;}
+   }catch(e){error.textContent=unitMessage(e.message);button.disabled=false;button.textContent=`Merge ${selected.length} shapes`;}
    finally{B.busy(false);S.autosave();}
   };
   return true;

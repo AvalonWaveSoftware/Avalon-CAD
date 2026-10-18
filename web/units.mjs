@@ -25,6 +25,11 @@ export function readLen(text,shown,storedMm){return String(text).trim()===String
 export const byUnit=(mm,inch)=>unit==='in'?inch:mm;
 // fieldLen(mm) → an edit field's text: mm exactly as stored (today's output), inches to 3 decimals.
 export const fieldLen=mm=>unit==='in'?fmtLen(mm):String(mm);
+// unitMessage(text) → a validation message in the shown unit (Master Chief approval, UI round 2 ruling 1): the mm
+// limits of a length field read in inches while inches are on. Tolerance and export messages are not listed, so they stay mm.
+const INCH_MESSAGES={'Dimension must be 0.05–10000 mm.':'Dimension must be 0.002–393.7 in.','Dimensions must be at least 0.05 mm.':'Dimensions must be at least 0.002 in.',
+ 'Extrusion height must be 0.05–10000 mm.':'Extrusion height must be 0.002–393.7 in.','Connecting bar diameter must be 0.5–10000 mm.':'Connecting bar diameter must be 0.02–393.7 in.'};
+export const unitMessage=m=>unit==='in'&&INCH_MESSAGES[m]||m;
 // stepOptions() → steps in mm (ruling 13): the edit-field step, the Move/Stretch drag steps (Free / 0.1 / 1 mm, or
 // Free / 0.01 / 0.1 in), the sketch snap (1 mm or 0.05 in) and the grid cell (10 mm or 0.5 in).
 export function stepOptions(){return unit==='in'?{input:0.001,drag:[0,0.254,2.54],snap:1.27,grid:12.7}:{input:0.1,drag:[0,0.1,1],snap:1,grid:10};}
