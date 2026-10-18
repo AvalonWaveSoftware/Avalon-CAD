@@ -1,7 +1,7 @@
 // ADR-0001 approved-dom-areas: unit tests for tests/perf/approved-dom.mjs (the "dom" entries of approved-areas.json
 // used by tests/pixels.mjs). Runs domChanges in a blank Chromium page; no app, no baseline folder is written.
 import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
-import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn} from './perf/png.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds} from './perf/dom-baseline.mjs';
+import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn,regionDiff} from './perf/png.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds} from './perf/dom-baseline.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const STR=new Set(['Edge (F)','Move (M)','Project menu','Ready · millimeters','Fit model (0)']);
 const E=(o)=>({scene:'*',kind:'title',approval:'test',...o});
@@ -305,6 +305,21 @@ try{const page=await browser.newPage();
   // diffIn (pixels.mjs region count) on real screenshots: a 10×10 change inside / outside the region
   await page.setContent('<body style="margin:0;background:#fff"></body>');const p0=await page.screenshot();
   await page.setContent('<body style="margin:0;background:#fff"><div style="position:absolute;left:20px;top:30px;width:10px;height:10px;background:#f00"></div></body>');const p1=await page.screenshot();
-  assert.deepEqual([diffIn(p0,p1,[0,0,100,100]),diffIn(p0,p1,[25,30,100,100]),diffIn(p0,p1,[40,0,100,100])],[100,50,0],'diffIn counts only inside the region');}
+  assert.deepEqual([diffIn(p0,p1,[0,0,100,100]),diffIn(p0,p1,[25,30,100,100]),diffIn(p0,p1,[40,0,100,100])],[100,50,0],'diffIn counts only inside the region');
+  // ruling (a) on 4f9392c: a differing region px passes only inside another approved area of the SAME capture
+  const C='s@desktop',rd=areas=>regionDiff({base:p0,now:p1,dpr:1,capture:C,areas},[0,0,100,100]);
+  assert.deepEqual(rd([{capture:C,box:[20,30,30,40]}]),{differing:100,uncovered:0},'px covered by another approved area passes');
+  assert.deepEqual(rd([]),{differing:100,uncovered:100},'px outside any area fails');
+  assert.deepEqual(rd([{capture:C,box:[0,0,10,10]}]),{differing:100,uncovered:100},'an area elsewhere does not cover');
+  assert.deepEqual(rd([{capture:C,box:[20,30,25,40]}]),{differing:100,uncovered:50},'a mix of covered and uncovered px leaves the uncovered ones');
+  assert.deepEqual(rd([{capture:'other@desktop',box:[20,30,30,40]}]),{differing:100,uncovered:100},'areas from another capture do not count');
+  assert.deepEqual(rd([{capture:'other@desktop',box:[20,30,30,40]},{capture:C,box:[20,30,25,40]}]),{differing:100,uncovered:50});
+  assert.deepEqual(regionDiff({base:p0,now:p1,dpr:2,capture:C,areas:[]},[0,0,12.5,17.5]),{differing:25,uncovered:25},'dpr scales the CSS-px region');
+  // the hidden match uses the uncovered count: all covered passes (reported), any uncovered px fails, loudly
+  r=await chkH(snapH(false),snapH(true),HE,{pxIn:()=>({differing:100,uncovered:0})});
+  assert.deepEqual([r.unmatched.length,r.errors,r.matched.filter(c=>c.hidden).every(c=>c.hidden.coveredPx===100)],[0,[],true],'hidden: region px all inside another approved area pass');
+  r=await chkH(snapH(false),snapH(true),HE,{pxIn:()=>({differing:100,uncovered:50})});
+  assert.ok(!r.matched.some(c=>c.hidden)&&r.errors.some(e=>/^hidden entry: 50 differing px in the region of div#app:0>div#sheet:0 outside every approved area of this capture \(50 more covered\)/.test(e)),'hidden: a mix of covered and uncovered fails');
+  r=await chkH(snapH(false),snapH(true),HE,{pxIn:()=>({differing:7,uncovered:7})});assert.ok(!r.matched.some(c=>c.hidden),'hidden: uncovered px fail');}
 }finally{await browser.close();}
 console.log('PASS approved-dom-areas: selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor; box on matched element / inside area pass, outside fails, style change fails, added inside passes / outside / wrong text fail, removed fails; runtime texts and extractor corrections validated');

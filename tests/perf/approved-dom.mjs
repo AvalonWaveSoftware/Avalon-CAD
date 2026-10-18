@@ -49,7 +49,7 @@
 // itself (for added/removed elements, its whole subtree) is 0×0 too. Kinds: as visible entries (attribute, text, added,
 // replaced); an added element needs no area under this rule. Style: a style change passes under the hidden rule only on
 // an element a HIDDEN attribute/text entry matched in that capture. Each hidden match then needs 0 differing px (not
-// excused by any approved area) in the container's region = the container's box (same path) in the BASELINE snapshot of
+// excused by any approved area; ruling (a) on 4f9392c: except px inside another approved area of the same capture) in the container's region = the container's box (same path) in the BASELINE snapshot of
 // regionFrom; when that cannot be determined the matches fail with an error. At load (loadDomEntries) a hidden entry must
 // have a visible twin (same kind, selector/expected or oldSelector/newSelector) with the SAME approval whose scene covers
 // regionFrom. No cross-scene inference: every capture needs its own entries.
@@ -241,9 +241,12 @@ export async function checkCapture(page,{name,id,base,now,entries,areas=[],split
    const reg=regionOf?await regionOf(regionFrom,container):{error:'no region source (regionOf) for hidden entries'};
    if(!reg||reg.error||!reg.rect)why=`hidden entry: cannot determine the region of ${container} from ${regionFrom}: ${reg?.error||'unknown'}`;
    else{const px=pxIn?await pxIn(reg.rect):{error:'no pixel source (pxIn)'};
-    if(typeof px!=='number')why=`hidden entry: cannot count pixels in ${JSON.stringify(reg.rect)}: ${px?.error||'unknown'}`;
-    else if(px>0)why=`hidden entry: ${px} differing px in the region of ${container} (${JSON.stringify(reg.rect)} CSS px, from ${regionFrom})`;
-    else for(const m of ms)m.hidden.region=reg.rect;}
+    // ruling (a) on 4f9392c: pxIn returns a number (every differing region px counts) or {differing, uncovered}: a
+    // differing px passes only when it lies inside another approved area OF THIS CAPTURE; any uncovered one fails.
+    const un=typeof px==='number'?px:typeof px?.uncovered==='number'?px.uncovered:null,cov=typeof px?.differing==='number'?px.differing-px.uncovered:0;
+    if(un==null)why=`hidden entry: cannot count pixels in ${JSON.stringify(reg.rect)}: ${px?.error||'unknown'}`;
+    else if(un>0)why=`hidden entry: ${un} differing px in the region of ${container} outside every approved area of this capture${cov?` (${cov} more covered)`:''} (${JSON.stringify(reg.rect)} CSS px, from ${regionFrom})`;
+    else for(const m of ms){m.hidden.region=reg.rect;if(cov)m.hidden.coveredPx=cov;}}
    if(why){hidErrors.push(why);for(const m of ms){res.matched.splice(res.matched.indexOf(m),1);const {approval,hidden,...rest}=m;res.unmatched.push({...rest,why});}}}}
  const htmlUn=res.unmatched.filter(c=>!/^(computed style|box)/.test(c.kind)),styleUn=res.unmatched.filter(c=>/^(computed style|box)/.test(c.kind));
  if(base.html!==now.html&&!res.matched.length&&!htmlUn.length&&!res.unmatched.some(c=>c.kind==='element added'))htmlUn.push({path:'body',kind:'outerHTML',old:'(baseline)',now:'differs with no element-level change (attribute order or serialisation)'});
