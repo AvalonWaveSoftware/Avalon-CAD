@@ -30,8 +30,10 @@ export function createPool({size=poolSize(),script,wasm,binary,makeWorker=defaul
    w.postMessage(binary?{op:'init',binary:binary.slice(0)}:{op:'init',wasm});}}
   catch(e){kill(why('no-workers',String(e?.message||e)));clearTimeout(timer);resolve(false);}
  });
+ // Option B measurement: true once every worker answered 'ready' (and none died), i.e. the pool is warm.
+ let warm=false;ready.then(ok=>{warm=ok;});
  const call=(w,msg,transfer=[])=>new Promise((resolve,reject)=>{if(dead)return reject(Error(error));const id=++nextId;pending.set(id,{resolve,reject});w.postMessage({...msg,id},transfer);});
- return {size,ready,get dead(){return dead;},get error(){return error;},
+ return {size,ready,get dead(){return dead;},get warm(){return warm&&!dead;},get error(){return error;},
   /** The 3MF package of a validated mesh ({vertices, triangles, minZ}) from PARTS_3MF parts, in a fixed round-robin. */
   async encode({vertices,triangles,minZ}){
    // Part k always goes to worker k % size, so every worker meets its memory peak on the first export.
@@ -50,6 +52,8 @@ let current=null,broken='';
 /** Tears the session pool down (project close). The next 3MF export starts a new one. */
 export function dispose3MFPool(){current?.dispose();current=null;broken='';}
 export function current3MFPool(){return current;}
+/** Option B measurement: whether the session pool is started and ready right now (no side effects). */
+export function pool3MFWarm(){return !!current?.warm;}
 
 /** The session pool, started if needed (cold=true when this call started it). */
 export function ensure3MFPool({assetURL,options={}}){

@@ -14,11 +14,14 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop});
  const chunks=()=>page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name).filter(n=>/\/chunk-[^/]*\.js/.test(n)).map(n=>n.split('/').pop()));
  const state=()=>page.evaluate(()=>({title:document.querySelector('#sheetTitle')?.textContent,format:document.querySelector('#exportFormat')?.value,quality:document.querySelector('#quality')?.value,ground:document.querySelector('#ground')?.checked,button:document.querySelector('#downloadSTL')?.textContent,stored:localStorage.getItem('tristancad.exportFormat')}));
  // Option B debug line: the Android stub has no MainActivity, so the test answers its SAF-write callback itself.
+ // cold = first export of that format in this app session (this page); poolWarm = 3MF pool ready at the tap.
+ const seen=new Set();
  const lines=[];page.on('console',m=>{if(m.text().startsWith('[Avalon export] '))lines.push(JSON.parse(m.text().slice(16)));});
  const save=async()=>{await page.evaluate(()=>{window.savedFile=null;window.__avalonExport=null;document.querySelector('#downloadSTL').click();});await page.waitForFunction(()=>window.savedFile?.done,null,{timeout:120000});
   await page.evaluate(()=>window.nativeSaved({stageMs:3,pickerMs:1,writeMs:7,bytes:1}));const line=await page.waitForFunction(()=>window.__avalonExport,null,{timeout:10000}).then(h=>h.jsonValue());
   assert.equal(line.save,'android-saf');assert.equal(line.pickerMs,1);assert.equal(line.writeMs,7);assert.ok(line.totalMs>=line.encodeMs&&Math.abs(line.totalMs-line.encodeMs-line.saveMs)<=1,JSON.stringify(line));
   assert.ok(['stl','3mf'].includes(line.fmt)&&line.bytes>0&&Number.isFinite(line.totalMs));assert.deepEqual(lines.at(-1),line);
+  assert.equal(line.cold,!seen.has(line.fmt),'cold only on the first '+line.fmt+' export: '+JSON.stringify(line));seen.add(line.fmt);assert.equal(typeof line.poolWarm,'boolean');if(line.fmt==='stl'&&!seen.has('3mf'))assert.equal(line.poolWarm,false,'no pool before the 3MF sheet');
   return page.evaluate(()=>({name:window.savedFile.name,mime:window.savedFile.mime,b64:window.savedFile.chunks,metrics:document.querySelector('#exportMetrics').textContent}));};
  const bytes=f=>Buffer.concat(f.b64.map(x=>Buffer.from(x,'base64')));
  await page.evaluate(()=>window.__cad.load(window.__cad.templates.plate()));await page.waitForFunction(()=>window.__cad.model?.triangles?.length>0,null,{timeout:90000});await page.waitForTimeout(300);
@@ -53,7 +56,7 @@ try{for(const desktop of [false,true]){const page=await H.open(env,{desktop});
  const warmed=Date.now();while(pool().length<size&&Date.now()-warmed<10000)await page.waitForTimeout(50);assert.equal(pool().length,size,'pool warmed when the sheet shows 3MF');assert.equal(await page.evaluate(()=>window.__avalon3MF.path),'single','warming encodes nothing');
  const bigMF=await save();const cold=await page.evaluate(()=>window.__avalon3MF);assert.deepEqual([cold.path,cold.workers,cold.cold,cold.started],['pool',size,false,'sheet'],'8-part 3MF by the sheet-warmed pool: '+JSON.stringify(cold));
  assert.equal(pool().length,size,'pool workers started from the page with the asset path');assert.ok(pool().every(w=>!w.closed));assert.ok(read3MF(bytes(bigMF)).triangles.length/3>=65536);
- const warm=await save();assert.ok(bytes(warm).equals(bytes(bigMF)),'warm pool: same 3MF bytes');assert.deepEqual(await page.evaluate(()=>[window.__avalon3MF.path,window.__avalon3MF.cold]),['pool',false]);assert.equal(pool().length,size,'pool kept');assert.equal((await page.evaluate(()=>window.__avalonExport)).started,'sheet');
+ const warm=await save();assert.deepEqual([lines.at(-1).cold,lines.at(-1).poolWarm],[false,true],'warm 8-part 3MF: not cold, pool warm at the tap');assert.ok(bytes(warm).equals(bytes(bigMF)),'warm pool: same 3MF bytes');assert.deepEqual(await page.evaluate(()=>[window.__avalon3MF.path,window.__avalon3MF.cold]),['pool',false]);assert.equal(pool().length,size,'pool kept');assert.equal((await page.evaluate(()=>window.__avalonExport)).started,'sheet');
  // Project close (New project → blank, through the replace guard): the pool is terminated.
  await page.click('#closeSheet');await page.click('#projectMenu');await page.click('[data-template="blank"]');await page.click('#replaceCurrent').catch(()=>{});
  await page.waitForFunction(()=>window.__cad.picks!==undefined);await page.waitForTimeout(500);assert.ok(pool().every(w=>w.closed),'pool terminated on project close: '+JSON.stringify(pool()));
