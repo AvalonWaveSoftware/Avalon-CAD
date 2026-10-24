@@ -14,6 +14,19 @@ PYTHON_ENTRIES = ['assets/python/pyodide.mjs', 'assets/python/pyodide.asm.js', '
 STORED_ASSETS = 'PARALLEL_INIT=true' in _FLAGS
 # ADR-0001 android-app-id (2026-10-18 06:40 CT): Android 3.0 ships as com.avalonwavesoftware.cad (clean move, no aapt rename).
 PACKAGE = 'com.avalonwavesoftware.cad'
+# Test APKs (throwaway test key only) install side by side as PACKAGE + '.test'. That ID is accepted only when the APK's
+# signer certificate is the throwaway test key (subject CN=Avalon CAD TEST ONLY); a release-key APK must be PACKAGE.
+TEST_PACKAGE = PACKAGE + '.test'
+TEST_KEY_CN = 'CN=Avalon CAD TEST ONLY'
+
+
+def signer_subjects(path):
+    """Signer certificate subject DNs from `apksigner verify --print-certs` (APKSIGNER env, PATH, or the box SDK)."""
+    import os, shutil, subprocess
+    tool = os.environ.get('APKSIGNER') or shutil.which('apksigner') or str(Path.home() / '.local/android/build-tools/35.0.0/apksigner')
+    out = subprocess.run([tool, 'verify', '--print-certs', str(path)], capture_output=True, text=True)
+    assert out.returncode == 0, f'apksigner verify failed: {out.stderr.strip() or out.stdout.strip()}'
+    return [line.split(':', 1)[1].strip() for line in out.stdout.splitlines() if 'certificate DN:' in line]
 
 
 def manifest_package(axml):
@@ -61,7 +74,12 @@ def check_apk(path):
         assert len(names) == len(set(names)), 'Duplicate APK entries'
         assert apk.testzip() is None, 'APK CRC check failed'
         package = manifest_package(apk.read('AndroidManifest.xml'))
-        assert package == PACKAGE, f'APK package is {package}, expected {PACKAGE}'
+        if package == TEST_PACKAGE:
+            subjects = signer_subjects(path)
+            assert subjects and all(TEST_KEY_CN in d for d in subjects), (
+                f'{TEST_PACKAGE} is only for throwaway test-key builds; signer is {subjects}')
+        else:
+            assert package == PACKAGE, f'APK package is {package}, expected {PACKAGE} (or {TEST_PACKAGE} for test-key builds)'
         for name in ['AndroidManifest.xml', 'resources.arsc', 'classes.dex',
                      'assets/index.html', 'assets/main.js', 'assets/worker.js',
                      'assets/cad-kernel.wasm', 'assets/manifold.wasm',
