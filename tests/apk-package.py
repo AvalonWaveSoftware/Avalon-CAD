@@ -15,18 +15,20 @@ STORED_ASSETS = 'PARALLEL_INIT=true' in _FLAGS
 # ADR-0001 android-app-id (2026-10-18 06:40 CT): Android 3.0 ships as com.avalonwavesoftware.cad (clean move, no aapt rename).
 PACKAGE = 'com.avalonwavesoftware.cad'
 # Test APKs (throwaway test key only) install side by side as PACKAGE + '.test'. That ID is accepted only when the APK's
-# signer certificate is the throwaway test key (subject CN=Avalon CAD TEST ONLY); a release-key APK must be PACKAGE.
+# signer certificate is the throwaway test key, pinned by its SHA-256 certificate digest (subject CN=Avalon CAD TEST ONLY,
+# O=Not for release); matching the subject name is not enough. A release-key APK must be PACKAGE.
 TEST_PACKAGE = PACKAGE + '.test'
-TEST_KEY_CN = 'CN=Avalon CAD TEST ONLY'
+TEST_KEY_SHA256 = '1975a44d434f4d96c62fd09a290db1ea1be313c6409ee5a8501ec2d03cc53d4f'
 
 
-def signer_subjects(path):
-    """Signer certificate subject DNs from `apksigner verify --print-certs` (APKSIGNER env, PATH, or the box SDK)."""
+def signer_digests(path):
+    """Signer certificate SHA-256 digests from `apksigner verify --print-certs` (APKSIGNER env, PATH, or the box SDK)."""
     import os, shutil, subprocess
     tool = os.environ.get('APKSIGNER') or shutil.which('apksigner') or str(Path.home() / '.local/android/build-tools/35.0.0/apksigner')
     out = subprocess.run([tool, 'verify', '--print-certs', str(path)], capture_output=True, text=True)
     assert out.returncode == 0, f'apksigner verify failed: {out.stderr.strip() or out.stdout.strip()}'
-    return [line.split(':', 1)[1].strip() for line in out.stdout.splitlines() if 'certificate DN:' in line]
+    return [line.split(':', 1)[1].strip().lower() for line in out.stdout.splitlines()
+            if re.match(r'Signer #\d+ certificate SHA-256 digest:', line)]
 
 
 def manifest_package(axml):
@@ -75,9 +77,9 @@ def check_apk(path):
         assert apk.testzip() is None, 'APK CRC check failed'
         package = manifest_package(apk.read('AndroidManifest.xml'))
         if package == TEST_PACKAGE:
-            subjects = signer_subjects(path)
-            assert subjects and all(TEST_KEY_CN in d for d in subjects), (
-                f'{TEST_PACKAGE} is only for throwaway test-key builds; signer is {subjects}')
+            digests = signer_digests(path)
+            assert digests and all(d == TEST_KEY_SHA256 for d in digests), (
+                f'{TEST_PACKAGE} is only for throwaway test-key builds; signer SHA-256 is {digests}')
         else:
             assert package == PACKAGE, f'APK package is {package}, expected {PACKAGE} (or {TEST_PACKAGE} for test-key builds)'
         for name in ['AndroidManifest.xml', 'resources.arsc', 'classes.dex',
