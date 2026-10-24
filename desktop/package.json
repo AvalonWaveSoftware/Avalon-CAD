@@ -59,8 +59,10 @@
     "rpm": {
       "packageName": "avalon-cad",
       "fpm": [
-        "--rpm-rpmbuild-define=_build_id_links none"
-      ]
+        "--rpm-rpmbuild-define=_build_id_links none",
+        "--rpm-posttrans=linux/rpm-posttrans.sh"
+      ],
+      "afterRemove": "linux/after-remove.tpl"
     },
     "pacman": {
       "packageName": "avalon-cad",
@@ -83,7 +85,8 @@
       ],
       "fpm": [
         "--pacman-compression=zstd"
-      ]
+      ],
+      "afterRemove": "linux/after-remove.tpl"
     }
   },
   "devDependencies": {
