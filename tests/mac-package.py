@@ -13,7 +13,7 @@ app = Path(sys.argv[1]).resolve()
 # WS7: the Pyodide assets ship only when web/perf-flags.mjs has JS_ENGINE=false.
 PYTHON = 'JS_ENGINE=false' in (Path(__file__).resolve().parent.parent / 'web/perf-flags.mjs').read_text()
 info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
-assert info['CFBundleIdentifier'] == 'com.avaloncad.desktop'
+assert info['CFBundleIdentifier'] == 'com.avalonwavesoftware.cad'
 assert info['CFBundleExecutable'] == 'AvalonCad'
 assert info['CFBundleShortVersionString'] == '2.7.2'
 assert info['LSMinimumSystemVersion'] == '13.0'
@@ -79,7 +79,7 @@ assert machos >= 7
 assets = app / 'Contents/Resources/app/web'
 for name in ['cad-kernel.wasm', 'manifold.wasm', 'mesh-core.wasm'] + (['python/pyodide.asm.wasm'] if PYTHON else []):
     assert (assets / name).read_bytes()[:4] == b'\x00asm'
-for name in ['main.js', 'worker.js', 'style.css'] + (['python/model_jobs.py', 'python/python_stdlib.zip'] if PYTHON else []):
+for name in ['main.js', 'worker.js', 'export-pool.js', 'style.css'] + (['python/model_jobs.py', 'python/python_stdlib.zip'] if PYTHON else []):
     assert (assets / name).is_file()
 # ADR unified-desktop-layout: no desktop-only stylesheet and a plain <body>.
 assert not (assets / 'desktop.css').exists() and not list(assets.glob('*.css'))[1:]

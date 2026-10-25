@@ -14,4 +14,8 @@ for(const text of [repo,shipped])for(const s of ['Roboto Bold outline data (SIL 
 assert.ok(fs.readFileSync('app/assets/licenses/Roboto-OFL-1.1.txt').equals(fs.readFileSync('licenses/Roboto-OFL-1.1.txt')),'Roboto OFL shipped verbatim');
 assert.match(fs.readFileSync('licenses/Roboto-OFL-1.1.txt','utf8'),/SIL OPEN FONT LICENSE Version 1\.1/);
 for(const f of ['web/glyphs.mjs','web/glyph-metrics.mjs'])assert.match(fs.readFileSync(f,'utf8'),/SIL Open Font License, Version 1\.1[\s\S]*licenses\/Roboto-OFL-1\.1\.txt/,f);
+// ADR-0001 F2a: miniz_oxide (and its adler2 dependency) is compiled into mesh-core.wasm; notices and MIT texts ship.
+for(const text of [repo,shipped])for(const s of ['miniz_oxide 0.9.1','licenses/miniz_oxide-MIT.txt','adler2 2.0.1','licenses/adler2-MIT.txt'])assert.ok(text.includes(s),s);
+for(const f of ['miniz_oxide-MIT.txt','adler2-MIT.txt'])assert.ok(fs.readFileSync('app/assets/licenses/'+f).equals(fs.readFileSync('licenses/'+f)),f+' shipped verbatim');
+assert.ok(fs.readFileSync('licenses/miniz_oxide-MIT.txt').equals(fs.readFileSync('engine/rust/vendor/miniz_oxide-0.9.1/LICENSE-MIT.md')),'miniz_oxide licence matches the vendored crate');
 console.log('Notices: Pyodide/CPython',JS_ENGINE?'omitted (JS_ENGINE on)':'listed (JS_ENGINE off)','· Roboto OFL 1.1 listed and shipped');

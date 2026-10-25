@@ -16,7 +16,7 @@ const meshPassed=new WeakMap();
 // WS11: validateProject(snapshot, true) validates an Undo snapshot (web/history.mjs: a frozen JSON tree). The copy is
 // what structuredClone gives for a JSON tree, except that frozen number arrays of 256+ entries (imported meshes) stay
 // shared: they cannot change, and every other array/object is a fresh mutable copy.
-function cloneSharing(v){if(v===null||typeof v!=='object')return v;if(Array.isArray(v))return v.length>=256&&Object.isFrozen(v)&&typeof v[0]==='number'?v:v.map(cloneSharing);const o={};for(const k of Object.keys(v))o[k]=cloneSharing(v[k]);return o;}
+export function cloneSharing(v){if(v===null||typeof v!=='object')return v;if(Array.isArray(v))return v.length>=256&&Object.isFrozen(v)&&typeof v[0]==='number'?v:v.map(cloneSharing);const o={};for(const k of Object.keys(v))o[k]=cloneSharing(v[k]);return o;}
 export function validateProject(p, shareFrozen=false) {
   if (!p || p.format!=='tristancad' || (p.version!==2&&p.version!==3) || !Array.isArray(p.objects) || p.objects.length>100) throw Error('This is not a supported AvalonCad project (maximum 100 objects).');
   const out=shareFrozen?cloneSharing(p):structuredClone(p);
@@ -55,10 +55,10 @@ export function validateProject(p, shareFrozen=false) {
     if(o.type==='tube' && o.params.inner>=o.params.diameter) throw Error('The inner diameter must be smaller than the outer diameter.');
     if(o.type==='torus' && !(o.params.tube<o.params.diameter/2)) throw Error('The tube diameter must be less than half the outer diameter.');
     if(o.type==='glyph' && (!isGlyphChar(o.params.char)||!GLYPH_FONTS.includes(o.params.font))) throw Error('Choose a letter, number or symbol.');
-    // ADR-0001 F7 glyph finish (v3): bevel/plate/plateMargin ≥ 0, bevelProfile 'chamfer'|'round', engrave boolean. Engrave
+    // ADR-0001 F7 glyph finish (v3): plate/plateMargin ≥ 0, engrave boolean. Engrave
     // cuts 1 mm into the plate (Architect ruling 5), so it needs a plate thicker than 1 mm. A finished glyph has no
     // per-edge roundovers (it has no edge picking).
-    if(o.type==='glyph'){const q=o.params;if(['bevel','plate','plateMargin'].some(k=>q[k]!==undefined&&!(typeof q[k]==='number'&&q[k]>=0))||q.bevelProfile!==undefined&&q.bevelProfile!=='chamfer'&&q.bevelProfile!=='round'||q.engrave!==undefined&&typeof q.engrave!=='boolean'||(q.bevel>0||q.plate>0)&&o.fillets?.some(f=>f.radius>0))throw Error('Invalid dimensions.');
+    if(o.type==='glyph'){const q=o.params;if(['plate','plateMargin'].some(k=>q[k]!==undefined&&!(typeof q[k]==='number'&&q[k]>=0))||q.engrave!==undefined&&typeof q.engrave!=='boolean'||q.plate>0&&o.fillets?.some(f=>f.radius>0))throw Error('Invalid dimensions.');
      if(q.engrave===true&&!(q.plate>1))throw Error('Engrave needs a plate thicker than 1 mm.');}
     if(o.type==='polygon') {
       const pts=o.params.points;

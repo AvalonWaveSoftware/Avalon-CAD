@@ -1,6 +1,6 @@
 import * as T from 'three';
 import {material,sphere as sharedSphere,beginSpheres,pooled,toolPool} from './render-resources.mjs';
-import {layerOf} from './layers.mjs';
+import {layerOf} from './layers.mjs';import {edgesGeometry} from './edges.mjs';
 import {startAtOrigin,applyFloorAdjustments} from './placement.mjs';
 import {isThread,containsThreads} from './threads.mjs';
 import {installMergeTools} from './merge-tools.mjs';
@@ -33,7 +33,7 @@ export function installTouch(S){
  function pixelSize(px){const z=camera.position.distanceTo(controls.target);return z*Math.tan(T.MathUtils.degToRad(camera.fov/2))*2/(canvas.clientHeight||500)*px;}
  function draw(){if(gesture?.moved)return;clear(paint);beginSpheres();markers=[];handles=[];
   const obj=o();if(!obj)return;
-  if(multi.size>1){for(const id of multi){const m=part(id);if(!m)continue;const color=m.userData.mode==='cut'?0xffb66f:0x77e2d2,fill=new T.Mesh(m.geometry.clone(),material('basic',T.MeshBasicMaterial,{color,depthTest:false,depthWrite:false,transparent:true,opacity:.28,side:T.DoubleSide}));fill.userData.multiId=id;fill.renderOrder=7;paint.add(fill);const edge=new T.LineSegments(new T.EdgesGeometry(m.geometry,15),material('line',T.LineBasicMaterial,{color,depthTest:false,transparent:true,opacity:.95}));edge.renderOrder=8;paint.add(edge);}}
+  if(multi.size>1){for(const id of multi){const m=part(id);if(!m)continue;const color=m.userData.mode==='cut'?0xffb66f:0x77e2d2,fill=new T.Mesh(m.geometry.clone(),material('basic',T.MeshBasicMaterial,{color,depthTest:false,depthWrite:false,transparent:true,opacity:.28,side:T.DoubleSide}));fill.userData.multiId=id;fill.renderOrder=7;paint.add(fill);const edge=new T.LineSegments(edgesGeometry(m.geometry,15),material('line',T.LineBasicMaterial,{color,depthTest:false,transparent:true,opacity:.95}));edge.renderOrder=8;paint.add(edge);}}
   if(mode==='move'||snap&&mode==='select')for(const item of project().objects.filter(a=>a.enabled))for(const c of centerPoints(item,topology(item.id))){if(c.kind==='axis')continue;const sphere=new T.Mesh(sharedSphere(T.SphereGeometry,pixelSize(c.kind==='center'?4.5:3),10,8),material('basic',T.MeshBasicMaterial,{color:item.id===obj.id?0xb8ffee:0x85a9b8,depthTest:false,transparent:true,opacity:item.id===obj.id?.9:.45}));sphere.position.set(...c.point);sphere.renderOrder=12;paint.add(sphere);markers.push({...c,id:item.id});}
   if(mode==='move'){
    const center=point(worldCenter(obj)),length=pixelSize(52);for(let i=0;i<3;i++){const dir=new T.Vector3();dir.setComponent(i,1);const end=center.clone().addScaledVector(dir,length),color=[0xff8d85,0xa3e690,0x83beff][i];const line=new T.Line(pooled(toolPool,()=>new T.BufferGeometry().setFromPoints([center,end])),material('line',T.LineBasicMaterial,{color,depthTest:false}));line.renderOrder=15;paint.add(line);const sphere=new T.Mesh(sharedSphere(T.SphereGeometry,pixelSize(7),12,8),material('basic',T.MeshBasicMaterial,{color,depthTest:false}));sphere.position.copy(end);sphere.renderOrder=15;paint.add(sphere);handles.push({axis:axes[i],point:end});}

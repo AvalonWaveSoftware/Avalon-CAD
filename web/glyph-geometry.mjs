@@ -60,28 +60,24 @@ export function glyphBlueprints(R,char,size){
  }
  return R.organiseBlueprints(blueprints);
 }
-// ADR-0001 F7 glyph finish (save format v3 params, all optional): bevel (mm, top-cap edges; 0 or absent = none),
-// bevelProfile 'chamfer' (default) | 'round', plate (mm slab; 0 or absent = none), plateMargin (mm around the outline's
+// ADR-0001 F7 glyph finish (save format v3 params, all optional): plate (mm slab; 0 or absent = none), plateMargin (mm around the outline's
 // bounding box), engrave (true: the glyph is cut ENGRAVE_DEPTH = 1 mm into the top of the plate, whatever its depth;
 // Architect F7 ruling 5: the plate must be thicker than 1 mm).
 // Absent or zero values build exactly the 2.x glyph. With a plate the local frame stays centred on the bounding box:
 //   Emboss (plate, no engrave): total height H = plate + depth; plate z ∈ [−H/2, −H/2 + plate], glyph on top.
 //   Engrave: plate z ∈ [−plate/2, plate/2]; the glyph is cut 1 mm deep from its top face.
-// Architect F7 ruling 2 (structural perf): OCCT only does the bevel, on a cached part (glyphBevelPart): the bevelled
-// glyph (Emboss / no plate) or, for Engrave, the plate's top tile with the bevelled cavity rim. The plate itself is
-// always Manifold (glyphPlate), on the meshed bevelled part.
-export function glyphFinish(p){const plate=p.plate>0?p.plate:0;return {bevel:p.bevel>0?p.bevel:0,profile:p.bevelProfile==='round'?'round':'chamfer',plate,margin:plate&&p.plateMargin>0?p.plateMargin:0,engrave:!!(plate&&p.engrave===true)};}
-export const hasGlyphFinish=p=>p.bevel>0||p.plate>0;
+// Letter bevel was removed from 3.0 (Master Chief, 2026-10-25); the plate is Manifold (glyphManifold).
+export function glyphFinish(p){const plate=p.plate>0?p.plate:0;return {plate,margin:plate&&p.plateMargin>0?p.plateMargin:0,engrave:!!(plate&&p.engrave===true)};}
+export const hasGlyphFinish=p=>p.plate>0;
 export const ENGRAVE_DEPTH=1;
-export const GLYPH_FINISH_KEYS=['bevel','bevelProfile','plate','plateMargin','engrave'];
+export const GLYPH_FINISH_KEYS=['plate','plateMargin','engrave'];
 // Half extents (mm) of the glyph outline's bounding box in the local frame (the outline is centred on it).
 export function glyphHalfExtents(char,size){const F=need(),info=F.glyphInfo(char);if(!info)throw Error('Choose a letter, number or symbol.');const [x0,y0,x1,y1]=info.bbox,k=size/F.GLYPH_FONT.capHeight;return [(x1-x0)*k/2,(y1-y0)*k/2];}
 // z ranges of the plate and of the glyph prism (for Engrave: the cutting prism, which runs depth above the plate so
 // the cut never shares the plate's top face).
 export function glyphLayout(p){const f=glyphFinish(p),d=p.depth;if(!f.plate)return {f,glyph:[-d/2,d/2]};
  if(f.engrave)return {f,plate:[-f.plate/2,f.plate/2],glyph:[f.plate/2-ENGRAVE_DEPTH,f.plate/2+ENGRAVE_DEPTH]};const H=f.plate+d;return {f,plate:[-H/2,-H/2+f.plate],glyph:[-H/2+f.plate,H/2]};}
-// Manifold solid in the local frame (caller owns the result). A bevel never reaches this (kernel.mjs meshes bevelled
-// glyphs from the OCCT solid).
+// Manifold solid in the local frame (caller owns the result).
 export function glyphManifold(K,p,tol){
  const {char,size,depth}=p,cs=new K.CrossSection(glyphLoops(char,size,tol),'NonZero');
  if(!hasGlyphFinish(p)){try{return K.Manifold.extrude(cs,depth,0,0,[1,1],true);}finally{cs.delete();}}
@@ -91,22 +87,6 @@ export function glyphManifold(K,p,tol){
   return f.engrave?slab.subtract(g):slab.add(g);}
  finally{for(const x of keep)x.delete();}
 }
-// Engrave + bevel: the OCCT tile is the top `h` of the plate (whole plate when it is ≤ 1.5 mm thick) with the cavity cut
-// and its rim bevelled; Manifold adds the plate below it.
-export const glyphRimTile=f=>{const top=f.plate/2,h=Math.min(f.plate,ENGRAVE_DEPTH+.5);return [top-h,top];};
-// The OCCT part a bevelled glyph needs (cached by its own content key, so plate edits never redo the bevel):
-//   no plate / Emboss: the glyph alone, bevelled, centred on its depth (same params as a plate-less glyph);
-//   Engrave: type 'glyph-rim', the top tile of the plate in plate-local coordinates.
-export function glyphBevelPart(o){const p=o.params,f=glyphFinish(p),q={};for(const k of Object.keys(p))if(!['plate','plateMargin','engrave'].includes(k))q[k]=p[k];
- if(f.engrave){delete q.depth;q.plate=p.plate;q.plateMargin=p.plateMargin;return {type:'glyph-rim',params:q,resolution:o.resolution||null};}
- return {type:'glyph',params:q,resolution:o.resolution||null};}
-// Manifold plate around the meshed bevelled part g (consumed). Emboss: g raised onto the slab; Engrave: the plate
-// below the tile plus the tile. No plate: g as is.
-export function glyphPlate(K,p,g){const {f,plate,glyph}=glyphLayout(p);if(!f.plate)return g;const [hx,hy]=glyphHalfExtents(p.char,p.size),w=2*(hx+f.margin),d=2*(hy+f.margin),keep=[g],own=x=>(keep.push(x),x);
- try{if(!f.engrave){const slab=own(own(K.Manifold.cube([w,d,f.plate],true)).translate([0,0,(plate[0]+plate[1])/2]));return slab.add(own(g.translate([0,0,(glyph[0]+glyph[1])/2])));}
-  const [z0]=glyphRimTile(f);if(z0<=plate[0]+1e-9){keep.shift();return g;}
-  const lower=own(own(K.Manifold.cube([w,d,z0-plate[0]],true)).translate([0,0,(plate[0]+z0)/2]));return lower.add(g);}
- finally{for(const x of keep)x.delete();}}
 // Exact B-rep glyph prism in the local frame (z0 = bottom; default: centred on depth).
 export function glyphSolid(R,{char,size,depth},z0=-depth/2,h=depth){return glyphBlueprints(R,char,size).sketchOnPlane('XY',z0).extrude(h);}
 // Picker tiles (main.js has no outlines): every character as [advance, SVG path d] in font units with Y down, so

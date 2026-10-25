@@ -17,7 +17,7 @@ w.Android={beginFile(name,mime){w.testSaved={name,mime,chunks:[]}},appendFile(x)
 w.eval(fs.readFileSync('build/test-ui.js','utf8'));
 const $=id=>w.document.getElementById(id),click=id=>$(id).click(),sleep=()=>new Promise(r=>setTimeout(r,25));
 const wait=async fn=>{for(let i=0;i<60;i++){if(fn())return;await sleep();}throw Error('Wait timed out: '+JSON.stringify({resolution:w.__cad.project.objects[0]?.resolution,volume:w.__cad.model?.volume,error:$('editError')?.textContent,toast:$('toast').textContent}))};
-await wait(()=>w.__cad.model!==null);assert.equal(w.__cad.model.volume,0);assert.equal(w.__cad.model.engine.local,true);assert.equal(w.__cad.model.engine.rust,3);
+await wait(()=>w.__cad.model!==null);assert.equal(w.__cad.model.volume,0);assert.equal(w.__cad.model.engine.local,true);assert.equal(w.__cad.model.engine.rust,4);
 
 const query=s=>w.document.querySelector(s),delay=ms=>new Promise(r=>setTimeout(r,ms));
 const add=type=>{click('addBtn');assert.equal($('sheetTitle').textContent,'Primitive Objects');query('[data-shape="'+type+'"]').click();};

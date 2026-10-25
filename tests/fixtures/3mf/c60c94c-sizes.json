@@ -1,0 +1,102 @@
+{
+ "encoder": "c60c94c",
+ "note": "3MF output of the c60c94c encoder for the small samples (grounded); Architect ruling 3 holds the current output to <= 1.02x these sizes.",
+ "samples": [
+  {
+   "name": "qa:multi-object",
+   "triangles": 1336,
+   "bytes": 15536,
+   "sha256": "63080a5819cab4e153c12902bcce2e16d48e38cfa49bbef853ce0377ae45b1b3"
+  },
+  {
+   "name": "qa:letter-tile",
+   "triangles": 152,
+   "bytes": 2448,
+   "sha256": "8d8a0c8fc8a34c3a62da239eca956c45f619e20ff88d2705d94b728b407f69db"
+  },
+  {
+   "name": "existing-cutouts.tcad",
+   "triangles": 168,
+   "bytes": 2463,
+   "sha256": "994b3a2f36bfe007ae4c7c7e4169adaf78fa46a1d68ad82b6045272abca95d97"
+  },
+  {
+   "name": "fallbacks.tcad",
+   "triangles": 108,
+   "bytes": 1826,
+   "sha256": "c4d8e8f7e84c04f92b3f0cf035c3e8683af5e6ca6fc8b7bae2acf00c3b773147"
+  },
+  {
+   "name": "keep-cutter.tcad",
+   "triangles": 128,
+   "bytes": 2126,
+   "sha256": "c8eda1f2a72b23a9270004091a7a2972ef8c58855f7d82c23d2fe1d7502929f9"
+  },
+  {
+   "name": "multi-target.tcad",
+   "triangles": 48,
+   "bytes": 1357,
+   "sha256": "8926e12de9442b41f2454b26043e7795ea22e9cabd8072fb98d1f8e38cd9f2d2"
+  },
+  {
+   "name": "nested-rotated.tcad",
+   "triangles": 132,
+   "bytes": 2883,
+   "sha256": "18b834ac2917accc0ce9bf16c7688ea5319095d94d183824957b4cc51bdb9bac"
+  },
+  {
+   "name": "prefab-subtract.tcad",
+   "triangles": 56,
+   "bytes": 1444,
+   "sha256": "8baba37b28f322590d6d1e5c7281e9b2b7946ca1acf9d7fb6cc7198085739e49"
+  },
+  {
+   "name": "simple-subtract.tcad",
+   "triangles": 32,
+   "bytes": 1217,
+   "sha256": "b37ce7f0491f41eb3a92bf8c7d2fb771f8ff78773bac97c1ab54cef6eee5c315"
+  },
+  {
+   "name": "subtract-in-add.tcad",
+   "triangles": 150,
+   "bytes": 2269,
+   "sha256": "7ac1877e14f307694c041e1cb29db32e3467f9b2596371c63cb1cbecddf5e8ae"
+  },
+  {
+   "name": "two-layer.tcad",
+   "triangles": 80,
+   "bytes": 1790,
+   "sha256": "7b4ac0ff76b9e4af06e094e4bccb9198e6f1e3feff6e7f463cddaec495f153f9"
+  },
+  {
+   "name": "plate",
+   "triangles": 524,
+   "bytes": 5980,
+   "sha256": "2839d4f5c635d5db20c9bf5aa75d6b40b0a55825337bb9173978afcc6880e90e"
+  },
+  {
+   "name": "tray",
+   "triangles": 252,
+   "bytes": 3372,
+   "sha256": "ceb167999e8b1846f3af4f5a6a52331e3497bd3a168c79d8b1f0d9658ae7341f"
+  },
+  {
+   "name": "box+sphere (below Z=0)",
+   "triangles": 1164,
+   "bytes": 13890,
+   "sha256": "d824034bb130eeb955ec8f087140a9ed8fbc6649941a7285381790faae59e8c9"
+  },
+  {
+   "name": "thread rod + tube",
+   "triangles": 19760,
+   "bytes": 207362,
+   "sha256": "5bf7dc6f85fec5e69124c8897103ddf35ce9762a0de0abfd8f62c2ca25141bdd"
+  },
+  {
+   "name": "torus+prism",
+   "triangles": 2920,
+   "bytes": 34203,
+   "sha256": "6446f86f849dfd03d025320e269c00bb53e98f1cc6369ad37254879f4ded0534"
+  }
+ ]
+}

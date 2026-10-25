@@ -1,30 +1,22 @@
+import {SPLIT_TRIANGLES_3MF} from './three-mf-parts.mjs';
 import {makeObject,meshData,validateProject} from './kernel.mjs';
-import {glyphLayout,glyphHalfExtents} from './glyph-geometry.mjs';
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
-import {objectTopology,objectTopologyEntry,memoTopology,glyphBevelNote} from './cad-solid.mjs';
-// ADR-0001 F7: a bevelled glyph whose bevel had to be halved carries bevelUsed (mm) so the app can tell the user.
-// ADR-0001 F7 P2: placement / ground only need bounds. A bevelled glyph with a plate has planar extremes (the plate box,
-// the flat glyph top), so a 0.15 mm build gives the same bounds as 0.005 mm without tessellating the OCCT bevel part at
-// 0.0025 mm (round Engrave 't': 29 s, 1.7 GB OCCT heap). The coarse build is used only when its bounds are exactly the
-// analytic plate box (within 1e-4 mm); otherwise 0.005 mm as before.
-const finishedPlate=o=>o?.type==='glyph'&&o.params?.bevel>0&&o.params?.plate>0;
-function plateBox(o){const p=o.params,{f,plate,glyph}=glyphLayout(p),[hx,hy]=glyphHalfExtents(p.char,p.size),ox=hx+f.margin,oy=hy+f.margin;return [[-ox,-oy,plate[0]],[ox,oy,f.engrave?plate[1]:glyph[1]]];}
-function boundsSolid(K,o){if(finishedPlate(o)){let s;try{s=makeObject(K,o,.15);}catch(e){if(e instanceof WebAssembly.RuntimeError)throw e;return makeObject(K,o,.005);}const b=s.boundingBox(),[lo,hi]=plateBox(o),ok=[0,1,2].every(i=>Math.abs(b.min[i]-lo[i])<1e-4&&Math.abs(b.max[i]-hi[i])<1e-4);if(ok)return s;s.delete();}return makeObject(K,o,.005);}
-const bevelNote=o=>{const v=glyphBevelNote(o);return v==null?{}:{bevelUsed:v};};
+import {objectTopology,objectTopologyEntry,memoTopology} from './cad-solid.mjs';
 import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE,BUNDLE_SPLIT,INDEXED_DISPLAY} from './perf-flags.mjs';
-import {jsJobs} from './js-engine.mjs';
+import {jsJobs,validateObjects} from './js-engine.mjs';
 import {engineCache} from './engine-cache.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
 import {isThread,threadTopology} from './threads.mjs';
 import {resolutionTolerance} from './facets.mjs';
+import {lazyMeshPreview} from './lazy-mesh.mjs';
 
 // Only interop and buffer ownership live here. js-engine.mjs (WS7) or Python owns model/job assembly;
-// Rust owns preview mesh preparation and binary STL generation.
+// Rust owns preview mesh preparation and binary STL / 3MF generation.
 export async function initLocalEngine(K,options={}){
  const rust=await (options.rust?.ready||initRustMesh(options.rust||{}));
  K.threadMesh=(o,tolerance)=>rust.threadMesh(o.type,o.params,tolerance);
- function placeObject(value,requested,floor){const o=structuredClone(value),at=Array.from(requested);if(at.length!==3||at.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('Invalid placement coordinates.');if(floor)at[2]=Math.max(0,at[2]);o.position=[0,0,0];validateProject(booleanProject([o]));const s=boundsSolid(K,o);try{const b=s.boundingBox();if(s.isEmpty())throw Error('This object contains no material.');o.position=[at[0]-(b.min[0]+b.max[0])/2,at[1]-(b.min[1]+b.max[1])/2,at[2]-b.min[2]];o.positionReference='base';o.placement=at;validateProject(booleanProject([o]));return {object:o};}finally{s.delete();}}
- function groundProject(value){const p=validateProject(value);let min=0;for(const o of p.objects.filter(o=>o.enabled)){const s=boundsSolid(K,o);try{if(!s.isEmpty())min=Math.min(min,s.boundingBox().min[2]);}finally{s.delete();}}if(min<0)for(const o of p.objects){o.position[2]-=min;if(o.placement)o.placement[2]-=min;}p.buildPlaneEnabled=true;return {project:validateProject(p),lift:-min};}
+ function placeObject(value,requested,floor){const o=structuredClone(value),at=Array.from(requested);if(at.length!==3||at.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('Invalid placement coordinates.');if(floor)at[2]=Math.max(0,at[2]);o.position=[0,0,0];validateProject(booleanProject([o]));const s=makeObject(K,o,.005);try{const b=s.boundingBox();if(s.isEmpty())throw Error('This object contains no material.');o.position=[at[0]-(b.min[0]+b.max[0])/2,at[1]-(b.min[1]+b.max[1])/2,at[2]-b.min[2]];o.positionReference='base';o.placement=at;validateProject(booleanProject([o]));return {object:o};}finally{s.delete();}}
+ function groundProject(value){const p=validateProject(value);let min=0;for(const o of p.objects.filter(o=>o.enabled)){const s=makeObject(K,o,.005);try{if(!s.isEmpty())min=Math.min(min,s.boundingBox().min[2]);}finally{s.delete();}}if(min<0)for(const o of p.objects){o.position[2]-=min;if(o.placement)o.placement[2]-=min;}p.buildPlaneEnabled=true;return {project:validateProject(p),lift:-min};}
  let acknowledged=null;const cache=ENGINE_CACHE?engineCache(K,{budget:options.engineCacheBudget,prepare:INDEXED_DISPLAY?d=>rust.prepareIndexed(d.vertices,d.triangles,d.flatTriangles,d.smoothingGroups):null}):null,cachedJob=d=>cache&&['preview','check','export'].includes(d?.type);let active=false;
  const threadEntry=o=>{const tolerance=resolutionTolerance(o,.15);const v=memoTopology(JSON.stringify(['thread',o.type,o.params,tolerance]),()=>threadTopology(K.threadMesh(o,tolerance),o));return {hash:v.hash,topology:v.t};};
  const bridge={runtime_info:version=>({python:version,rust:rust.version,local:true}),
@@ -33,17 +25,23 @@ export async function initLocalEngine(K,options={}){
   validate_layers:validateLayers,assert_same_layer:assertSameLayer,
   styles:()=>new Map(),make_object:(o,tolerance,styles)=>active?cache.makeObject(o,tolerance,styles):makeObject(K,o,tolerance,styles),
   dispose:s=>{if(!(active&&cache.owns(s)))s.delete();},union:solids=>active?cache.union(solids):K.Manifold.union(solids),
-  part:(o,s,styles)=>{if(!TOPOLOGY_SERVICE)return {id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topology:structuredClone(isThread(o)?threadTopology(K.threadMesh(o,resolutionTolerance(o,.15)),o):objectTopology(o)),...bevelNote(o)};
+  part:(o,s,styles)=>{if(!TOPOLOGY_SERVICE)return {id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topology:structuredClone(isThread(o)?threadTopology(K.threadMesh(o,resolutionTolerance(o,.15)),o):objectTopology(o))};
    // WS2: topology by geometry hash; the body rides along only when the requester has not acknowledged the hash
    // (no acknowledgement list means a direct caller, which always gets it). Cached bodies are shared, never mutated.
-   const {hash,topology}=isThread(o)?threadEntry(o):objectTopologyEntry(o),part={id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topologyHash:hash,...bevelNote(o)};
+   const {hash,topology}=isThread(o)?threadEntry(o):objectTopologyEntry(o),part={id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topologyHash:hash};
    if(!hash||!acknowledged?.has(hash))part.topology=topology;return part;},
   empty_result:(parts,styles)=>({vertices:new Float32Array(),triangles:new Uint32Array(),...(styles?{flatTriangles:new Uint8Array(),smoothingGroups:new Uint32Array()}:{}),parts,volume:0,bounds:null}),
   preview_merge:(groups,parts,styles)=>active?cache.previewMerge(groups,parts,styles):undefined,
   model_result:(s,parts,styles)=>({...meshData(s,styles),parts,volume:s.volume(),bounds:s.isEmpty()?null:s.boundingBox()}),
   boolean_result:(s,removedVolume,targetVolume)=>{const pieces=s.decompose();try{return {count:pieces.filter(p=>p.volume()>0).length,bounds:s.boundingBox(),volume:s.volume(),removedVolume,targetVolume};}finally{pieces.forEach(p=>p.delete());}},
-  finish_result:(model,kind,ground)=>{
-   if(kind==='export')return {buffer:rust.writeSTL(model.vertices,model.triangles,ground),triangles:model.triangles.length/3,bounds:model.bounds,volume:model.volume};
+  // ADR-0001 F2a: export format 'stl' (default, unchanged) or '3mf' (Rust encode_3mf of the same mesh).
+  finish_result:(model,kind,ground,format='stl')=>{
+   if(kind==='export'){if(format!=='stl'&&format!=='3mf'&&format!=='3mf-mesh')throw Error('Unsupported export format.');
+    // ADR-0001 F2a option A: '3mf-mesh' validates and returns the export mesh (copies) and its grounding offset; the page's
+    // 3MF pool encodes it (or sends it back as 'encode3mf' when the pool is unavailable). Same mesh as the '3mf' path.
+    // Architect ruling 3: below 65,536 triangles the model is one part, encoded here on the plain single path.
+    if(format==='3mf-mesh'&&model.triangles.length/3<SPLIT_TRIANGLES_3MF)return {buffer:rust.write3MF(model.vertices,model.triangles,ground),triangles:model.triangles.length/3,bounds:model.bounds,volume:model.volume,format:'3mf'};
+    if(format==='3mf-mesh')return {mesh3mf:{vertices:model.vertices.slice(),triangles:model.triangles.slice(),minZ:rust.prepare3MF(model.vertices,model.triangles,ground)},triangles:model.triangles.length/3,bounds:model.bounds,volume:model.volume,format:'3mf'};return {buffer:format==='3mf'?rust.write3MF(model.vertices,model.triangles,ground):rust.writeSTL(model.vertices,model.triangles,ground),triangles:model.triangles.length/3,bounds:model.bounds,volume:model.volume,...(format==='3mf'?{format}:{})};}
    // WS9: the dead conjoin result is dropped with BUNDLE_SPLIT (the JS engine rejects the job; Python keeps it).
    if(kind==='conjoin'&&!(BUNDLE_SPLIT&&JS_ENGINE)){const solid=new K.Manifold(new K.Mesh({numProp:3,vertProperties:model.vertices,triVerts:model.triangles}));const pieces=solid.decompose();try{return {count:pieces.length,bounds:model.bounds};}finally{pieces.forEach(p=>p.delete());solid.delete();}}
    // WS10: indexed display (assembled per part by the cache for merged previews, else prepared here for the whole mesh).
@@ -64,5 +62,9 @@ export async function initLocalEngine(K,options={}){
   const source=options.pythonSource||await(async()=>{const r=await fetch(new URL('python/model_jobs.py',options.baseURL));if(!r.ok)throw Error('The bundled Python jobs could not load.');return r.text();})();
   python.runPython(source);const job=python.globals.get('process_job'),getInfo=python.globals.get('runtime_info');info=getInfo();getInfo.destroy();process=job;destroy=()=>job.destroy();
  }
- return {python,rust,info,process:data=>{acknowledged=TOPOLOGY_SERVICE&&Array.isArray(data?.topologyAck)?new Set(data.topologyAck):null;active=cachedJob(data);if(active)cache.begin();try{return process(data);}finally{if(active)cache.end();active=false;acknowledged=null;}},engineCache:cache,destroy};
+ // F1: a lone imported mesh previews without a Manifold (web/lazy-mesh.mjs); same validation and part topology.
+ const lazy=data=>{if(data?.type!=='preview'||options.noLazyMesh||!Array.isArray(data.project?.objects))return null;const model=lazyMeshPreview(data.project,{validate:p=>{if(p.format!=='tristancad'||![2,3].includes(p.version))throw Error('This is not a supported AvalonCad project.');validateObjects(p.objects);validateLayers(p);},
+  topology:o=>{if(!TOPOLOGY_SERVICE)return {topology:structuredClone(objectTopology(o))};const {hash,topology}=objectTopologyEntry(o);return !hash||!acknowledged?.has(hash)?{topologyHash:hash,topology}:{topologyHash:hash};}});
+  return model&&bridge.response(bridge.finish_result(model,'preview',true),data.id,'preview');};
+ return {python,rust,info,process:data=>{acknowledged=TOPOLOGY_SERVICE&&Array.isArray(data?.topologyAck)?new Set(data.topologyAck):null;try{const r=lazy(data);if(r)return r;}catch(e){return bridge.error_response(data.id,String(e));}active=cachedJob(data);if(active)cache.begin();try{return process(data);}finally{if(active)cache.end();active=false;acknowledged=null;}},engineCache:cache,destroy};
 }

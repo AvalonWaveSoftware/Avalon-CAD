@@ -1,9 +1,10 @@
+import {fileURLToPath} from 'node:url';
 // Perf ADR v2 WS0 / §4.2: DOM, CSS and string invariance against the captured baseline.
 //   node tests/perf/dom-baseline.mjs            check static files + string table (exit 1 on any difference)
 //   node tests/perf/dom-baseline.mjs --update   regenerate static.json and strings-baseline.json in AVALON_PIXEL_BASELINE
 // The per-scene DOM/computed-style snapshots are taken by tests/pixels.mjs through domSnapshot() below.
 import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';
-const HERE=path.dirname(new URL(import.meta.url).pathname);
+const HERE=path.dirname(fileURLToPath(import.meta.url));
 export const REPO=path.resolve(HERE,'../..');
 // Baselines are artifacts outside git (ADR v2 WS0 step 3).
 export const BASE=path.resolve(process.env.AVALON_PIXEL_BASELINE||'/workspace/avalon-cad-artifacts/perf-baseline');
@@ -86,6 +87,10 @@ export function sourceBuilds(text,src,repo=REPO){const m=src.match(/^([^:]+):(\d
  const lineOf=k=>code.slice(0,k).split('\n').length,win=units.filter(u=>Math.abs(lineOf(u.a)-L)<=SOURCE_WINDOW);
  const lits=win.filter(u=>u.parts.length===1).map(u=>u.parts[0].s);
  if(lits.includes(text))return {ok:true,how:'literal'};
+ // export-3mf (2026-10-24): the text of one HTML element inside a string/template literal (e.g. <label …>File format</label>
+ // or <option …>…</option> in an innerHTML template). It is shown exactly as written, but the extractor skips literals that
+ // hold markup, so these are listed as runtime entries and verified here.
+ if(win.some(u=>u.parts.some(q=>typeof q.s==='string'&&q.s.includes('>'+text+'<'))))return {ok:true,how:'element text in an HTML literal'};
  const ls=[...new Set(lits.filter(Boolean))],can=new Array(text.length+1).fill(false);can[0]=true;
  for(let k=0;k<text.length;k++)if(can[k])for(const l of ls)if(text.startsWith(l,k))can[k+l.length]=true;
  if(can[text.length])return {ok:true,how:'concatenation of literals'};
@@ -188,4 +193,4 @@ function main(){const update=process.argv.includes('--update');fs.mkdirSync(BASE
  for(const s of c.staleCorrections)console.log('note: listed extractor correction not needed (string still extracted, or not in this baseline):',JSON.stringify(s));
  console.log(`strings: ${strings.length} extracted, ${c.errors.length} error(s), ${approvedSeen} approved addition(s) in use, ${c.removedApproved.length} approved removal(s), ${c.corrected.length} extractor correction(s)${c.corrected.length?' ('+c.corrected.map(x=>JSON.stringify(x)).join(', ')+')':''}, ${c.stale.length+c.staleCorrections.length} stale`);
  if(bad){console.error(`dom-baseline: ${bad} difference(s)`);process.exit(1);}console.log(`dom-baseline: static files identical (${STATIC_FILES.join(', ')}), ${strings.length-approvedSeen} baseline strings identical${approvedSeen?`, ${approvedSeen} approved addition(s)`:''}${c.removedApproved.length?`, ${c.removedApproved.length} approved removal(s)`:''}${c.corrected.length?`, ${c.corrected.length} extractor correction(s)`:''}`);}
-if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname)main();
+if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url))main();

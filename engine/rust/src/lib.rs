@@ -1,13 +1,14 @@
-//! Local, allocation-bounded mesh preparation and binary STL encoding.
+//! Local, allocation-bounded mesh preparation, binary STL and 3MF encoding.
 //! The ABI consumes borrowed buffers and writes caller-owned result buffers.
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::slice;
 mod threads;
+mod three_mf;
 
 #[no_mangle]
-pub extern "C" fn engine_version() -> u32 { 3 }
+pub extern "C" fn engine_version() -> u32 { 4 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mesh_alloc(bytes: usize) -> *mut u8 {
@@ -16,6 +17,12 @@ pub unsafe extern "C" fn mesh_alloc(bytes: usize) -> *mut u8 {
         Ok(layout) => alloc_zeroed(layout),
         Err(_) => std::ptr::null_mut(),
     }
+}
+
+/// Frees a byte buffer that an encoder returned (`encode_3mf`): `ptr`/`len` exactly as reported.
+#[no_mangle]
+pub unsafe extern "C" fn free_bytes(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() { drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len))); }
 }
 
 #[no_mangle]
@@ -62,7 +69,7 @@ type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<Fx>>;
 unsafe fn prepare_corners(
     vp: *const f32, nv: usize, tp: *const u32, nt: usize,
     flags: *const u8, nf: usize, groups: *const u32, ng: usize,
-    mut emit: impl FnMut(usize, &[f32], [f32; 3], usize),
+    mut emit: impl FnMut(usize, &[f32], [f32; 3], usize, usize),
 ) -> i32 {
     if vp.is_null() || tp.is_null() { return 1; }
     let v=slice::from_raw_parts(vp,nv);let t=slice::from_raw_parts(tp,nt);
@@ -70,11 +77,6 @@ unsafe fn prepare_corners(
         || (ng!=0 && (groups.is_null() || ng!=nt/3)) { return 2; }
     let flat=if nf>0 {slice::from_raw_parts(flags,nf)}else{&[]};
     let smoothing=if ng>0 {slice::from_raw_parts(groups,ng)}else{&[]};
-    let mut faces=Vec::with_capacity(nt/3);
-    for f in t.chunks_exact(3) {
-        let a=point(v,f[0]);let b=point(v,f[1]);let c=point(v,f[2]);
-        faces.push(unit(cross(sub(c,b),sub(a,b))));
-    }
     // Weld only identical positions from the same source surface instance.
     // Boolean seams and nearby thin faces must not borrow each other's normals.
     // The weld key of a corner is (position bits with -0 as 0, smoothing group); ids are numbered in corner order on first
@@ -95,7 +97,14 @@ unsafe fn prepare_corners(
         let next=table.len();let id=*table.entry(((group as u64)<<32)|pos_id[vi] as u64).or_insert(next);
         memo_group[vi]=group;memo_id[vi]=id;ids.push(id);
     }
-    let count=table.len();drop(table);drop(positions);
+    // android-large-mesh-memory (ADR-0001): the weld tables are freed before the face normals are built, so the two
+    // never coexist; the normals are the same values in the same order as before (byte-identical output).
+    let count=table.len();drop(table);drop(positions);drop(pos_id);drop(memo_group);drop(memo_id);
+    let mut faces=Vec::with_capacity(nt/3);
+    for f in t.chunks_exact(3) {
+        let a=point(v,f[0]);let b=point(v,f[1]);let c=point(v,f[2]);
+        faces.push(unit(cross(sub(c,b),sub(a,b))));
+    }
     let mut offsets=vec![0usize;count+1];
     for &id in &ids {offsets[id+1]+=1;}
     for i in 0..count {offsets[i+1]+=offsets[i];}
@@ -119,7 +128,7 @@ unsafe fn prepare_corners(
                 }
                 unit(sum)
             };
-            emit(f*3+corner,&v[p..p+3],[nn[0] as f32,nn[1] as f32,nn[2] as f32],id);
+            emit(f*3+corner,&v[p..p+3],[nn[0] as f32,nn[1] as f32,nn[2] as f32],id,count);
         }
     }
     0
@@ -135,30 +144,39 @@ pub unsafe extern "C" fn prepare_mesh(
     if positions.is_null() || normals.is_null() { return 1; }
     let out=slice::from_raw_parts_mut(positions,nt*3);
     let normal_out=slice::from_raw_parts_mut(normals,nt*3);
-    prepare_corners(vp,nv,tp,nt,flags,nf,groups,ng,|corner,p,n,_|{
+    prepare_corners(vp,nv,tp,nt,flags,nf,groups,ng,|corner,p,n,_,_|{
         let at=corner*3;out[at..at+3].copy_from_slice(p);normal_out[at..at+3].copy_from_slice(&n);
     })
 }
 
 /// WS10: the same corners as `prepare_mesh`, indexed. Corners whose position and normal bits are both identical share
 /// one vertex (only within one weld id, i.e. same position key and smoothing group), numbered in first-corner order.
-/// `positions`/`normals` need room for `nt*3` floats, `index` for `nt` entries; `count` receives the vertex
-/// count. Expanding `index` gives `prepare_mesh` exactly.
+/// `index` needs room for `nt` entries. android-large-mesh-memory (ADR-0001): the vertex arrays are sized exactly
+/// (Rust-owned, grown from the weld-id count) instead of `nt*3` floats each from the caller; on success
+/// `result` = [positions ptr, normals ptr, vertex count, positions capacity, normals capacity] (capacities in floats); the
+/// caller copies `count*3` floats from each and frees each with `free_floats(ptr, capacity)`. Expanding `index` gives `prepare_mesh` exactly.
 #[no_mangle]
 pub unsafe extern "C" fn prepare_indexed(
     vp: *const f32, nv: usize, tp: *const u32, nt: usize,
     flags: *const u8, nf: usize, groups: *const u32, ng: usize,
-    positions: *mut f32, normals: *mut f32, index: *mut u32, count: *mut u32,
+    index: *mut u32, result: *mut usize,
 ) -> i32 {
-    if count.is_null() { return 1; }
-    *count=0;
+    if result.is_null() { return 1; }
+    let result=slice::from_raw_parts_mut(result,5);result.fill(0);
     if nt == 0 { return 0; }
-    if positions.is_null() || normals.is_null() || index.is_null() { return 1; }
-    let out=slice::from_raw_parts_mut(positions,nt*3);let normal_out=slice::from_raw_parts_mut(normals,nt*3);
+    if index.is_null() { return 1; }
     let index_out=slice::from_raw_parts_mut(index,nt);
-    let mut heads:Vec<u32>=Vec::new();let mut chain:Vec<u32>=Vec::with_capacity(nt/2);let mut n_out=0usize;
-    let code=prepare_corners(vp,nv,tp,nt,flags,nf,groups,ng,|corner,p,n,id|{
-        if id>=heads.len() {heads.resize(id+1,u32::MAX);}
+    // ADR-0001 06:50 (prepare_indexed regression): the 6892eb7-shaped hot path. The outputs, heads and chain are allocated
+    // once (zeroed, sized to the weld-id count) at the first corner and written by index; nothing grows inside the
+    // per-corner loop except on the cold path where one weld id has several normals beyond that count.
+    let (mut out,mut normal_out)=(Vec::<f32>::new(),Vec::<f32>::new());
+    let mut heads:Vec<u32>=Vec::new();let mut chain:Vec<u32>=Vec::new();let mut n_out=0usize;
+    #[cold] #[inline(never)]
+    fn grow(out:&mut Vec<f32>,normal_out:&mut Vec<f32>,chain:&mut Vec<u32>){
+        let n=(chain.len()*2).max(16);out.resize(n*3,0.0);normal_out.resize(n*3,0.0);chain.resize(n,0);
+    }
+    let code=prepare_corners(vp,nv,tp,nt,flags,nf,groups,ng,|corner,p,n,id,count|{
+        if heads.is_empty() {heads=vec![u32::MAX;count];chain=vec![0u32;count];out=vec![0.0f32;count*3];normal_out=vec![0.0f32;count*3];}
         let same=|a:&[f32],b:&[f32]|a.iter().zip(b).all(|(x,y)|x.to_bits()==y.to_bits());
         let mut at=heads[id];
         while at!=u32::MAX {
@@ -167,14 +185,26 @@ pub unsafe extern "C" fn prepare_indexed(
             at=chain[at as usize];
         }
         if at==u32::MAX {
+            if n_out==chain.len() {grow(&mut out,&mut normal_out,&mut chain);}
             at=n_out as u32;let i=n_out*3;
             out[i..i+3].copy_from_slice(p);normal_out[i..i+3].copy_from_slice(&n);
-            chain.push(heads[id]);heads[id]=at;n_out+=1;
+            chain[n_out]=heads[id];heads[id]=at;n_out+=1;
         }
         index_out[corner]=at;
     });
-    if code==0 {*count=n_out as u32;}
-    code
+    drop(heads);drop(chain);
+    if code!=0 {return code;}
+    let count=n_out;
+    let (mut out,mut normal_out)=(std::mem::ManuallyDrop::new(out),std::mem::ManuallyDrop::new(normal_out));
+    result[0]=out.as_mut_ptr() as usize;result[1]=normal_out.as_mut_ptr() as usize;result[2]=count;
+    result[3]=out.capacity();result[4]=normal_out.capacity();
+    0
+}
+
+/// Frees a float array that `prepare_indexed` handed out (`capacity` in floats, as returned).
+#[no_mangle]
+pub unsafe extern "C" fn free_floats(ptr: *mut f32, capacity: usize) {
+    if !ptr.is_null() && capacity > 0 { drop(Vec::from_raw_parts(ptr, 0, capacity)); }
 }
 
 #[no_mangle]
@@ -201,6 +231,82 @@ pub unsafe extern "C" fn encode_stl(
         }}
     }
     0
+}
+
+/// ADR-0001 F2a (ABI v4): the 3MF package of the same mesh `encode_stl` writes (same vertices and grounding).
+/// `level` is the DEFLATE level (0-10); `limit` caps the package size in bytes. On success `result[0]` is a
+/// pointer to the package and `result[1]` its length; the caller frees it with `free_bytes`.
+/// Codes: 1 null pointer, 2 invalid mesh, 3 no triangles, 4 larger than `limit`, 5 compressor or memory failure.
+#[no_mangle]
+pub unsafe extern "C" fn encode_3mf(
+    vp: *const f32, nv: usize, tp: *const u32, nt: usize,
+    ground: u32, level: u32, limit: usize, result: *mut usize,
+) -> i32 {
+    if result.is_null() {return 1;}
+    let result=slice::from_raw_parts_mut(result,2);result[0]=0;result[1]=0;
+    if nt==0 {return 3;}
+    if vp.is_null() || tp.is_null() {return 1;}
+    let v=slice::from_raw_parts(vp,nv);let t=slice::from_raw_parts(tp,nt);
+    if !valid(v,t) || level>10 {return 2;}
+    match three_mf::encode(v,t,ground!=0,level as u8,limit) {
+        Ok(bytes) => {
+            // The package buffer itself goes to JS (no second copy); JS frees it with free_bytes.
+            let bytes=std::mem::ManuallyDrop::new(bytes.into_boxed_slice());
+            result[0]=bytes.as_ptr() as usize;result[1]=bytes.len();0
+        }
+        Err(code) => code,
+    }
+}
+
+/// ADR-0001 F2a option A, step 1 (on the geometry worker): validates the export mesh exactly as `encode_3mf` does and
+/// writes the grounding offset (min Z, or 0 when `ground` is 0) the parts are encoded with. Codes as `encode_3mf`.
+#[no_mangle]
+pub unsafe extern "C" fn prepare_3mf(vp: *const f32, nv: usize, tp: *const u32, nt: usize, ground: u32, min_z: *mut f64) -> i32 {
+    if min_z.is_null() {return 1;}
+    if nt==0 {return 3;}
+    if vp.is_null() || tp.is_null() {return 1;}
+    let v=slice::from_raw_parts(vp,nv);let t=slice::from_raw_parts(tp,nt);
+    if !valid(v,t) {return 2;}
+    *min_z=three_mf::min_z(v,ground!=0);0
+}
+
+/// Step 2 (on a pool worker): part `k` of `parts` (= three_mf::parts_for(total triangles): 1 or PARTS), given only its
+/// own records (sliced with `three_mf::part_range`, from a mesh `prepare_3mf` accepted). On success
+/// `result` = [pointer, length, text CRC-32, text size]; free the bytes with `free_bytes`.
+#[no_mangle]
+pub unsafe extern "C" fn encode_3mf_part(vp: *const f32, nv: usize, tp: *const u32, nt: usize, min_z: f64, k: u32, parts: u32, level: u32, result: *mut usize) -> i32 {
+    if result.is_null() {return 1;}
+    let result=slice::from_raw_parts_mut(result,4);result.fill(0);
+    if (nv>0 && vp.is_null()) || (nt>0 && tp.is_null()) {return 1;}
+    let (k,n)=(k as usize,parts as usize);
+    if (n!=1 && n!=three_mf::PARTS) || k>=n || level>10 || nv%3!=0 || nt%3!=0 || (n>1 && ((k<4 && nt>0) || (k>=4 && nv>0))) || !min_z.is_finite() {return 2;}
+    let v=if nv>0 {slice::from_raw_parts(vp,nv)} else {&[]};let t=if nt>0 {slice::from_raw_parts(tp,nt)} else {&[]};
+    if v.iter().any(|x|!x.is_finite()) {return 2;}
+    let mut out=Vec::with_capacity(nv*8+nt*4+64);
+    match three_mf::deflate_part(&mut out,v,t,min_z,k,n,level as u8,usize::MAX,0) {
+        Ok((crc,size)) => {
+            if size>u32::MAX as u64 {return three_mf::TOO_LARGE;}
+            let bytes=std::mem::ManuallyDrop::new(out.into_boxed_slice());
+            result[0]=bytes.as_ptr() as usize;result[1]=bytes.len();result[2]=crc as usize;result[3]=size as usize;0
+        }
+        Err(code) => code,
+    }
+}
+
+/// Step 3: the zip frame for `parts` parts (1 or PARTS), `dlen` = their byte lengths summed, `meta` = `parts` pairs of
+/// (text CRC-32, text size). frame[..split] + the parts' bytes in order + frame[split..] = the same bytes as `encode_3mf`.
+/// `result` = [pointer, length, split]; free with `free_bytes`.
+#[no_mangle]
+pub unsafe extern "C" fn package_3mf(dlen: usize, meta: *const u32, parts: u32, level: u32, limit: usize, result: *mut usize) -> i32 {
+    if result.is_null() || meta.is_null() {return 1;}
+    let result=slice::from_raw_parts_mut(result,3);result[0]=0;result[1]=0;result[2]=0;
+    if level>10 || (parts!=1 && parts as usize!=three_mf::PARTS) {return 2;}
+    let m=slice::from_raw_parts(meta,2*parts as usize);
+    let parts:Vec<(u32,u64)>=m.chunks_exact(2).map(|p|(p[0],p[1] as u64)).collect();
+    match three_mf::frame(dlen,&parts,level as u8,limit) {
+        Ok((bytes,split)) => {let bytes=std::mem::ManuallyDrop::new(bytes.into_boxed_slice());result[0]=bytes.as_ptr() as usize;result[1]=bytes.len();result[2]=split;0}
+        Err(code) => code,
+    }
 }
 
 #[cfg(test)]
@@ -239,9 +345,11 @@ mod tests {
         for groups in [&[][..],&[1,1,2][..]] {
             let mut positions=vec![0.;t.len()*3];let mut normals=positions.clone();
             assert_eq!(unsafe{prepare_mesh(v.as_ptr(),v.len(),t.as_ptr(),t.len(),std::ptr::null(),0,groups.as_ptr(),groups.len(),positions.as_mut_ptr(),normals.as_mut_ptr())},0);
-            let (mut p,mut n,mut i,mut c)=(vec![0f32;t.len()*3],vec![0f32;t.len()*3],vec![0u32;t.len()],0u32);
-            assert_eq!(unsafe{prepare_indexed(v.as_ptr(),v.len(),t.as_ptr(),t.len(),std::ptr::null(),0,groups.as_ptr(),groups.len(),p.as_mut_ptr(),n.as_mut_ptr(),i.as_mut_ptr(),&mut c)},0);
-            assert!((c as usize)<t.len());
+            let (mut i,mut r)=(vec![0u32;t.len()],[0usize;5]);
+            assert_eq!(unsafe{prepare_indexed(v.as_ptr(),v.len(),t.as_ptr(),t.len(),std::ptr::null(),0,groups.as_ptr(),groups.len(),i.as_mut_ptr(),r.as_mut_ptr())},0);
+            let c=r[2];assert!(c<t.len()&&c>0&&r[3]>=c*3&&r[4]>=c*3);
+            let (p,n)=unsafe{(slice::from_raw_parts(r[0] as *const f32,c*3).to_vec(),slice::from_raw_parts(r[1] as *const f32,c*3).to_vec())};
+            unsafe{free_floats(r[0] as *mut f32,r[3]);free_floats(r[1] as *mut f32,r[4]);}
             for k in 0..t.len() {let x=i[k] as usize;for j in 0..3 {
                 assert_eq!(p[x*3+j].to_bits(),positions[k*3+j].to_bits());assert_eq!(n[x*3+j].to_bits(),normals[k*3+j].to_bits());
 }}

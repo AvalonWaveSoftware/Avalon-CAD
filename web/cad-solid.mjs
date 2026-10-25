@@ -1,5 +1,5 @@
 import {primitiveFaces} from './polyhedra.mjs';
-import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid,hasGlyphFinish,glyphLayout,glyphHalfExtents,glyphFinish,glyphRimTile,glyphBevelPart,ENGRAVE_DEPTH} from './glyph-geometry.mjs';
+import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid,hasGlyphFinish,glyphLayout,glyphHalfExtents} from './glyph-geometry.mjs';
 import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
@@ -42,7 +42,7 @@ export async function initSolid(options={}) {
 // inconsistent (later calls fail with 'null function or function signature mismatch', or spin). The trap is recorded
 // and its error is passed on unchanged; before the next job the worker calls resetSolid(), which drops every B-rep of
 // the old heap (never touching it again) and instantiates OCCT afresh from the compiled module. JS-side caches
-// (meshes, topology, bevel notes) hold plain data computed before the trap and stay.
+// (meshes, topology) hold plain data computed before the trap and stay.
 const isTrap=e=>e instanceof WebAssembly.RuntimeError;
 export function noteOcctError(e){if(isTrap(e))occtTrapped=true;return e;}
 export const occtNeedsReset=()=>occtTrapped;
@@ -80,7 +80,6 @@ function baseShape(o) {
   // replicad 1.1.0 has no makeTorus; the OCCT builder is used directly (as makeSphere does) and deleted at once (WS1).
   case 'torus':{const maker=new (R.getOC()).BRepPrimAPI_MakeTorus((p.diameter-p.tube)/2,p.tube/2);try{s=new R.Solid(maker.Shape());}finally{maker.delete();}break;}
   case 'glyph':s=glyphShape(p);break;
-  case 'glyph-rim':s=glyphRim(p);break;
   case 'polygon':{const area=p.points.reduce((s,a,i)=>{const b=p.points[(i+1)%p.points.length];return s+a[0]*b[1]-a[1]*b[0];},0);const pts=area<0?[...p.points].reverse():p.points;const f=R.makePolygon(pts.map(a=>[a[0],a[1],-p.h/2])),v=new R.Vector([0,0,p.h]);try{s=R.basicFaceExtrusion(f,v);}finally{dispose(f);dispose(v);}break;}
   case 'prefab':{for(const group of materialGroups(p.children)){let merged;for(const child of [...group.solids,...group.cuts]){const a=fullShape(child);if(!merged)merged=a;else{const old=merged;try{merged=child.mode==='cut'?cut(old,a):fuse(old,a);}finally{dispose(old);dispose(a);}}}const fs=merged.faces,empty=!fs.length;fs.forEach(dispose);if(empty){dispose(merged);continue;}if(!s)s=merged;else{const old=s;try{s=fuse(old,merged);}finally{dispose(old);dispose(merged);}}}if(!s)throw Error('The prefab contains no solid material.');break;}
   case 'joined':{
@@ -111,43 +110,16 @@ function edgeFinish(base,fillets,edges){const oc=R.getOC(),by=new Map(),own=[],k
   return validSolid(out,keep);}
  catch(e){noteOcctError(e);throw Error(step?'That roundover is too large or conflicts with another edge. Reduce the radius.':'That chamfer is too large or conflicts with another edge. Reduce the distance.');}
  finally{own.reverse().forEach(dispose);}}
-// The finished OCCT result must pass BRepCheck and be a 3D shape (F6 edge finish, F7 glyph bevel); throws 0 otherwise.
+// The finished OCCT result must pass BRepCheck and be a 3D shape (F6 edge finish); throws 0 otherwise.
 function validSolid(out,keep){const oc=R.getOC();if(!keep(new oc.BRepCheck_Analyzer(out,true,false)).IsValid())throw 0;const r=R.cast(out);if(!R.isShape3D(r)){dispose(r);throw 0;}return r;}
-// ADR-0001 F7: the finished glyph (glyph-geometry.mjs glyphLayout): the prism, the bevel and the plate. Without a
-// finish this is exactly the 2.x glyphSolid. Emboss: the glyph is bevelled on its own (top-cap edges), then fused onto
-// the plate; Engrave: the plate minus the glyph prism, then the cavity rim is bevelled.
+// ADR-0001 F7: the finished glyph (glyph-geometry.mjs glyphLayout): the prism and the plate. Without a finish this is
+// exactly the 2.x glyphSolid. Emboss: the glyph fused onto the plate; Engrave: the plate minus the glyph prism.
 function glyphShape(p){
  if(!hasGlyphFinish(p))return glyphSolid(R,p);
  const {f,plate,glyph}=glyphLayout(p);let s=glyphSolid(R,p,glyph[0],glyph[1]-glyph[0]);
- if(f.bevel&&!f.engrave)s=glyphBevel(s,glyph[1],f,p.char,null);
- if(f.plate){const [hx,hy]=glyphHalfExtents(p.char,p.size),ox=hx+f.margin,oy=hy+f.margin,slab=R.makeBox([-ox,-oy,plate[0]],[ox,oy,plate[1]]),g=s;
-  try{s=f.engrave?cut(slab,g):fuse(slab,g);}finally{dispose(slab);dispose(g);}
-  if(f.bevel&&f.engrave)s=glyphBevel(s,plate[1],f,p.char,[ox,oy]);}
+ const [hx,hy]=glyphHalfExtents(p.char,p.size),ox=hx+f.margin,oy=hy+f.margin,slab=R.makeBox([-ox,-oy,plate[0]],[ox,oy,plate[1]]),g=s;
+ try{s=f.engrave?cut(slab,g):fuse(slab,g);}finally{dispose(slab);dispose(g);}
  return s;
-}
-// F7 Engrave + bevel (glyph-geometry.mjs glyphBevelPart): the plate's top tile, the cavity cut 1 mm deep, its rim bevelled.
-function glyphRim(p){const f=glyphFinish({...p,engrave:true}),[z0,z1]=glyphRimTile(f),[hx,hy]=glyphHalfExtents(p.char,p.size),ox=hx+f.margin,oy=hy+f.margin;
- const tile=R.makeBox([-ox,-oy,z0],[ox,oy,z1]),g=glyphSolid(R,p,z1-ENGRAVE_DEPTH,2*ENGRAVE_DEPTH);let s;try{s=cut(tile,g);}finally{dispose(tile);dispose(g);}
- return glyphBevel(s,z1,f,p.char,[ox,oy]);}
-// F7 bevel: an OCCT chamfer (symmetric, the F6 MakeChamfer) or round (MakeFillet, Rational as replicad's fillet()) of
-// distance f.bevel on the edges lying in the plane z = top (outer: the plate rectangle, whose border edges are left
-// alone). ADR §4 F7 failure handling: retry once at half the distance; if that fails too, a clear error. Never a silently
-// unbevelled glyph. Consumes s. A halved bevel is recorded on the result (bevelUsed) for the user notice.
-// V5: a bevel only removes material, so the result must lie inside the input solid's bounding box. OCCT can return a
-// rolling-ball blend face that passes BRepCheck but runs far outside it (round Engrave 'B': a B-spline blend face down to
-// z = −8.6 below a 2 mm plate; 'g', 'k', 'm' likewise); such an attempt counts as failed (half-size retry, else the error).
-const BEVEL_SLACK=.01;
-function bounds(shape){const b=shape.boundingBox;try{return b.bounds;}finally{dispose(b);}}
-function glyphBevel(s,top,f,char,outer){const oc=R.getOC(),edges=explore(s,'edge'),at=1e-6,box=bounds(s);
- const inside=r=>{const b=bounds(r);return [0,1,2].every(i=>b[0][i]>=box[0][i]-BEVEL_SLACK&&b[1][i]<=box[1][i]+BEVEL_SLACK);};
- const onTop=e=>{const c=e.curve;try{const w=c.wrapped,a=w.FirstParameter(),b=w.LastParameter(),pts=[a,(a+b)/2,b].map(t=>{const q=w.Value(t);try{return [q.X(),q.Y(),q.Z()];}finally{q.delete();}});
-   return pts.every(q=>Math.abs(q[2]-top)<at)&&!(outer&&(pts.every(q=>Math.abs(Math.abs(q[0])-outer[0])<at)||pts.every(q=>Math.abs(Math.abs(q[1])-outer[1])<at)));}finally{dispose(c);}};
- const pick=edges.filter(onTop);
- const attempt=d=>{const own=[],keep=x=>own[own.length]=x;try{const mk=keep(f.profile==='round'?new oc.BRepFilletAPI_MakeFillet(s.wrapped,oc.ChFi3d_FilletShape.ChFi3d_Rational):new oc.BRepFilletAPI_MakeChamfer(s.wrapped));
-   for(const e of pick)mk.Add(d,e.wrapped);const r=validSolid(keep(mk.Shape()),keep);if(inside(r))return r;dispose(r);return null;}
-   catch(e){if(isTrap(e))throw noteOcctError(e);return null;}finally{own.reverse().forEach(dispose);}};
- try{if(!pick.length)throw Error(`Bevel not possible on '${char}' at this size`);let r=attempt(f.bevel);if(!r){r=attempt(f.bevel/2);if(r)r.bevelUsed=f.bevel/2;}if(!r)throw Error(`Bevel not possible on '${char}' at this size`);return r;}
- finally{edges.forEach(dispose);dispose(s);}
 }
 function fullShape(o) {
  if(o.scale?.some(v=>Math.abs(v-1)>1e-8))throw Error('A scaled compound uses mesh editing. Round its component shapes before conjoining.');
@@ -271,17 +243,17 @@ const geometryKey=o=>JSON.stringify([o.type,o.params,o.fillets||[],o.resolution|
 // WS2: the B-rep LRU holds 64 entries and an estimated byte budget; topology lives in its own map (below), so a
 // preview whose topology is cached never touches the B-rep, and evicting a B-rep keeps its topology.
 const BREP_ENTRIES=64,BREP_BYTES=128*1048576,TOPOLOGY_BYTES=32*1048576;let brepBytes=0;
-const meshOnly=o=>o.type==='glyph-rim'||o.type==='glyph'&&hasGlyphFinish(o.params);
+const meshOnly=o=>o.type==='glyph'&&hasGlyphFinish(o.params);
 function cached(o) {
  const key=geometryKey(o);
  if(cache.has(key)){const v=cache.get(key);cache.delete(key);cache.set(key,v);return v;}
- const base=baseShape(o),edges=explore(base,'edge'),bevelUsed=base.bevelUsed;let s,t,ok=false;
- // F7: finished glyphs and their bevel parts have no topology (objectTopology answers null), so none is extracted.
+ const base=baseShape(o),edges=explore(base,'edge');let s,t,ok=false;
+ // F7: finished glyphs (plate) have no topology (objectTopology answers null), so none is extracted.
  try{t=meshOnly(o)?{faces:[],edges:[]}:topology(base,edges,o);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
  const surfaceFaces=explore(s,'face');t.faceCount=surfaceFaces.length;t.flatFaces=surfaceFaces.filter(f=>f.geomType==='PLANE').length;surfaceFaces.forEach(dispose);
- if(TOPOLOGY_SERVICE){const entry=OCCT_SCOPE?{s,base}:{s};if(bevelUsed)entry.bevelUsed=bevelUsed;entry.bytes=brepEstimate(t);brepBytes+=entry.bytes;cache.set(key,entry);storeTopology(key,t);
+ if(TOPOLOGY_SERVICE){const entry=OCCT_SCOPE?{s,base}:{s};entry.bytes=brepEstimate(t);brepBytes+=entry.bytes;cache.set(key,entry);storeTopology(key,t);
   while(cache.size>1&&(cache.size>BREP_ENTRIES||brepBytes>BREP_BYTES)){const first=cache.keys().next().value,old=cache.get(first);release(old);brepBytes-=old.bytes;cache.delete(first);}return entry;}
- const entry=OCCT_SCOPE?{s,base,topology:t}:{s,topology:t};if(bevelUsed)entry.bevelUsed=bevelUsed;cache.set(key,entry);while(cache.size>OCCT_CACHE_ENTRIES){const first=cache.keys().next().value;release(cache.get(first));cache.delete(first);}return entry;
+ const entry=OCCT_SCOPE?{s,base,topology:t}:{s,topology:t};cache.set(key,entry);while(cache.size>OCCT_CACHE_ENTRIES){const first=cache.keys().next().value;release(cache.get(first));cache.delete(first);}return entry;
 }
 // Byte estimates: the B-rep plus its attached triangulations scale with the tessellation that topology() produced.
 export function topologyBytes(t){let n=(t.vertices?.byteLength||0)+(t.triangles?.byteLength||0)+48*(t.groups?.length||0);for(const f of t.faces||[])n+=160+8*(f.edges.length+f.loops.reduce((a,l)=>a+l.length,0));for(const e of t.edges||[])n+=32+8*e.points.length;return n;}
@@ -304,38 +276,26 @@ export const topologyCacheStats=()=>({brepEntries:cache.size,brepBytes,topologyE
 const MESH_BYTES=64*1048576,meshes=new Map();let meshBytes=0;
 const copyMesh=m=>({...m,vertices:m.vertices.slice(),triangles:m.triangles.slice(),...(m.displayGroups?{displayGroups:m.displayGroups.map(g=>({...g}))}:{})});
 export const filletMeshStats=()=>({entries:meshes.size,bytes:meshBytes});
-// ADR-0001 F7 notice: the bevel actually used per bevelled-glyph part (only when halved), by content key, for local-engine part().
-const bevelNotes=new Map();
-export function glyphBevelNote(o){if(o?.type!=='glyph'||!(o.params?.bevel>0))return null;const v=bevelNotes.get(geometryKey(glyphBevelPart(o)));return v==null?null:v;}
-export function noteGlyphBevel(o,v){const k=geometryKey(glyphBevelPart(o));bevelNotes.delete(k);bevelNotes.set(k,v);if(bevelNotes.size>256)bevelNotes.delete(bevelNotes.keys().next().value);}
-export const solidMesh=guarded(function solidMesh(o,tolerance,display=false){const m=solidMeshEntry(o,tolerance,display);if(m?.bevelUsed){const k=geometryKey(o);bevelNotes.delete(k);bevelNotes.set(k,m.bevelUsed);if(bevelNotes.size>256)bevelNotes.delete(bevelNotes.keys().next().value);}return m;});
-function solidMeshEntry(o,tolerance,display) {
+export const solidMesh=guarded(function solidMesh(o,tolerance,display=false){
  const base=geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|',key=base+(display?1:0);
- // P1 (sidecar): the plain request of an F7 bevel part asks the sidecar for the display mesh (one tessellation) and drops its groups.
- if(remote){if(!display&&meshOnly(o)){const m=remote.solidMesh(o,tolerance,true,base+1);if(m)delete m.displayGroups;return m;}return remote.solidMesh(o,tolerance,display,key);}
+ if(remote)return remote.solidMesh(o,tolerance,display,key);
  if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display);
  let e=meshes.get(key);
  if(e){meshes.delete(key);meshes.set(key,e);return copyMesh(e.m);}
- // ADR-0001 F7 P1: OCCT re-meshes from scratch on every s.mesh() call (same output each time), so a bevelled-glyph part
- // is tessellated once per tolerance with its display groups (check and preview share it); the plain request is that
- // mesh without them.
- const d=!display&&meshes.get(base+1);if(d){meshes.delete(base+1);meshes.set(base+1,d);const m=copyMesh(d.m);delete m.displayGroups;return m;}
- const both=!display&&meshOnly(o),m=tessellate(o,tolerance,display||both),bytes=m.vertices.byteLength+m.triangles.byteLength+64*(m.displayGroups?.length||0)+256;
- if(bytes<=MESH_BYTES&&!occtTrapped){meshes.set(both?base+1:key,{m:copyMesh(m),bytes});meshBytes+=bytes;for(const [k,v] of meshes){if(meshBytes<=MESH_BYTES)break;meshes.delete(k);meshBytes-=v.bytes;}}
- if(both)delete m.displayGroups;return m;
-}
+ const m=tessellate(o,tolerance,display),bytes=m.vertices.byteLength+m.triangles.byteLength+64*(m.displayGroups?.length||0)+256;
+ if(bytes<=MESH_BYTES&&!occtTrapped){meshes.set(key,{m:copyMesh(m),bytes});meshBytes+=bytes;for(const [k,v] of meshes){if(meshBytes<=MESH_BYTES)break;meshes.delete(k);meshBytes-=v.bytes;}}
+ return m;
+});
 // WS14: the sidecar tessellates without its own mesh cache (the geometry worker caches the result).
 export const solidMeshFresh=guarded((o,tolerance,display=false)=>tessellate(o,tolerance,display));
 function tessellate(o,tolerance,display) {
  tolerance=resolutionTolerance(o,tolerance);
- const {s,bevelUsed}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:meshOnly(o)?.3:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
- // F7: bevelled glyph parts mesh at a 0.3 rad angular step: OCCT's rolling-ball faces can take a minute at the finer step
- // (round engrave 't': one blend face 63 s at 0.12 rad, ~1.7 s at 0.3); the linear deflection still bounds the error.
- const result={vertices:new Float32Array(m.vertices),triangles:new Uint32Array(m.triangles)};if(bevelUsed)result.bevelUsed=bevelUsed;
+ const {s}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
+ const result={vertices:new Float32Array(m.vertices),triangles:new Uint32Array(m.triangles)};
  if(display){const faces=s.faces,planes=new Set(faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode));faces.forEach(dispose);result.displayGroups=m.faceGroups.map(g=>({start:g.start,count:g.count,flat:planes.has(g.faceId)})).sort((a,b)=>a.start-b.start);}
  return result;
 }
-// F7: a finished glyph (bevel / plate) is one piece: no face or edge picking, like an imported mesh (its mesh is Manifold-built).
+// F7: a finished glyph (plate) is one piece: no face or edge picking, like an imported mesh (its mesh is Manifold-built).
 function objectTopologyRaw(o) {if(o?.type==='glyph'&&hasGlyphFinish(o.params))return null;if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;if(remote)return remote.topology(o,geometryKey(o));try{return shapeTopology(o);}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
 export const objectTopology=guarded(objectTopologyRaw);
 function containsScale(o){return o.scale?.some(v=>Math.abs(v-1)>1e-8)||o.params?.children?.some(containsScale);}

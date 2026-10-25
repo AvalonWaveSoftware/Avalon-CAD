@@ -1,0 +1,7 @@
+# ADR-0001 F2a: the Rust engine's only dependency (miniz_oxide, plus its adler2 dependency) is vendored so
+# `cargo build/test --locked --offline` keeps working with nothing but the pinned toolchain (see README).
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "engine/rust/vendor"

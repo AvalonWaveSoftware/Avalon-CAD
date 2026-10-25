@@ -152,7 +152,7 @@ Download the latest build from the [**GitHub Releases**](https://github.com/Aval
 
 Android 9 or later is required, and Android System WebView must support WebGL 2. Download `AvalonCad-<version>.apk`, open it from **My Files → Downloads** and choose **Update**.
 
-- **Updating:** install the new APK over the existing app. You don't need to uninstall first, because every release uses the same app identity (`com.tristan.cad`) and signing key, so your projects are kept.
+- **Updating to 3.0:** 3.0 installs as a new app (`com.avalonwavesoftware.cad`) next to 2.7.x. To bring a project over, open it in 2.7.x, save it to a file, then open that file in 3.0. Once your projects are moved you can uninstall 2.7.x. Later 3.x releases install over 3.0 as usual.
 - **Uninstalling** deletes local projects and prefabs. Export .tcad and .avprefab backups first.
 
 ### Linux (.rpm and Arch)
@@ -190,7 +190,7 @@ To move work between devices, export a .tcad from your phone and open it on the 
 AvalonCad is a web app bundled inside each platform's own app shell: an Android WebView, or Electron on desktop. It runs entirely offline:
 
 - **Python (Pyodide, CPython 3.13.2)** handles model assembly and Boolean jobs in a background worker.
-- **Rust compiled to WebAssembly** builds threaded solids, prepares preview meshes and normals, and writes binary STL.
+- **Rust compiled to WebAssembly** builds threaded solids, prepares preview meshes and normals, and writes binary STL and 3MF.
 - **OpenCascade** (via replicad) and **Manifold** provide solid modeling, Booleans and true edge fillets.
 - **three.js** draws the WebGL 2 viewport.
 
@@ -213,7 +213,7 @@ npm test
 ./build-apk.sh
 ```
 
-The APK is written to a sibling `deliverables/` directory. The Rust crate has no dependencies and builds offline once the pinned compiler and target are installed. The build pins Pyodide 0.29.3 (CPython 3.13.2) and bundles its unmodified runtime with full license notices.
+The APK is written to a sibling `deliverables/` directory. The Rust crate's only dependency, miniz_oxide (DEFLATE for 3MF export, with its adler2 dependency), is vendored in `engine/rust/vendor` (see `.cargo/config.toml`), so it builds offline once the pinned compiler and target are installed. The build pins Pyodide 0.29.3 (CPython 3.13.2) and bundles its unmodified runtime with full license notices.
 
 **Signing:** the APK is signed with the private key `tools/signing.p12`. Set its password in the `AVALONCAD_KEYSTORE_PASS` environment variable before running `build-apk.sh`, because the password is not stored in the repository. Keep the existing key so new APKs can update installed apps. If the key is missing, `build-apk.sh` stops instead of silently creating a new one; set `AVALON_ALLOW_NEW_KEY=1` only if you really mean to create one. **Never commit the signing key or its password**, and keep any source backup that contains the key private.
 

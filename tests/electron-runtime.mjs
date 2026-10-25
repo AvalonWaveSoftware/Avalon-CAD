@@ -10,8 +10,13 @@ console.log('Desktop window starting...');
 try {
  const page=await app.firstWindow(),errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.waitForFunction(()=>window.__cad?.model?.engine?.local,{},{timeout:60000});
+ // ADR-0001 android-app-id (06:45/06:50 CT): the app ID is com.avalonwavesoftware.cad, but saved projects and settings stay put
+ // because main.cjs pins userData to appData/'Avalon CAD' by name (not by appId or bundle ID).
+ {const [name,userData,appData]=await app.evaluate(({app})=>[app.getName(),app.getPath('userData'),app.getPath('appData')]);
+  assert.equal(name,'Avalon CAD');assert.equal(userData,path.join(appData,'Avalon CAD'),'userData must stay appData/Avalon CAD');
+  assert.equal(appData,path.join(testRoot,'profile'),'test profile isolates appData');}
  assert.equal(page.url(),'app://avalon-cad/index.html');assert.equal(await page.evaluate(()=>window.AvalonDesktop.platform),process.platform==='darwin'?'mac':process.platform);assert.equal(await page.evaluate(()=>self.crossOriginIsolated),true);
- assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:3,local:true});
+ assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:4,local:true});
  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');assert.equal(await page.evaluate(()=>typeof window.process),'undefined');
  // Unified desktop layout: the window runs the shared web layout (plain <body>, the one shared style.css, no desktop-only stylesheet).
  assert.equal(await page.locator('body').getAttribute('class'),null);
@@ -26,6 +31,12 @@ try {
  await page.locator('#exportBtn').click();await page.locator('#ground').uncheck();await page.locator('#downloadSTL').click();
  for(let i=0;i<100;i++){if(await fs.stat(path.join(root,'My_model.stl')).catch(()=>false))break;await new Promise(r=>setTimeout(r,50));}
  const stl=await fs.readFile(path.join(root,'My_model.stl'));assert.equal(stl.readUInt32LE(80),12);assert.equal(stl.length,684);for(let i=84;i<stl.length;i+=50)for(let j=0;j<3;j++)assert.ok(stl.readFloatLE(i+20+j*12)>=0);await page.locator('#closeSheet').click();
+ // ADR-0001 F2a: 3MF of the 12-triangle box (1 part: plain single path, Architect ruling 3), saved over real IPC.
+ await page.locator('#exportBtn').click();await page.locator('#exportFormat').selectOption('3mf');await page.waitForFunction(()=>document.querySelector('#sheetTitle').textContent==='Export a printable 3MF');await page.locator('#downloadSTL').click();
+ for(let i=0;i<200;i++){if(await fs.stat(path.join(root,'My_model.3mf')).catch(()=>false))break;await new Promise(r=>setTimeout(r,50));}
+ const mf=await fs.readFile(path.join(root,'My_model.3mf'));assert.equal(mf.readUInt32LE(0),0x04034b50);const enc=await page.evaluate(()=>window.__avalon3MF);
+ assert.deepEqual([enc.path,enc.workers],['single',0],'Electron 3MF (12 triangles: 1 part, plain single path): '+JSON.stringify(enc));
+ await page.locator('#exportFormat').selectOption('stl');await page.waitForFunction(()=>document.querySelector('#sheetTitle').textContent==='Export a printable STL');await page.locator('#closeSheet').click();
  await page.screenshot({path:'build/desktop-window.png'});
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.send('avalon:action','save'));await page.waitForFunction(()=>Object.keys(JSON.parse(localStorage.getItem('tristancad.projects')||'{}')).length===1);
  // Command+Z from a text field must leave model history alone.

@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 // WS14 (OCCT_SIDECAR) parity: an engine whose OCCT runs in a separate worker thread (same runJob/solidRemote code as the
 // browser) must give exactly the results of the in-process engine: previews, displays, parts, topology (hash and
 // body), checks, STL exports and errors, byte for byte. Fixtures plus seeded edit sequences that add, resize and remove
@@ -7,7 +8,7 @@ import assert from 'node:assert/strict';import fs from 'node:fs';import {createH
 import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';
 import {object,defaults,blank,advancedDefaults,glyphDefaults} from '../web/templates.mjs';import {loadGlyphs} from '../web/glyph-geometry.mjs';import {migrateProject} from '../web/migrate.mjs';
 import {sidecarClient} from './occt-sidecar-client.mjs';
-const refDir=new URL('./.occt-sidecar-ref/',import.meta.url).pathname;fs.rmSync(refDir,{recursive:true,force:true});fs.cpSync('web',refDir+'web',{recursive:true});
+const refDir=fileURLToPath(new URL('./.occt-sidecar-ref/',import.meta.url));fs.rmSync(refDir,{recursive:true,force:true});fs.cpSync('web',refDir+'web',{recursive:true});
 process.on('exit',()=>fs.rmSync(refDir,{recursive:true,force:true}));
 const rust={binary:fs.readFileSync('app/assets/mesh-core.wasm')};
 const refKernel=await import(refDir+'web/kernel.mjs'),refEngine=await import(refDir+'web/local-engine.mjs');
@@ -66,12 +67,8 @@ for(let n=0;n<SEQUENCES;n++){const p=blank();const count=1+Math.floor(rnd()*4);f
  const r=structuredClone(p);r.objects[0].fillets=[{edges:[0],radius:2},{edges:[1,2],radius:1}];await check(r,.15,'same edges rounded, not chamfered');
  const bad=blank(),x=object('box',{w:4,d:4,h:4},[0,0,2]);x.fillets=[{edges:[0,1,2,3,4,5,6,7,8,9,10,11],radius:3,kind:'chamfer'}];bad.objects.push(x);
  for(const type of ['preview','export']){const job={id:++id,type,project:bad,tolerance:.15,ground:true},a=await client.run(A,job),b=B.process(structuredClone(job));assert.match(b.error,/That chamfer is too large/);same(a,b,'impossible chamfer '+type);errors++;jobs++;}}
-// ADR-0001 F7: a bevelled glyph is an OCCT product like a fillet (remote solidMesh, stand-in without the bevel); plate-only
-// glyphs stay on Manifold. Identical results and the bevel error verbatim.
-{const p=blank(),G=(char,x,pos)=>object('glyph',{...glyphDefaults.glyph,char,...x},pos);p.objects.push(G('A',{plate:2,plateMargin:1.5,bevel:.4},[0,0,4]),G('o',{depth:1,plate:2,plateMargin:1,engrave:true,bevel:.3,bevelProfile:'round'},[30,0,1]),G('T',{plate:1.5},[0,30,3]));p.version=3;
- let offered=0;const a=await client.run(A,{id:++id,type:'preview',project:p,tolerance:.15},{onInterim:()=>offered++});same(a,B.process({id,type:'preview',project:p,tolerance:.15}),'first-time bevel');assert.equal(offered,1,'interim for a first-time bevel');jobs++;interims++;
- await check(p,.15,'glyph finish');
- const bad=blank();bad.objects.push(G('R',{bevel:.5},[0,0,2.5]));bad.version=3;
- for(const type of ['preview','export']){const job={id:++id,type,project:bad,tolerance:.15,ground:true},a=await client.run(A,job),b=B.process(structuredClone(job));assert.equal(b.error,"Bevel not possible on 'R' at this size");same(a,b,'impossible bevel '+type);errors++;jobs++;}}
+// ADR-0001 F7: plate-only glyphs (Emboss, Engrave) stay on Manifold: identical results with the sidecar on.
+{const p=blank(),G=(char,x,pos)=>object('glyph',{...glyphDefaults.glyph,char,...x},pos);p.objects.push(G('A',{plate:2,plateMargin:1.5},[0,0,4]),G('o',{depth:1,plate:2,plateMargin:1,engrave:true},[30,0,1]),G('T',{plate:1.5},[0,30,3]));p.version=3;
+ await check(p,.15,'glyph finish');}
 console.log(`OCCT sidecar parity: ${jobs} jobs identical to the in-process engine (previews, displays, parts, topology, checks, STL exports; ${errors} identical errors); ${interims} interim previews offered, all for pending fillet meshes; ${client.stats.requests} sidecar requests; ${faceIdOnly} topology bodies differed only in OCCT faceId hash codes`,JSON.stringify(client.remote.stats()));
 client.close();A.destroy();B.destroy();
