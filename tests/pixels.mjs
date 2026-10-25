@@ -54,6 +54,8 @@ const args=process.argv.slice(2),update=args.includes('--update'),outI=args.inde
 const APPROVED=(()=>{const f=path.join(path.dirname(new URL(import.meta.url).pathname),'perf/approved-areas.json');if(update||boxI>=0||process.env.AVALON_PIXEL_APPROVED==='0'||!fs.existsSync(f))return null;
  const a=JSON.parse(fs.readFileSync(f,'utf8'));return path.basename(BASE)===a.baseline?a:null;})();
 const ALLOW_BOX=boxI>=0?args[boxI+1]:APPROVED?.box??null,ALLOW_OVERLAY=ovI>=0?args[ovI+1]:APPROVED?.overlay??null,SCENE_AREAS=APPROVED?.scenes||{};
+// Reserved-slot ruling (Architect 2026-10-25, F1e #measureBtn): scenes["*"] areas apply to every scene, then the scene's own.
+const sceneAreas=name=>[...(SCENE_AREAS['*']||[]),...(SCENE_AREAS[name]||[])];
 if(APPROVED)console.log(`approved areas (${APPROVED.baseline}): ${APPROVED.box||"no box"}${APPROVED.dom?.length?` + ${APPROVED.dom.length} dom entr${APPROVED.dom.length===1?"y":"ies"}`:""}${APPROVED.overlay?' + overlay '+APPROVED.overlay:''}; scenes: ${Object.keys(SCENE_AREAS).join(', ')||'none'}`);
 if(ALLOW_BOX&&update)throw Error('--allow-box is a compare-only check; it never writes baselines');
 // ADR-0001 approved-dom-areas: the "dom" entries of the same approved-areas.json (same baseline rule, same
@@ -82,7 +84,7 @@ async function checkDom(page,name,id,bd,dom,r,px={}){if(!fs.existsSync(bd)){r.er
  // for its pixel check) are covered; every other differing region px fails the hidden match.
  const pxIn=rect=>{if(!px.bp||!fs.existsSync(px.bp)||!px.png)return {error:'no baseline png'};const d=regionDiff({base:fs.readFileSync(px.bp),now:px.png,dpr:px.dpr||1,capture:id,areas:(px.areas||[]).map(box=>({capture:id,box}))},rect);return d==null?{error:'image size mismatch'}:d;};
  const sr=SPLIT_REF&&path.join(SPLIT_REF,id+'.json'),splitRef=sr&&fs.existsSync(sr)?JSON.parse(fs.readFileSync(sr,'utf8')):null;
- const areas=[ALLOW_BOX,ALLOW_OVERLAY,...(SCENE_AREAS[name]||[])].filter(Boolean);
+ const areas=[ALLOW_BOX,ALLOW_OVERLAY,...(sceneAreas(name)||[])].filter(Boolean);
  const c=await checkCapture(page,{name,id,base:JSON.parse(fs.readFileSync(bd,'utf8')),now:dom,entries:DOM_ENTRIES,areas,splitRef,compareDom,regionOf,pxIn});
  r.dom={matched:c.matched.length,unmatched:c.unmatched.length};r.errors.push(...c.errors);
  if(c.matched.length||c.unmatched.length){r.domMatched=c.matched;r.domUnmatched=c.unmatched.map(fmtChange);
@@ -241,12 +243,12 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
     const help5=[...document.querySelectorAll('#sheet:not([hidden]) .helpitem')].find(e=>/^5\. Export for printing/.test(e.textContent));
     return {dpr:devicePixelRatio,modebar:box(document.getElementById('touchModes')),dock:box(document.querySelector('.dock')),toolbar:box(document.querySelector('.toolbar')),help5:box(help5),pill:box(document.getElementById('desktopHelp')),formatField:box(document.getElementById('exportFormat')?.closest('.field'))};})));
    caps.push(id);if(!update){const bp=path.join(PX,id+'.png'),bd=path.join(DOM,id+'.json');const r={id,errors:[]};
-    if((ALLOW_BOX||SCENE_AREAS[name]?.length)&&fs.existsSync(bp)){// An overlay's box includes its box-shadow, which is part of the overlay as drawn: offset ± (1.5·blur + spread)
+    if((ALLOW_BOX||sceneAreas(name)?.length)&&fs.existsSync(bp)){// An overlay's box includes its box-shadow, which is part of the overlay as drawn: offset ± (1.5·blur + spread)
      // (Skia draws a CSS blur radius b as a Gaussian with σ = b/2, out to 3σ).
      const boxOf=(sel,shadow=false)=>page.evaluate(([sel,shadow])=>{const e=sel&&document.querySelector(sel);if(!e)return null;const q=e.getBoundingClientRect(),k=devicePixelRatio;let [l,t,r,b]=[q.left,q.top,q.right,q.bottom];
       if(shadow)for(const m of getComputedStyle(e).boxShadow.matchAll(/(-?[\d.]+)px (-?[\d.]+)px ([\d.]+)px(?: (-?[\d.]+)px)?/g)){const [x,y,blur,spread=0]=m.slice(1).map(Number),ext=1.5*blur+spread;l=Math.min(l,q.left+x-ext);t=Math.min(t,q.top+y-ext);r=Math.max(r,q.right+x+ext);b=Math.max(b,q.bottom+y+ext);}
       return [Math.floor(l*k),Math.floor(t*k),Math.ceil(r*k),Math.ceil(b*k)];},[sel,shadow]);
-     const box=await boxOf(ALLOW_BOX),overlay=await boxOf(ALLOW_OVERLAY,true),areaSel=SCENE_AREAS[name]||[],areas=[];
+     const box=await boxOf(ALLOW_BOX),overlay=await boxOf(ALLOW_OVERLAY,true),areaSel=sceneAreas(name)||[],areas=[];
      for(const sel of areaSel){const a=await boxOf(sel,true);// a scene area includes its own box-shadow, as an overlay does (the sheet's shadow is drawn outside its box)
      if(a)areas.push(a);else r.errors.push(`no element ${sel} (approved area of ${name})`);}
      const zones=[...(box?[box]:[]),...(overlay?[overlay]:[]),...areas],d=zones.length?diffOutside(fs.readFileSync(bp),png,zones):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;

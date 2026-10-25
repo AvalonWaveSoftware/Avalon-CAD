@@ -11,16 +11,16 @@ assert.equal(k('v'),'V');assert.equal(k('V',{shiftKey:true}),'Shift+V');assert.e
 assert.equal(k('z',{ctrlKey:true}),'Mod+Z');assert.equal(k('z',{metaKey:true}),'Mod+Z','Cmd and Ctrl are the same Mod on every platform');assert.equal(k('Z',{metaKey:true,shiftKey:true}),'Mod+Shift+Z');
 assert.equal(k('Delete',{shiftKey:true}),'Shift+Delete');assert.equal(k('Escape'),'Escape');assert.equal(k('я',{code:'KeyZ',ctrlKey:true}),'Mod+Z','non-Latin layout uses the physical key');assert.equal(k('q',{code:'KeyA'}),'Q','Latin layouts keep their own letter (AZERTY)');
 for(const [key,o] of [['a',{altKey:true}],['Shift',{shiftKey:true}],['Control',{ctrlKey:true}],['Meta',{metaKey:true}],['a',{isComposing:true}],['Unidentified',{}],['Dead',{}],['',{}]])assert.equal(k(key,o),null,JSON.stringify([key,o]));
-// --- registry table: exactly the Q1 rows whose commands exist at F1a (no R/I/T, copy/paste, group yet).
+// --- registry table: exactly the Q1 rows whose commands exist at F1a (no R/I, copy/paste, group yet; T arrives with F1e measure).
 const c=createCommands(),table=Object.fromEntries(c.list.filter(x=>x.shortcut).map(x=>[x.id,x.shortcut]));
 // Ruling 1: tooltip/aria text = existing label (shortcut), in the help table's key spelling.
 assert.deepEqual(Object.fromEntries(c.list.filter(x=>x.shortcut).map(x=>[x.id,tooltipText(x)])),{new:'New project (Cmd/Ctrl+N)',open:'Open project / prefab / STL… (Cmd/Ctrl+O)',save:'Save project on this computer (Cmd/Ctrl+S)',backup:'Export editable project… (Cmd/Ctrl+Shift+S)',export:'Export (Cmd/Ctrl+E)',
- undo:'Undo (Cmd/Ctrl+Z)',redo:'Redo (Cmd/Ctrl+Shift+Z)',add:'Add (A)',clear:'Deselect everything (Shift+Delete)',fit:'Fit model (0)',wire:'Wireframe (W)',help:'Help (?)','mode:select':'Select (V)','mode:move':'Move (M)',
+ undo:'Undo (Cmd/Ctrl+Z)',redo:'Redo (Cmd/Ctrl+Shift+Z)',add:'Add (A)',clear:'Deselect everything (Shift+Delete)',fit:'Fit model (0)',wire:'Wireframe (W)',help:'Help (?)',measure:'Measure (T)','mode:select':'Select (V)','mode:move':'Move (M)',
  'mode:stretch':'Stretch (S)','mode:round':'Round (F)',delete:'Delete (Delete)',duplicate:'Duplicate (Cmd/Ctrl+D)',escape:'Close panel (Esc)'});
 assert.deepEqual(table,{new:['Mod+N'],open:['Mod+O'],save:['Mod+S'],backup:['Mod+Shift+S'],export:['Mod+E'],undo:['Mod+Z'],redo:['Mod+Shift+Z','Mod+Y'],add:['A','Mod+Shift+A'],
- clear:['Shift+Delete','Shift+Backspace'],fit:['0','Home','Mod+0'],wire:['W'],help:['?'],'mode:select':['V'],'mode:move':['M'],'mode:stretch':['S'],'mode:round':['F'],delete:['Delete','Backspace'],duplicate:['Mod+D'],escape:['Escape']});
+ clear:['Shift+Delete','Shift+Backspace'],fit:['0','Home','Mod+0'],wire:['W'],help:['?'],measure:['T'],'mode:select':['V'],'mode:move':['M'],'mode:stretch':['S'],'mode:round':['F'],delete:['Delete','Backspace'],duplicate:['Mod+D'],escape:['Escape']});
 const all=c.list.flatMap(x=>x.shortcut||[]);assert.equal(new Set(all).size,all.length,'no combo bound twice');for(const s of all)assert.equal(c.byKey(s)&&c.get(c.byKey(s)).shortcut.includes(s),true);
-for(const id of ['mode:rotate','mode:mirror','measure','copy','paste','group','ungroup'])assert.ok(!COMMAND_IDS.includes(id),id+' arrives with its feature');
+for(const id of ['mode:rotate','mode:mirror','copy','paste','group','ungroup'])assert.ok(!COMMAND_IDS.includes(id),id+' arrives with its feature');
 // --- Electron menu accelerators (desktop/main.cjs) == ELECTRON_MENU, and each is a registry shortcut of the same command.
 const cjs=fs.readFileSync('desktop/main.cjs','utf8'),menu={false:{},true:{}};
 for(const m of cjs.matchAll(/accelerator: (?:isMac \? '([^']+)' : '([^']+)'|'([^']+)'), click: invoke\('([^']+)'\)/g)){const norm=a=>a.replace(/^CmdOrCtrl\+|^Ctrl\+/,'Mod+');
@@ -36,7 +36,7 @@ for(const mac of [false,true]){assert.deepEqual(menu[mac],ELECTRON_MENU(mac),'ma
 // --- help rows: each is a phrase of Sean's approved table, in its order, and the paragraph is the approved subset.
 const APPROVED='V Select · M Move · R Rotate · S Stretch · F Edge (Round/Chamfer) · I Mirror · T Measure · A Add · Delete or Backspace deletes · Shift+Delete clears the selection · Cmd/Ctrl+D duplicate · Cmd/Ctrl+C and Cmd/Ctrl+V copy and paste · Cmd/Ctrl+G group · Shift+G ungroup · Cmd/Ctrl+Z undo · Cmd/Ctrl+Shift+Z or Ctrl+Y redo · Cmd/Ctrl+S save · Cmd/Ctrl+Shift+S export the project · Cmd/Ctrl+O open · Cmd/Ctrl+N new project · Cmd/Ctrl+E export · 0 or Home fit the view · W wireframe · Esc closes a sheet or clears the selection · ? opens Help. Shortcuts also work with a hardware keyboard on Android. They never fire while you type in a field.';
 const rows=shortcutRows(id=>!!c.get(id)?.shortcut);let at=-1;for(const r of rows){const i=APPROVED.indexOf(r,at+1);assert.ok(i>at,'approved, in order: '+r);at=i;}
-assert.equal(rows.length,19);assert.deepEqual(shortcutRows(()=>false),[]);
+assert.equal(rows.length,20);assert.deepEqual(shortcutRows(()=>false),[]);
 const PARAGRAPH=rows.join(' · ')+'. Shortcuts also work with a hardware keyboard on Android. They never fire while you type in a field.';
 // --- browser
 const H=await import('../tools/readme-shots/harness.mjs');const env=await H.start();const out=[];

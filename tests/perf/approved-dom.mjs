@@ -81,7 +81,12 @@ export function validSelector(sel){
   if(!tag&&!parts)return `empty compound in "${sel}"`;last={tag,parts};}
  if(!last.parts)return `the last compound "${compounds.at(-1)}" needs an #id, .class or [attr="value"] (bare tag selectors match broadly)`;
  return null;}
-export function validKind(kind){if(kind==='text'||kind==='added'||kind==='replaced')return null;if(typeof kind!=='string'||!/^[a-z][a-z0-9-]*$/.test(kind))return 'kind must be "text" or an attribute name';if(kind==='style'||kind==='class')return `kind "${kind}" is not approvable`;return null;}
+// Reserved-slot ruling (Architect 2026-10-25, F1e measure): {scene, selector:'#id', kind:'unreserved', approval} approves
+// exactly the W0 reserved-slot markers coming off that one element when its feature goes live: class "pending" -> "",
+// data-pending removed, aria-hidden "true" removed, tabindex "-1" removed, data-mode added (a lowercase mode name,
+// for the mode-bar slots). Nothing else (its title/aria-label/children
+// need their own entries; its pixels need an approved area).
+export function validKind(kind){if(kind==='text'||kind==='added'||kind==='replaced'||kind==='unreserved')return null;if(typeof kind!=='string'||!/^[a-z][a-z0-9-]*$/.test(kind))return 'kind must be "text" or an attribute name';if(kind==='style'||kind==='class')return `kind "${kind}" is not approvable`;return null;}
 // Strings an entry may expect: the active baseline's strings-baseline.json and tests/perf/strings-additions.json (plain
 // strings and runtime texts; the file is validated, so a bad runtime entry fails here too).
 export function approvedStrings(base,additionsFile,repo){const s=new Set();const f=path.join(base,'strings-baseline.json');if(fs.existsSync(f))for(const x of JSON.parse(fs.readFileSync(f,'utf8')))s.add(x);
@@ -97,7 +102,8 @@ export function loadDomEntries(list,strings){
    for(const k of ['selector','expected'])if(k in e)bad.push(`${at}: a "replaced" entry takes oldSelector/newSelector, not "${k}"`);
    for(const k of ['oldSelector','newSelector']){const v=validSelector(e[k]);if(v)bad.push(`${at}: invalid ${k}: ${v}`);}return;}
   for(const k of ['scene','selector','kind','approval'])if(typeof e[k]!=='string'||!e[k])bad.push(`${at}: "${k}" must be a non-empty string`);
-  if(!added&&typeof e.expected!=='string')bad.push(`${at}: "expected" must be a string`);
+  if(e.kind==='unreserved'){if('expected' in e)bad.push(`${at}: an "unreserved" entry takes no "expected"`);if(!/^#[A-Za-z][\w-]*$/.test(e.selector||''))bad.push(`${at}: an "unreserved" selector must be one #id`);if(e.hidden)bad.push(`${at}: "unreserved" cannot be hidden`);}
+  else if(!added&&typeof e.expected!=='string')bad.push(`${at}: "expected" must be a string`);
   if(added&&e.expected!=null&&typeof e.expected!=='string')bad.push(`${at}: "expected" (optional for added) must be a string`);
   const s=validSelector(e.selector);if(s)bad.push(`${at}: invalid selector: ${s}`);
   const k=validKind(e.kind);if(k)bad.push(`${at}: ${k}`);
@@ -167,7 +173,8 @@ export function domChanges([base,now,ctx]){
  const ZERO_WHY='zero-size (0×0) element: never inside a visible area; only a hidden entry can approve it';
 const HIDDEN_WHY='hidden entry, but the container is rendered (no ancestor is 0×0 in both captures, or the element itself is drawn)';
  const matchedEls=new Set(),hiddenMatched=new Map(),styleAttr=[];
- for(const c of changes){if(c.kind==='style'){styleAttr.push(c);continue;}const v=c.kind==='text'&&typeof c.now==='string'?c.now.trim():c.now;
+ for(const c of changes){if(c.kind==='style'){styleAttr.push(c);continue;}
+  {const u=c.el&&entries.find(e=>e.kind==='unreserved'&&sceneOk(e)&&c.el.matches(e.selector)&&((c.kind==='class'&&c.old==='pending'&&c.now==='')||(c.kind==='data-pending'&&typeof c.old==='string'&&c.now===null)||(c.kind==='aria-hidden'&&c.old==='true'&&c.now===null)||(c.kind==='tabindex'&&c.old==='-1'&&c.now===null)||(c.kind==='data-mode'&&c.old===null&&typeof c.now==='string'&&/^[a-z]+$/.test(c.now))));if(u){matchedEls.add(c.el);out.matched.push(rec(c,{approval:u.approval}));continue;}}const v=c.kind==='text'&&typeof c.now==='string'?c.now.trim():c.now;
   const fits=e=>e.kind!=='added'&&e.kind!=='replaced'&&sceneOk(e)&&e.kind===c.kind&&e.expected===v&&c.el.matches(e.selector);
   const he=c.el&&typeof c.now==='string'?entries.find(e=>e.hidden&&fits(e)):null,hc=he&&hidPaired(c.el);
   if(he&&hc){matchedEls.add(c.el);hiddenMatched.set(c.el,he);out.matched.push(rec(c,hidRec(he,hc)));continue;}

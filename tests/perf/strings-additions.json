@@ -146,13 +146,13 @@
   {
    "text": "Bottom-center placement · millimeters",
    "runtime": true,
-   "source": "web/main.mjs:170",
+   "source": "web/main.mjs:171",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   },
   {
    "text": "Object center position · millimeters",
    "runtime": true,
-   "source": "web/main.mjs:170",
+   "source": "web/main.mjs:171",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   },
   {
@@ -181,27 +181,42 @@
   {
    "text": "File format",
    "runtime": true,
-   "source": "web/main.mjs:245",
+   "source": "web/main.mjs:249",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "STL · binary · most compatible",
    "runtime": true,
-   "source": "web/main.mjs:245",
+   "source": "web/main.mjs:249",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "3MF · compressed · smaller file",
    "runtime": true,
-   "source": "web/main.mjs:245",
+   "source": "web/main.mjs:249",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "exportFormat",
    "runtime": true,
-   "source": "web/main.mjs:245",
+   "source": "web/main.mjs:249",
    "approval": "export-3mf: id of the File format select, used by its <label for>; not shown text. export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
-  }
+  },
+  "Measure",
+  "Point to point",
+  "Face distance and angle",
+  "Edge length / circle diameter",
+  "Object minimum distance",
+  "Tap a measurement target. Tap two targets for a distance.",
+  "Close measure",
+  "Choose a measurement target.",
+  "Diameter",
+  "Length",
+  "Angle",
+  "This measurement needs CAD faces or edges.",
+  "Measure the whole object for finished edges.",
+  "T Measure",
+  {"text": "Measure (T)", "runtime": true, "source": "web/tooltips.mjs:19", "approval": "F1e measure tooltip = label + ' (' + shortcut + ')' (pending Master Chief)"}
  ],
  "removals": [
   {
