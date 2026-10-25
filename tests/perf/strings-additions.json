@@ -162,7 +162,7 @@
   {
    "text": "Overall size 17.59 × 24.99 × 7.00 mm (X × Y × Z).",
    "runtime": true,
-   "source": "web/main.mjs:166",
+   "source": "web/main.mjs:168",
    "approval": "F7 batch (pending Master Chief)"
   },
   "Engrave needs a plate thicker than 0.039 in.",
@@ -170,13 +170,13 @@
    "text": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:270"
+   "source": "web/main.mjs:282"
   },
   {
    "text": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:270"
+   "source": "web/main.mjs:282"
   },
   "Export a printable 3MF",
   "Build & save .3MF",
@@ -192,25 +192,25 @@
   {
    "text": "File format",
    "runtime": true,
-   "source": "web/main.mjs:253",
+   "source": "web/main.mjs:265",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "STL · binary · most compatible",
    "runtime": true,
-   "source": "web/main.mjs:253",
+   "source": "web/main.mjs:265",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "3MF · compressed · smaller file",
    "runtime": true,
-   "source": "web/main.mjs:253",
+   "source": "web/main.mjs:265",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "exportFormat",
    "runtime": true,
-   "source": "web/main.mjs:253",
+   "source": "web/main.mjs:265",
    "approval": "export-3mf: id of the File format select, used by its <label for>; not shown text. export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   "Choose a mirror plane through the object center",
@@ -308,7 +308,22 @@
    "runtime": true,
    "source": "web/tooltips.mjs:19",
    "approval": "ADR-0001 F3 rotate handles: tooltip = label + ' (' + shortcut + ')'"
-  }
+  },
+  "Wall thickness",
+  "Hollowing…",
+  "Hollow is not offered for this shape.",
+  "Hollow is not offered for shapes with chamfers.",
+  "Hollow is not offered for threads, imported meshes, merged shapes, prefabs or bevelled letters.",
+  "Wall thickness must be at least 0.4 mm and less than half the smallest dimension.",
+  {
+   "text": "Can't hollow this shape at 2 mm. Try a smaller wall or remove rounds.",
+   "runtime": true,
+   "source": "web/shell-rules.mjs:13",
+   "approval": "ADR-0001 F8 shell objects; ADR-0003; approved by Master Chief 2026-10-25 08:14 CT with a final period added; runtime message hollowError(t) = \"Can't hollow this shape at ${t} mm. Try a smaller wall or remove rounds.\" (example t=2)"
+  },
+  "Closed hollow · no open faces",
+  "Invalid hollow setting.",
+  "Tap faces to leave open"
  ],
  "removals": [
   {

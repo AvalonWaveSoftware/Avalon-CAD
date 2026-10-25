@@ -195,6 +195,9 @@ const scenes={
  'sheet-export':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#exportBtn').click();await p.locator('#quality').selectOption('maximum');await s();},
  'sheet-add-shape':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await s();},
  'sheet-edit-object':async(p,s)=>{await loadTemplate(p,'plate');await H.tap(p,'select',[[0,0,6]],2);await p.locator('#quickEdit').click();await s();},
+ // ADR-0001 F8 (§5.4 new scenes): a closed hollow box with its edit sheet (Hollow section), and an open-top hollow box.
+ 'shell-closed':async(p,s)=>{await load(p,proj('Hollow box',[ob('hb','box',{w:30,d:30,h:15},[0,0,7.5],{shell:{thickness:2}})],{version:3}));await H.tap(p,'select',[[0,0,15]],2);await p.locator('#quickEdit').click();await p.waitForSelector('#hollowOn');await s();},
+ 'shell-open':async(p,s)=>{await load(p,proj('Open hollow box',[ob('hb','box',{w:30,d:30,h:15},[0,0,7.5],{shell:{thickness:2,open:[5]}})],{version:3}));await s();},
  'build-plane-on':async(p,s)=>{await loadTemplate(p,'plate');if(!(await p.locator('#buildPlane').isChecked()))await p.locator('#buildPlane').check();await s();},
  // ADR new-primitives-polyhedra-text §5.12: the new sheets, the Text draft and a scene with every new shape.
  'sheet-advanced-shapes':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await p.locator('#advancedBtn').click();await s();},

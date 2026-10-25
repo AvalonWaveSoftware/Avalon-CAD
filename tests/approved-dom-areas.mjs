@@ -74,7 +74,8 @@ const S=approvedStrings(tmp,add);assert.ok(S.has('Base string')&&S.has('Added st
   S=X("const m='Hollow is not offered for this shape.';if(why.includes('Hollow is not offered'))f();");assert.ok(S.has('Hollow is not offered'),'includes( is not a prefix test');
   S=X("const a='Hollow is not offered';const m='Hollow is not offered for this shape.';");assert.ok(S.has('Hollow is not offered'),'a plain literal is never dropped, even as a prefix');
   S=X("if(u.startsWith( 'Wall thickness must'))g();const w='Wall thickness must be at least 0.4 mm.';");assert.ok(!S.has('Wall thickness must'),'whitespace after ( still counts');}
- }
+ // batch-3.0: prefix-test literals (.startsWith/.endsWith arguments) are code, the full approved messages still extract.
+ assert.ok(!S.has('Hollow is not offered')&&!S.has('Wall thickness must'));assert.ok(S.has('Hollow is not offered for this shape.')&&S.has('Wall thickness must be at least 0.4 mm and less than half the smallest dimension.'));}
 
 // 7. Runtime texts in strings-additions.json and extractor corrections (ADR-0001 rulings; QA pre-review notes).
 {const R=fs.mkdtempSync(path.join(os.tmpdir(),'ada-repo-'));fs.mkdirSync(path.join(R,'web'));

@@ -21,7 +21,7 @@ import {renderOnDemand} from './render-scheduler.mjs';
 import {material,updateInPlace,updateChanged,uploads,pooled,overlayPool} from './render-resources.mjs';
 import {threadPanel,bindThreads} from './threads-ui.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {validateProject,cloneSharing,readSTL,QUALITY,assertSimplePolygon} from './kernel-ui.mjs';
+import {validateProject,cloneSharing,readSTL,QUALITY,assertSimplePolygon} from './kernel-ui.mjs';import {SHELL_DEFAULT,hollowRefusal,withShellTimeout,shellDefault} from './shell-rules.mjs';
 import {object,blank,plate,tray,defaults,advancedDefaults,glyphDefaults,names,uid} from './templates.mjs';
 import {dimensions,mirrorObject} from './operations.mjs';
 import {UNITS,loadUnit,setUnit,getUnit,unitLabel,fmtLen,readLen,fieldLen,byUnit,stepOptions,snapSketch,unitMessage} from './units.mjs';
@@ -96,7 +96,8 @@ function refreshLabels(){const on=project.buildPlaneEnabled===true;$('buildPlane
 const READY=['Ready · millimeters','Ready · inches'];
 async function refresh(fit=false){refreshLabels();autosave();const id=++previewId;status('Building solid…');try{const data=await request('preview',{project:cloneSharing(project),tolerance:0.15},OCCT_SIDECAR?d=>{if(id===previewId)showInterim(d);}:undefined);if(id!==previewId||data.canceled)return;applyModel(data);status(data.triangles.length?`${(data.triangles.length/3).toLocaleString()} preview triangles`:byUnit(...READY));if(fit)fitCamera();}catch(e){if(id!==previewId)return;status('Model needs attention');toast(e.message,true);}}
 function openSheet(title,html,eyebrow='AvalonCad'){ measureTool?.close();$('sheetTitle').textContent=title;$('sheetEyebrow').textContent=eyebrow;$('sheetContent').innerHTML=html;$('sheet').hidden=false;$('shade').hidden=false;$('sheetContent').scrollTop=0;}
-function lockPanel(value){panelBusy=value;$('app').classList.toggle('checking',value);if(value){panelControls=[...$('sheet').querySelectorAll('button,input,select')].map(el=>[el,el.disabled]);panelControls.forEach(([el])=>el.disabled=true);}else{panelControls.forEach(([el,disabled])=>{if(el.isConnected)el.disabled=disabled;});panelControls=[];}}
+// ADR-0001 F8: "Hollowing…" on the Apply button when a hollow takes longer than 300 ms (restored on unlock).
+let hollowBusy=0;function lockPanel(value){panelBusy=value;$('app').classList.toggle('checking',value);if(!value&&hollowBusy){clearTimeout(hollowBusy);hollowBusy=0;const b=$('applyObject');if(b?.dataset.label){b.textContent=b.dataset.label;delete b.dataset.label;}}if(value){panelControls=[...$('sheet').querySelectorAll('button,input,select')].map(el=>[el,el.disabled]);panelControls.forEach(([el])=>el.disabled=true);}else{panelControls.forEach(([el,disabled])=>{if(el.isConnected)el.disabled=disabled;});panelControls=[];}}
 function closeSheet(){if(touch?.isCommitting()||panelBusy)return;$('sheet').hidden=true;$('shade').hidden=true;}
 $('closeSheet').onclick=closeSheet;$('shade').onclick=closeSheet;
 const canvas=$('scene'),scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(38,1,0.1,30000);camera.up.set(0,0,1);camera.position.set(120,-150,130);
@@ -188,22 +189,29 @@ function editMenu(newObject=null){if(!newObject?.params||!newObject?.id)newObjec
  const live=()=>{if(!$('shapeSize'))return;const q=structuredClone(o);for(const k of dimKeys(o))q.params[k]=lens.read('p_'+k);if(o.type==='glyph'&&finishUI)finishUI.readFinish(q.params,$);$('shapeSize').textContent=sizeText(q);};if($('shapeSize'))$('sheetContent').querySelectorAll('[id^="p_"]').forEach(el=>el.oninput=live);
  if($('shapeSize')&&o.type==='glyph')import('./glyph-finish-ui.mjs').then(m=>{finishUI=m;const box=$('glyphFinish');if(!box)return;box.innerHTML=m.finishFields(creating?m.newGlyphFinish(o.params):o.params);box.querySelectorAll('input,select').forEach(el=>{el.oninput=live;el.onchange=live;});if(creating)live();});
  const us=$('unitSwitch');if(us)paintUnitSwitch(us),us.onclick=e=>{const u=e.target.closest('[data-unit]')?.dataset.unit;if(!u||u===getUnit())return;lens.convert(()=>setUnit(u));paintUnitSwitch(us);$('dimsTitle').textContent=dimsTitle();$('posTitle').textContent=posTitle(o);live();showUnits();};
+ // ADR-0001 F8: the Hollow section (lazy shell-ui.mjs) for existing objects; open faces are picked on the model.
+ let hollow=null;if(!creating){$('posTitle').insertAdjacentHTML('beforebegin','<div id="hollowBox"></div>');import('./shell-ui.mjs').then(m=>{const box=$('hollowBox');if(box)hollow=m.mountHollow(box,o,lens,(id,open,store)=>{closeSheet();touch.pickOpenFaces(id,open,faces=>{store(faces);editMenu();});},{SHELL_DEFAULT:shellDefault(o)??SHELL_DEFAULT,hollowRefusal,shellDefault});});}
  $('applyObject').onclick=async()=>{const error=$('editError');try{
   let draft=structuredClone(o);draft.name=$('objectName').value.trim()||names[o.type];draft.mode=$('mode').value;draft.layerId=$('objectLayer').value;draft.resolution=readResolution(o,$);
   let resetFinishRounds=false;const resetRounds=!sameTopology(o,draft)&&draft.fillets?.length;if(resetRounds)delete draft.fillets;
   if(isThread(o))draft.params=threadInputs.read();else for(const k of dimKeys(o))draft.params[k]=lens.read('p_'+k);
   if(o.type==='glyph'&&finishUI){finishUI.readFinish(draft.params,$);if(draft.params.plate>0&&draft.fillets?.length){delete draft.fillets;resetFinishRounds=true;}}
   const at=[0,1,2].map(i=>lens.read('pos'+i));draft.position=at;draft.rotation=[0,1,2].map(i=>Number($('rot'+i).value));
+  if(hollow){hollow.read(draft);if(!sameTopology(o,draft))hollow.clearOpen(draft);if(draft.shell)hollowBusy=setTimeout(()=>{const b=$('applyObject');if(b&&panelBusy){b.dataset.label=b.textContent;b.textContent='Hollowing…';}},300);}
+  // ADR-0003: while a hollow is part of the draft, every engine reply here is held to the 5 s hard limit; a late reply is
+  // dropped and nothing is stored, so the model stays unchanged.
+  const ask=draft.shell?(type,data)=>withShellTimeout(request(type,data),draft.shell.thickness):request;
   const p=structuredClone(project);if(creating){if(p.objects.length>=100)throw Error('Maximum 100 objects.');p.objects.push(draft);}else p.objects[p.objects.findIndex(x=>x.id===o.id)]=draft;p.activeLayer=draft.layerId;validateProject(p);lockPanel(true);
-  if(draft.positionReference==='base'){draft=(await request('place',{object:draft,position:at,floor:p.buildPlaneEnabled===true})).object;p.objects[p.objects.findIndex(x=>x.id===draft.id)]=draft;}
+  if(draft.positionReference==='base'){draft=(await ask('place',{object:draft,position:at,floor:p.buildPlaneEnabled===true})).object;p.objects[p.objects.findIndex(x=>x.id===draft.id)]=draft;}
   if(!creating&&selection().length>1)translateMembers(p,project.objects.filter(x=>x.id!==o.id&&selection().includes(x.id)),draft.position.map((v,i)=>v-o.position[i]));
   if(draft.shell&&!(p.buildPlaneEnabled||creating||isThread(draft)||draft.type==='prefab'||draft.resolution?.mode==='faces'||draft.fillets?.some(f=>f.radius>0)))applyFloorAdjustments(p,await ask('check',{project:p,tolerance:.15}));
 
-  if(p.buildPlaneEnabled||creating||isThread(draft)||draft.type==='prefab'||draft.resolution?.mode==='faces'||draft.fillets?.some(f=>f.radius>0))applyFloorAdjustments(p,await request('check',{project:p,tolerance:.15}));
+  if(p.buildPlaneEnabled||creating||isThread(draft)||draft.type==='prefab'||draft.resolution?.mode==='faces'||draft.fillets?.some(f=>f.radius>0))applyFloorAdjustments(p,await ask('check',{project:p,tolerance:.15}));
   lockPanel(false);replaceProject(()=>{project=p;selected=draft.id;});closeSheet();toast(creating?'Object added.':resetRounds||resetFinishRounds?'Shape updated. Roundovers were cleared because the face layout changed.':'Dimensions and face resolution updated.');
  }catch(e){error.textContent=unitMessage(e.message);}finally{lockPanel(false);}};
  if(creating){$('cancelObject').onclick=closeSheet;return;}
  $('saveAsPrefab').onclick=()=>prefabs.form(selection().length>=2?{source:'selection'}:{});if($('editMerge'))$('editMerge').onclick=()=>touch.mergeMenu(selection());
+ void import('./groups-ui.mjs').then(m=>{if(!$('duplicateObject'))return;const S=groupUI();$('duplicateObject').parentElement.insertAdjacentHTML('beforebegin',m.groupButtons(S));m.wireGroupButtons(S);});
  $('duplicateObject').onclick=()=>duplicateDraft(o);
  $('deleteObject').onclick=()=>deleteObject(o);
  if($('explodeObject'))$('explodeObject').onclick=()=>separateObject(o);if($('editSketch'))$('editSketch').onclick=()=>sketchMenu(o);

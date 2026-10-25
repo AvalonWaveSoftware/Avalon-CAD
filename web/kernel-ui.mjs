@@ -5,6 +5,7 @@ import {curvedTypes} from './facets.mjs';
 import {isThread,containsThreads,validateThread} from './threads.mjs';
 import {normalizeLayers} from './layers.mjs';
 import {GLYPH_CHARS,GLYPH_METRICS} from './glyph-metrics.mjs';
+import {validateShell} from './shell-rules.mjs';
 // Letters, numbers & symbols: font ids this build can draw (the id is part of the saved params, ADR §2.2).
 export const GLYPH_FONTS=Object.freeze([GLYPH_METRICS.id]);
 export const isGlyphChar=c=>typeof c==='string'&&c.length===1&&GLYPH_CHARS.includes(c);
@@ -48,6 +49,7 @@ export function validateProject(p, shareFrozen=false) {
     if(o.mirrored!==undefined&&typeof o.mirrored!=='boolean')throw Error('Invalid object coordinates.');
     if(o.scale && (!Array.isArray(o.scale)||o.scale.length!==3||o.scale.some(v=>!Number.isFinite(v)||v<.001||v>1000)))throw Error('Invalid object scale.');
     if(o.fillets && (!Array.isArray(o.fillets)||o.fillets.length>100||o.fillets.some(f=>!Number.isFinite(f.radius)||f.radius<0||f.radius>10000||!Array.isArray(f.edges)||f.edges.length>500||f.kind!==undefined&&f.kind!=='chamfer'||f.edges.some(i=>!Number.isInteger(i)||i<0||i>10000))))throw Error('Invalid roundover.');
+    if(o.shell!==undefined)validateShell(o); // ADR-0001 F8 (shell-rules.mjs)
     if(o.type==='joined') {if(!Array.isArray(o.params.children)||o.params.children.length<2)throw Error('A combined solid needs at least two components.');if(!o.params.children.some(c=>c.mode!=='cut'))throw Error('Combined objects need positive material.');validateProject({format:'tristancad',version:2,objects:o.params.children,layers:out.layers,activeLayer:out.activeLayer});}
     if(o.type==='prefab'){if(!Array.isArray(o.params.children)||!o.params.children.length||o.params.children.length>100||!o.params.children.some(c=>c.enabled!==false&&c.mode!=='cut'))throw Error('A prefab needs 1–100 components with positive material.');if(!Array.isArray(o.params.layers))throw Error('The prefab is missing its internal layers.');validateProject({format:'tristancad',version:2,objects:o.params.children,layers:o.params.layers});}
     for(const v of Object.values(o.params)) if(typeof v==='number' && (!Number.isFinite(v)||Math.abs(v)>10000)) throw Error('Invalid dimensions.');
