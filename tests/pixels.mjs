@@ -49,6 +49,7 @@ const H={
 // with --update; AVALON_PIXEL_APPROVED=0 turns it off for a strict run). Per-scene areas are extra allowed boxes.
 // They are for in-flight, unmerged changes only and approve PIXELS only: DOM/style differences always fail. Any other
 // baseline (e.g. AVALON_PIXEL_BASELINE=.../perf-baseline-release-3.0-6892eb7) is compared strictly, with no areas.
+// export-3mf: box may be null when only per-scene areas are approved (scene-scoped; every other scene stays strict).
 const args=process.argv.slice(2),update=args.includes('--update'),outI=args.indexOf('--out'),boxI=args.indexOf('--allow-box'),ovI=args.indexOf('--allow-overlay');
 const APPROVED=(()=>{const f=path.join(path.dirname(new URL(import.meta.url).pathname),'perf/approved-areas.json');if(update||boxI>=0||process.env.AVALON_PIXEL_APPROVED==='0'||!fs.existsSync(f))return null;
  const a=JSON.parse(fs.readFileSync(f,'utf8'));return path.basename(BASE)===a.baseline?a:null;})();
@@ -238,17 +239,18 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
    // the approved-area check (ADR-0001 W0 re-baseline). Capture only; nothing is compared here.
    if(process.env.AVALON_PIXEL_RECTS&&!update)fs.writeFileSync(path.join(OUT,id+'.rects.json'),JSON.stringify(await page.evaluate(()=>{const box=e=>{if(!e)return null;const r=e.getBoundingClientRect(),c=getComputedStyle(e);return r.width&&r.height&&c.visibility!=='hidden'&&c.display!=='none'?[r.left,r.top,r.right,r.bottom]:null;};
     const help5=[...document.querySelectorAll('#sheet:not([hidden]) .helpitem')].find(e=>/^5\. Export for printing/.test(e.textContent));
-    return {dpr:devicePixelRatio,modebar:box(document.getElementById('touchModes')),dock:box(document.querySelector('.dock')),toolbar:box(document.querySelector('.toolbar')),help5:box(help5),pill:box(document.getElementById('desktopHelp'))};})));
+    return {dpr:devicePixelRatio,modebar:box(document.getElementById('touchModes')),dock:box(document.querySelector('.dock')),toolbar:box(document.querySelector('.toolbar')),help5:box(help5),pill:box(document.getElementById('desktopHelp')),formatField:box(document.getElementById('exportFormat')?.closest('.field'))};})));
    caps.push(id);if(!update){const bp=path.join(PX,id+'.png'),bd=path.join(DOM,id+'.json');const r={id,errors:[]};
-    if(ALLOW_BOX&&fs.existsSync(bp)){// An overlay's box includes its box-shadow, which is part of the overlay as drawn: offset ± (1.5·blur + spread)
+    if((ALLOW_BOX||SCENE_AREAS[name]?.length)&&fs.existsSync(bp)){// An overlay's box includes its box-shadow, which is part of the overlay as drawn: offset ± (1.5·blur + spread)
      // (Skia draws a CSS blur radius b as a Gaussian with σ = b/2, out to 3σ).
      const boxOf=(sel,shadow=false)=>page.evaluate(([sel,shadow])=>{const e=sel&&document.querySelector(sel);if(!e)return null;const q=e.getBoundingClientRect(),k=devicePixelRatio;let [l,t,r,b]=[q.left,q.top,q.right,q.bottom];
       if(shadow)for(const m of getComputedStyle(e).boxShadow.matchAll(/(-?[\d.]+)px (-?[\d.]+)px ([\d.]+)px(?: (-?[\d.]+)px)?/g)){const [x,y,blur,spread=0]=m.slice(1).map(Number),ext=1.5*blur+spread;l=Math.min(l,q.left+x-ext);t=Math.min(t,q.top+y-ext);r=Math.max(r,q.right+x+ext);b=Math.max(b,q.bottom+y+ext);}
       return [Math.floor(l*k),Math.floor(t*k),Math.ceil(r*k),Math.ceil(b*k)];},[sel,shadow]);
      const box=await boxOf(ALLOW_BOX),overlay=await boxOf(ALLOW_OVERLAY,true),areaSel=SCENE_AREAS[name]||[],areas=[];
-     for(const sel of areaSel){const a=await boxOf(sel);if(a)areas.push(a);else r.errors.push(`no element ${sel} (approved area of ${name})`);}
-     const d=box?diffOutside(fs.readFileSync(bp),png,[box,...(overlay?[overlay]:[]),...areas]):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
-     if(!box)r.errors.push(`no element ${ALLOW_BOX}`);else if(d.outside)r.errors.push(`${d.outside} differing pixels outside ${ALLOW_BOX} box ${box}${overlay?' or overlay '+overlay:''} (outside diffs span ${d.outsideBox})${d.sizeMismatch?' (size mismatch)':''}`);
+     for(const sel of areaSel){const a=await boxOf(sel,true);// a scene area includes its own box-shadow, as an overlay does (the sheet's shadow is drawn outside its box)
+     if(a)areas.push(a);else r.errors.push(`no element ${sel} (approved area of ${name})`);}
+     const zones=[...(box?[box]:[]),...(overlay?[overlay]:[]),...areas],d=zones.length?diffOutside(fs.readFileSync(bp),png,zones):{differing:diffPixels(fs.readFileSync(bp),png).differing,outside:-1};r.differing=d.differing;
+     if(ALLOW_BOX&&!box)r.errors.push(`no element ${ALLOW_BOX}`);else if(d.outside)r.errors.push(`${d.outside} differing pixels outside ${ALLOW_BOX||'approved areas'} box ${box}${overlay?' or overlay '+overlay:''} (outside diffs span ${d.outsideBox})${d.sizeMismatch?' (size mismatch)':''}`);
      // Approved areas are pixel boxes only: no DOM allowance inside them (ADR-0001 ruling); every DOM/style difference fails.
      await checkDom(page,name,id,bd,dom,r,{bp,png,dpr:desktop?1:2,areas:[box,overlay,...areas].filter(Boolean)});results.push(r);}
     else{if(!fs.existsSync(bp))r.errors.push('no baseline');else{const d=diffPixels(fs.readFileSync(bp),png);r.differing=d.differing;if(d.differing&&!d.sizeMismatch&&d.differing<=(ACCEPTED_DIFFS[id]||0)){r.accepted=d.differing;console.log(`accepted ${id}: ${d.differing} px (${ACCEPTED_NOTE})`);}else if(d.differing)r.errors.push(`${d.differing} differing pixels${d.sizeMismatch?' (size mismatch)':''}`);}

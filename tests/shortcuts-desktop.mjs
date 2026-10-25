@@ -15,7 +15,7 @@ try{const page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.p
  const mac=await page.evaluate(()=>window.AvalonDesktop.platform==='mac');
  const accels=await app.evaluate(({Menu})=>{const out=[];const walk=items=>{for(const i of items){if(i.accelerator)out.push([i.label,i.accelerator]);if(i.submenu)walk(i.submenu.items);}};walk(Menu.getApplicationMenu().items);return out;});
  const norm=a=>a.replace(/^CmdOrCtrl\+|^Ctrl\+/,'Mod+');const got=Object.fromEntries(accels.map(([l,a])=>[l,norm(a)]));
- const byLabel={'New project':'new','Open project / prefab / STL…':'open','Save project on this computer':'save','Save project on this Mac':'save','Export editable project…':'backup','Export STL…':'export','Undo model change':'undo','Redo model change':'redo','Add a Primitive Object':'add','Fit model':'fit'};
+ const byLabel={'New project':'new','Open project / prefab / STL…':'open','Save project on this computer':'save','Save project on this Mac':'save','Export editable project…':'backup','Export…':'export','Undo model change':'undo','Redo model change':'redo','Add a Primitive Object':'add','Fit model':'fit'};
  assert.deepEqual(Object.fromEntries(Object.entries(got).filter(([l])=>byLabel[l]).map(([l,a])=>[byLabel[l],a])),ELECTRON_MENU(mac),'native menu accelerators == registry ELECTRON_MENU');
  // Role items (Cut/Copy/Paste/Select All, Quit/Close, Minimize, full screen) keep their native accelerators; none of
  // them is a registry combo at F1a (F5's Cmd/Ctrl+C/V must resolve this, see the handoff).

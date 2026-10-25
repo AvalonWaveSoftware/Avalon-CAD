@@ -71,7 +71,7 @@ export function jsJobs(native){
    if(kind==='place')result=native.place_object(job.object,job.position,field(job,'floor',false));
    else if(kind==='groundProject')result=native.ground_project(job.project);
    else if(kind==='boolean')result=evaluateBoolean(job);
-   else{const model=buildModel(job.project,field(job,'tolerance',.15),kind==='preview');result=native.finish_result(model,kind,field(job,'ground',true));}
+   else{const model=buildModel(job.project,field(job,'tolerance',.15),kind==='preview');result=native.finish_result(model,kind,field(job,'ground',true),field(job,'format','stl'));}
    return native.response(result,field(job,'id'),kind);
   }catch(error){return native.error_response(field(job,'id'),String(error));}
  }

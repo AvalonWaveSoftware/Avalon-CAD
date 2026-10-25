@@ -13,7 +13,7 @@ const sheet=async(page,open)=>{await open();await page.waitForFunction(()=>!docu
 const close=async page=>{if(await page.evaluate(()=>!document.querySelector('#sheet').hidden)){await page.click('#closeSheet');await page.waitForFunction(()=>document.querySelector('#sheet').hidden);}};
 const bytes=async(page,run)=>{await page.evaluate(()=>window.savedFile=null);await run();await page.waitForFunction(()=>window.savedFile?.done,null,{timeout:60000});
  return page.evaluate(()=>window.savedFile.chunks.join('|'));};
-const backup=page=>bytes(page,()=>page.evaluate(()=>window.__cad.commands.run('backup')));
+const backup=page=>bytes(page,()=>page.evaluate(()=>{window.__cad.commands.run('backup');}));// F2a: saveFile now awaits the native-saved callback this fake Android never sends
 const stl=page=>bytes(page,async()=>{await sheet(page,()=>page.click('#exportBtn'));await page.click('#downloadSTL');});
 const project=page=>page.evaluate(()=>JSON.stringify(window.__cad.project));
 const drag=page=>page.evaluate(()=>[...document.querySelector('#dragStep').options].map(o=>[o.value,o.textContent]));

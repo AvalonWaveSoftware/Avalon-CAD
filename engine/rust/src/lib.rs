@@ -1,13 +1,14 @@
-//! Local, allocation-bounded mesh preparation and binary STL encoding.
+//! Local, allocation-bounded mesh preparation, binary STL and 3MF encoding.
 //! The ABI consumes borrowed buffers and writes caller-owned result buffers.
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::slice;
 mod threads;
+mod three_mf;
 
 #[no_mangle]
-pub extern "C" fn engine_version() -> u32 { 3 }
+pub extern "C" fn engine_version() -> u32 { 4 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mesh_alloc(bytes: usize) -> *mut u8 {
@@ -16,6 +17,12 @@ pub unsafe extern "C" fn mesh_alloc(bytes: usize) -> *mut u8 {
         Ok(layout) => alloc_zeroed(layout),
         Err(_) => std::ptr::null_mut(),
     }
+}
+
+/// Frees a byte buffer that an encoder returned (`encode_3mf`): `ptr`/`len` exactly as reported.
+#[no_mangle]
+pub unsafe extern "C" fn free_bytes(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() { drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len))); }
 }
 
 #[no_mangle]
@@ -224,6 +231,82 @@ pub unsafe extern "C" fn encode_stl(
         }}
     }
     0
+}
+
+/// ADR-0001 F2a (ABI v4): the 3MF package of the same mesh `encode_stl` writes (same vertices and grounding).
+/// `level` is the DEFLATE level (0-10); `limit` caps the package size in bytes. On success `result[0]` is a
+/// pointer to the package and `result[1]` its length; the caller frees it with `free_bytes`.
+/// Codes: 1 null pointer, 2 invalid mesh, 3 no triangles, 4 larger than `limit`, 5 compressor or memory failure.
+#[no_mangle]
+pub unsafe extern "C" fn encode_3mf(
+    vp: *const f32, nv: usize, tp: *const u32, nt: usize,
+    ground: u32, level: u32, limit: usize, result: *mut usize,
+) -> i32 {
+    if result.is_null() {return 1;}
+    let result=slice::from_raw_parts_mut(result,2);result[0]=0;result[1]=0;
+    if nt==0 {return 3;}
+    if vp.is_null() || tp.is_null() {return 1;}
+    let v=slice::from_raw_parts(vp,nv);let t=slice::from_raw_parts(tp,nt);
+    if !valid(v,t) || level>10 {return 2;}
+    match three_mf::encode(v,t,ground!=0,level as u8,limit) {
+        Ok(bytes) => {
+            // The package buffer itself goes to JS (no second copy); JS frees it with free_bytes.
+            let bytes=std::mem::ManuallyDrop::new(bytes.into_boxed_slice());
+            result[0]=bytes.as_ptr() as usize;result[1]=bytes.len();0
+        }
+        Err(code) => code,
+    }
+}
+
+/// ADR-0001 F2a option A, step 1 (on the geometry worker): validates the export mesh exactly as `encode_3mf` does and
+/// writes the grounding offset (min Z, or 0 when `ground` is 0) the parts are encoded with. Codes as `encode_3mf`.
+#[no_mangle]
+pub unsafe extern "C" fn prepare_3mf(vp: *const f32, nv: usize, tp: *const u32, nt: usize, ground: u32, min_z: *mut f64) -> i32 {
+    if min_z.is_null() {return 1;}
+    if nt==0 {return 3;}
+    if vp.is_null() || tp.is_null() {return 1;}
+    let v=slice::from_raw_parts(vp,nv);let t=slice::from_raw_parts(tp,nt);
+    if !valid(v,t) {return 2;}
+    *min_z=three_mf::min_z(v,ground!=0);0
+}
+
+/// Step 2 (on a pool worker): part `k` of `parts` (= three_mf::parts_for(total triangles): 1 or PARTS), given only its
+/// own records (sliced with `three_mf::part_range`, from a mesh `prepare_3mf` accepted). On success
+/// `result` = [pointer, length, text CRC-32, text size]; free the bytes with `free_bytes`.
+#[no_mangle]
+pub unsafe extern "C" fn encode_3mf_part(vp: *const f32, nv: usize, tp: *const u32, nt: usize, min_z: f64, k: u32, parts: u32, level: u32, result: *mut usize) -> i32 {
+    if result.is_null() {return 1;}
+    let result=slice::from_raw_parts_mut(result,4);result.fill(0);
+    if (nv>0 && vp.is_null()) || (nt>0 && tp.is_null()) {return 1;}
+    let (k,n)=(k as usize,parts as usize);
+    if (n!=1 && n!=three_mf::PARTS) || k>=n || level>10 || nv%3!=0 || nt%3!=0 || (n>1 && ((k<4 && nt>0) || (k>=4 && nv>0))) || !min_z.is_finite() {return 2;}
+    let v=if nv>0 {slice::from_raw_parts(vp,nv)} else {&[]};let t=if nt>0 {slice::from_raw_parts(tp,nt)} else {&[]};
+    if v.iter().any(|x|!x.is_finite()) {return 2;}
+    let mut out=Vec::with_capacity(nv*8+nt*4+64);
+    match three_mf::deflate_part(&mut out,v,t,min_z,k,n,level as u8,usize::MAX,0) {
+        Ok((crc,size)) => {
+            if size>u32::MAX as u64 {return three_mf::TOO_LARGE;}
+            let bytes=std::mem::ManuallyDrop::new(out.into_boxed_slice());
+            result[0]=bytes.as_ptr() as usize;result[1]=bytes.len();result[2]=crc as usize;result[3]=size as usize;0
+        }
+        Err(code) => code,
+    }
+}
+
+/// Step 3: the zip frame for `parts` parts (1 or PARTS), `dlen` = their byte lengths summed, `meta` = `parts` pairs of
+/// (text CRC-32, text size). frame[..split] + the parts' bytes in order + frame[split..] = the same bytes as `encode_3mf`.
+/// `result` = [pointer, length, split]; free with `free_bytes`.
+#[no_mangle]
+pub unsafe extern "C" fn package_3mf(dlen: usize, meta: *const u32, parts: u32, level: u32, limit: usize, result: *mut usize) -> i32 {
+    if result.is_null() || meta.is_null() {return 1;}
+    let result=slice::from_raw_parts_mut(result,3);result[0]=0;result[1]=0;result[2]=0;
+    if level>10 || (parts!=1 && parts as usize!=three_mf::PARTS) {return 2;}
+    let m=slice::from_raw_parts(meta,2*parts as usize);
+    let parts:Vec<(u32,u64)>=m.chunks_exact(2).map(|p|(p[0],p[1] as u64)).collect();
+    match three_mf::frame(dlen,&parts,level as u8,limit) {
+        Ok((bytes,split)) => {let bytes=std::mem::ManuallyDrop::new(bytes.into_boxed_slice());result[0]=bytes.as_ptr() as usize;result[1]=bytes.len();result[2]=split;0}
+        Err(code) => code,
+    }
 }
 
 #[cfg(test)]

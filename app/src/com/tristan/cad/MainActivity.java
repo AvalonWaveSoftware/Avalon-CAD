@@ -8,6 +8,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.util.Base64;
+import android.util.Log;
+import android.os.SystemClock;
 import android.view.View;
 import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
@@ -34,6 +36,7 @@ public class MainActivity extends Activity {
     private FileOutputStream stagingStream;
     private String outputName,outputMime;
     private boolean exportError=false, awaitingSave=false;
+    private volatile long stageAt=0,pickerAt=0;
     private final ExecutorService files=Executors.newSingleThreadExecutor();
     private static final int SAVE=40,OPEN=41,MAX_FILE=50*1024*1024;
     private static final String ORIGIN="appassets.androidplatform.net";
@@ -98,10 +101,14 @@ public class MainActivity extends Activity {
             if(android.os.Build.VERSION.SDK_INT>=29&&web.getWebViewRenderProcess()!=null)web.getWebViewRenderProcess().terminate();
         });}
         // END TEST_RENDERER_CRASH_HOOK
+        // ADR-0001 F2a option B (debug, no UI): one logcat line per export, tag AvalonExport; the page logs its
+        // [Avalon export] line here too so QA can read both with `adb logcat -s AvalonExport`.
+        @JavascriptInterface public void log(String line){if(line!=null)Log.i("AvalonExport",line.length()>4000?line.substring(0,4000):line);}
         @JavascriptInterface public synchronized void beginFile(String name,String mime){
+            stageAt=SystemClock.elapsedRealtime();
             exportError=false;
             if(awaitingSave){exportError=true;notice("Finish saving the previous file first.",true);return;}
-            try{closeStage();stagingFile=File.createTempFile("cad-export-",".tmp",getCacheDir());stagingStream=new FileOutputStream(stagingFile);outputName=name.replaceAll("[^a-zA-Z0-9._-]","_");outputMime=("model/stl".equals(mime)?"model/stl":"application/json");}catch(IOException e){exportError=true;notice("Could not prepare the export.",true);}
+            try{closeStage();stagingFile=File.createTempFile("cad-export-",".tmp",getCacheDir());stagingStream=new FileOutputStream(stagingFile);outputName=name.replaceAll("[^a-zA-Z0-9._-]","_");outputMime=("model/stl".equals(mime)||"model/3mf".equals(mime)?mime:"application/json");}catch(IOException e){exportError=true;notice("Could not prepare the export.",true);}
         }
         @JavascriptInterface public synchronized void appendFile(String data){
             if(exportError||stagingStream==null)return;
@@ -111,19 +118,23 @@ public class MainActivity extends Activity {
             if(exportError||stagingStream==null)return;
             try{stagingStream.close();stagingStream=null;}catch(IOException e){notice("Could not finish export.",true);closeStage();return;}
             awaitingSave=true;
-            runOnUiThread(()->{try{Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType(outputMime);i.putExtra(Intent.EXTRA_TITLE,outputName);startActivityForResult(i,SAVE);}catch(Exception e){awaitingSave=false;notice("The Android file picker could not open.",true);closeStage();}});
+            runOnUiThread(()->{pickerAt=SystemClock.elapsedRealtime();try{Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType(outputMime);i.putExtra(Intent.EXTRA_TITLE,outputName);startActivityForResult(i,SAVE);}catch(Exception e){awaitingSave=false;notice("The Android file picker could not open.",true);closeStage();}});
         }
         @JavascriptInterface public void openFile(){runOnUiThread(()->{try{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");startActivityForResult(i,OPEN);}catch(Exception e){notice("The Android file picker could not open.",true);}});}
     }
     private synchronized void closeStage(){if(stagingStream!=null)try{stagingStream.close();}catch(Exception ignored){}stagingStream=null;if(stagingFile!=null)stagingFile.delete();stagingFile=null;}
+    private void saved(String json){Log.i("AvalonExport","[Avalon export native] "+json);runOnUiThread(()->{if(!isDestroyed())web.evaluateJavascript("window.nativeSaved&&window.nativeSaved("+json+")",null);});}
     private void notice(String message,boolean error){runOnUiThread(()->{if(!isDestroyed())web.evaluateJavascript("window.nativeNotice&&window.nativeNotice("+JSONObject.quote(message)+","+error+")",null);});}
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(request==SAVE){
             if(!awaitingSave||stagingFile==null)return;
-            if(result!=RESULT_OK||data==null||data.getData()==null){awaitingSave=false;closeStage();notice("Save canceled. Your model is still open.",false);return;}
-            final Uri uri=data.getData();final File source=stagingFile;
-            files.execute(()->{try(InputStream in=new FileInputStream(source);OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();byte[] buf=new byte[32768];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);out.flush();notice("File saved. You can open it from My Files.",false);}catch(Exception e){notice("Could not save the file. Try another folder.",true);}finally{closeStage();awaitingSave=false;}});
+            final long confirmAt=SystemClock.elapsedRealtime(),stageMs=pickerAt-stageAt,pickerMs=confirmAt-pickerAt;
+            if(result!=RESULT_OK||data==null||data.getData()==null){awaitingSave=false;closeStage();saved("{\"canceled\":true}");notice("Save canceled. Your model is still open.",false);return;}
+            final Uri uri=data.getData();final File source=stagingFile;final long size=source.length();
+            files.execute(()->{try(InputStream in=new FileInputStream(source);OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();byte[] buf=new byte[32768];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);out.flush();out.close();
+                saved("{\"stageMs\":"+stageMs+",\"pickerMs\":"+pickerMs+",\"writeMs\":"+(SystemClock.elapsedRealtime()-confirmAt)+",\"bytes\":"+size+"}");notice("File saved. You can open it from My Files.",false);}
+              catch(Exception e){saved("{\"error\":true}");notice("Could not save the file. Try another folder.",true);}finally{closeStage();awaitingSave=false;}});
         }else if(request==OPEN&&result==RESULT_OK&&data!=null&&data.getData()!=null){
             final Uri uri=data.getData();
             files.execute(()->{try{String name="model.stl";try(Cursor c=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)){if(c!=null&&c.moveToFirst())name=c.getString(0);}

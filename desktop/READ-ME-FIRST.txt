@@ -20,7 +20,7 @@ Click a face or edge. Double-click a face for the whole shape; triple-click an e
 Cmd+O: Open a project, prefab or STL.
 Cmd+S: Save a named project on this Mac.
 Cmd+Shift+S: Export an editable .tcad backup.
-Cmd+E: Export STL.
+Cmd+E: Export (STL or 3MF).
 Cmd+Z / Cmd+Shift+Z: Undo/redo.
 Cmd+Shift+A: Primitive Objects. Cmd+0: Fit view.
 Escape: Close panel or clear selection.

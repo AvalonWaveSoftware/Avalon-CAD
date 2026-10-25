@@ -73,7 +73,8 @@ function menus() {
     {label: 'Open project / prefab / STL…', accelerator: 'CmdOrCtrl+O', click: invoke('open')},
     {label: isMac ? 'Save project on this Mac' : 'Save project on this computer', accelerator: 'CmdOrCtrl+S', click: invoke('save')},
     {label: 'Export editable project…', accelerator: 'CmdOrCtrl+Shift+S', click: invoke('backup')},
-    {label: 'Export STL…', accelerator: 'CmdOrCtrl+E', click: invoke('export')},
+    {label: 'Export…', accelerator: 'CmdOrCtrl+E', click: invoke('export')},
+    {label: 'Export 3MF…', click: invoke('export3mf')},
     {type: 'separator'}, isMac ? {role: 'close'} : {role: 'quit'}
   ]};
   const template = [
@@ -196,10 +197,13 @@ else {
       if (dialogBusy) return {canceled: true};
       const payload = exportPayload(value); dialogBusy = true;
       try {
-        const selected = await dialog.showSaveDialog(window, {title: 'Save ' + payload.name, defaultPath: path.join(app.getPath('documents'), payload.name), filters: [{name: payload.extension === '.stl' ? 'STL model' : 'Avalon CAD editable file', extensions: [payload.extension.slice(1)]}], properties: ['createDirectory', 'showOverwriteConfirmation']});
+        // ADR-0001 F2a option B: the dialog (user time) and the write are timed for the [Avalon export] debug line.
+        const dialogAt = Date.now();
+        const selected = await dialog.showSaveDialog(window, {title: 'Save ' + payload.name, defaultPath: path.join(app.getPath('documents'), payload.name), filters: [{name: payload.extension === '.stl' ? 'STL model' : payload.extension === '.3mf' ? '3MF model' : 'Avalon CAD editable file', extensions: [payload.extension.slice(1)]}], properties: ['createDirectory', 'showOverwriteConfirmation']});
         if (selected.canceled || !selected.filePath) return {canceled: true};
+        const writeAt = Date.now();
         await writeModel(selected.filePath, payload.bytes);
-        return {canceled: false, name: path.basename(selected.filePath)};
+        return {canceled: false, name: path.basename(selected.filePath), timing: {dialogMs: Math.round(writeAt - dialogAt), writeMs: Math.round(Date.now() - writeAt)}};
       } finally { dialogBusy = false; }
     });
     // ADR-0001 (C): Undo-history spill files (temp dir, swept now and removed on quit).

@@ -3,11 +3,13 @@ const path = require('node:path');
 const {randomUUID} = require('node:crypto');
 const MAX_BYTES = 50 * 1024 * 1024;
 const allowedExtensions = new Set(['.stl', '.tcad', '.avprefab', '.json']);
+// ADR-0001 F2a: 3MF can be saved (export). Opening .3mf stays refused until 3MF import (F2b) exists.
+const exportExtensions = new Set([...allowedExtensions, '.3mf']);
 
 function exportPayload(value) {
   if (!value || typeof value.name !== 'string' || value.name.length > 160 || !value.name.length || path.basename(value.name) !== value.name || /[\x00-\x1f/\\]/.test(value.name)) throw Error('Invalid export filename.');
   const extension = path.extname(value.name).toLowerCase();
-  if (!allowedExtensions.has(extension)) throw Error('Choose an STL, project or prefab file.');
+  if (!exportExtensions.has(extension)) throw Error('Choose an STL, project or prefab file.');
   const bytes = value.bytes;
   if (!ArrayBuffer.isView(bytes) && !(bytes instanceof ArrayBuffer)) throw Error('Invalid file data.');
   if (bytes.byteLength > MAX_BYTES) throw Error('Files are limited to 50 MB.');
@@ -57,4 +59,4 @@ function spillStore(dir) {
   };
 }
 
-module.exports = {MAX_BYTES, allowedExtensions, exportPayload, readModel, writeModel, spillStore};
+module.exports = {MAX_BYTES, allowedExtensions, exportExtensions, exportPayload, readModel, writeModel, spillStore};

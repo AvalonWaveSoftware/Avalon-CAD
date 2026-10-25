@@ -1,6 +1,6 @@
 {
- "note": "Approved pixel areas for in-flight, unmerged changes only (ADR-0001 ruling, 2026-10-17): boxes approve PIXELS only, every DOM/string difference fails. An entry is removed once its change is in a baseline. F6 (round-chamfer-dropdown: [data-mode=round], #edgeToolMenu, sheet-radius-menu #sheet p.subtle) was removed when perf-baseline-release-3.0-6892eb7 (a full render of 6892eb7) became the baseline. Format: {baseline: <baseline folder name>, box: <selector>, overlay: <selector|null>, scenes: {<scene>: [<selector>...]}}; pixels.mjs applies it only when basename(AVALON_PIXEL_BASELINE) equals baseline. DOM entries (ADR-0001 approved-dom-areas): \"dom\" is a list of {scene: scene name, capture id or \"*\", selector, kind: attribute name or \"text\", expected: the exact new value, approval: commit or ruling}. A DOM change in a capture passes only when an entry matches it exactly (scene, element matches selector, same kind, new value === expected); every other DOM change, every aria-label/role change without its own entry and every computed-style/box change fails. Selectors: one complex selector of tag/#id/.class/[attr=value] compounds joined by \" \" or \">\", whose last compound has an #id, .class or [attr=value]; no \"*\", lists, pseudo-classes, \"+\"/\"~\", presence or partial attribute matches, or bare tags (tests/perf/approved-dom.mjs). expected must be a string in the baseline's strings-baseline.json or tests/perf/strings-additions.json (checked at load). Like the boxes, entries are for in-flight, unmerged changes only: an entry is removed when its change merges and the baseline rolls forward.",
- "baseline": "perf-baseline-release-3.0-6892eb7",
+ "note": "Approved pixel areas for in-flight, unmerged changes only (ADR-0001 ruling, 2026-10-17): boxes approve PIXELS only, every DOM/string difference fails. An entry is removed once its change is in a baseline. F6 (round-chamfer-dropdown: [data-mode=round], #edgeToolMenu, sheet-radius-menu #sheet p.subtle) was removed when perf-baseline-release-3.0-6892eb7 (a full render of 6892eb7) became the baseline. Format: {baseline: <baseline folder name>, box: <selector>, overlay: <selector|null>, scenes: {<scene>: [<selector>...]}}; pixels.mjs applies it only when basename(AVALON_PIXEL_BASELINE) equals baseline. DOM entries (ADR-0001 approved-dom-areas): \"dom\" is a list of {scene: scene name, capture id or \"*\", selector, kind: attribute name or \"text\", expected: the exact new value, approval: commit or ruling}. A DOM change in a capture passes only when an entry matches it exactly (scene, element matches selector, same kind, new value === expected); every other DOM change, every aria-label/role change without its own entry and every computed-style/box change fails. Selectors: one complex selector of tag/#id/.class/[attr=value] compounds joined by \" \" or \">\", whose last compound has an #id, .class or [attr=value]; no \"*\", lists, pseudo-classes, \"+\"/\"~\", presence or partial attribute matches, or bare tags (tests/perf/approved-dom.mjs). expected must be a string in the baseline's strings-baseline.json or tests/perf/strings-additions.json (checked at load). Like the boxes, entries are for in-flight, unmerged changes only: an entry is removed when its change merges and the baseline rolls forward. export-3mf (ADR-0001 F2a, NOT merged into release-3.0; HELD): the Export sheet's new File format field (c60c94c; Architect ruling 2, 19:55 CT) reflows the sheet below it, so the approved area is the sheet panel (#sheet) in the sheet-export scenes only (box null = no global box; every other scene is strict). Pixels only: the sheet-export DOM still differs (the new field) and fails as ruled; QA re-captures sheet-export@phone/desktop (Master Chief approval). Remove this entry when F2a is in a baseline.",
+ "baseline": "perf-baseline-release-3.0-6e08e75",
  "box": "#desktopHelp",
  "overlay": null,
  "scenes": {
@@ -8,6 +8,9 @@
    "#sheet"
   ],
   "sheet-edit-object": [
+   "#sheet"
+  ],
+  "sheet-export": [
    "#sheet"
   ]
  },
@@ -347,6 +350,72 @@
    "kind": "text",
    "expected": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
    "approval": "Android safety stages (pending Master Chief)"
+  },
+  {
+   "scene": "sheet-export@phone",
+   "selector": "#sheetContent>div.field>label[for=\"exportFormat\"]",
+   "kind": "for",
+   "expected": "exportFormat",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@phone",
+   "selector": "#sheetContent>div.field>label[for=\"exportFormat\"]",
+   "kind": "text",
+   "expected": "File format",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@phone",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.field>select#quality",
+   "newSelector": "#exportFormat",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@phone",
+   "selector": "#exportFormat",
+   "kind": "added",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@phone",
+   "selector": "#sheetContent>div.field",
+   "kind": "added",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT (the separate quality block)"
+  },
+  {
+   "scene": "sheet-export@desktop",
+   "selector": "#sheetContent>div.field>label[for=\"exportFormat\"]",
+   "kind": "for",
+   "expected": "exportFormat",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@desktop",
+   "selector": "#sheetContent>div.field>label[for=\"exportFormat\"]",
+   "kind": "text",
+   "expected": "File format",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@desktop",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.field>select#quality",
+   "newSelector": "#exportFormat",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@desktop",
+   "selector": "#exportFormat",
+   "kind": "added",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@desktop",
+   "selector": "#sheetContent>div.field",
+   "kind": "added",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT (the separate quality block)"
   }
  ]
 }
