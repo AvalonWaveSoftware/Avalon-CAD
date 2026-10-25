@@ -1,7 +1,7 @@
 // ADR-0001 approved-dom-areas: unit tests for tests/perf/approved-dom.mjs (the "dom" entries of approved-areas.json
 // used by tests/pixels.mjs). Runs domChanges in a blank Chromium page; no app, no baseline folder is written.
 import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
-import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn,regionDiff} from './perf/png.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions,correctionSource,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds,domSnapshot} from './perf/dom-baseline.mjs';
+import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn,regionDiff} from './perf/png.mjs';import {compareDom,compareStrings,stripComments,extractStrings,extractFrom,validateAdditions,correctionSource,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds,domSnapshot} from './perf/dom-baseline.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const STR=new Set(['Edge (F)','Move (M)','Project menu','Ready · millimeters','Fit model (0)']);
 const E=(o)=>({scene:'*',kind:'title',approval:'test',...o});
@@ -63,7 +63,18 @@ const S=approvedStrings(tmp,add);assert.ok(S.has('Base string')&&S.has('Added st
  for(const [src,css,re] of [["a=1;\n/* open",false,/unterminated \/\* comment at 2:1/],["x{content:'open}",true,/unterminated string at 1:11/],["a=1;\nb='open\n",false,/unterminated string at 2:3/],["t=`open",false,/unterminated template literal at 1:3/],["a=(/open\n)",false,/unterminated regex literal .* at 1:4/],["a{} /* open",true,/unterminated \/\* comment at 1:5/]])
   assert.throws(()=>stripComments(src,{line:!css}),re,'throws: '+JSON.stringify(src));
  // at this tree: the comment-only string is gone from the extracted set, the UI error text is still there
- const S=new Set(extractStrings());assert.ok(!S.has('The modeling engine could not start'));assert.ok(S.has('The modeling engine could not start. Close and reopen the app.'));}
+ const S=new Set(extractStrings());assert.ok(!S.has('The modeling engine could not start'));assert.ok(S.has('The modeling engine could not start. Close and reopen the app.'));
+ // batch-3.0b (QA S6): the prefix-test rule, exactly. A .startsWith( literal is left out only when another string starts
+ // with it, an .endsWith( literal only when another string ends with it; everything else is still extracted.
+ {const X=src=>new Set(extractFrom([['web/x.mjs',src]]));
+  let S=X("const m='Hollow is not offered for this shape.';if(why.startsWith('Hollow is not offered'))f();");assert.ok(S.has('Hollow is not offered for this shape.')&&!S.has('Hollow is not offered'),'startsWith fragment of a full message: left out');
+  S=X("const m='Saved to disk.';if(t.endsWith('to disk.'))f();");assert.ok(!S.has('to disk.'),'endsWith fragment (suffix): left out');
+  S=X("const m='Saved to disk.';if(t.startsWith('to disk.'))f();");assert.ok(S.has('to disk.'),'startsWith literal that is only a suffix: still extracted');
+  S=X("if(why.startsWith('Hollow is not offered'))f();");assert.ok(S.has('Hollow is not offered'),'unmatched prefix literal: still extracted (and gated)');
+  S=X("const m='Hollow is not offered for this shape.';if(why.includes('Hollow is not offered'))f();");assert.ok(S.has('Hollow is not offered'),'includes( is not a prefix test');
+  S=X("const a='Hollow is not offered';const m='Hollow is not offered for this shape.';");assert.ok(S.has('Hollow is not offered'),'a plain literal is never dropped, even as a prefix');
+  S=X("if(u.startsWith( 'Wall thickness must'))g();const w='Wall thickness must be at least 0.4 mm.';");assert.ok(!S.has('Wall thickness must'),'whitespace after ( still counts');}
+ }
 
 // 7. Runtime texts in strings-additions.json and extractor corrections (ADR-0001 rulings; QA pre-review notes).
 {const R=fs.mkdtempSync(path.join(os.tmpdir(),'ada-repo-'));fs.mkdirSync(path.join(R,'web'));
