@@ -216,7 +216,7 @@
   "This measurement needs CAD faces or edges.",
   "Measure the whole object for finished edges.",
   "T Measure",
-  {"text": "Measure (T)", "runtime": true, "source": "web/tooltips.mjs:19", "approval": "F1e measure tooltip = label + ' (' + shortcut + ')' (pending Master Chief)"}
+  {"text": "Measure (T)", "runtime": true, "source": "web/tooltips.mjs:19", "approval": "F1e measure tooltip = label + ' (' + shortcut + ')' (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"}
  ],
  "removals": [
   {
