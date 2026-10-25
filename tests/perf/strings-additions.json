@@ -292,7 +292,23 @@
   "Rename group",
   "Group name",
   "Invalid object groups.",
-  "Select at least two objects."
+  "Select at least two objects.",
+  "Drag a ring to rotate · Snap on turns in 15° steps · hold Shift to turn freely",
+  "Rotation applied.",
+  "R Rotate",
+  "mode:rotate",
+  {
+   "text": "Rotate Z 15°",
+   "runtime": true,
+   "source": "web/touch-tools.mjs:168",
+   "approval": "ADR-0001 F3 rotate handles: live drag readout, Rotate ${axis} ${deg}°"
+  },
+  {
+   "text": "Rotate (R)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "ADR-0001 F3 rotate handles: tooltip = label + ' (' + shortcut + ')'"
+  }
  ],
  "removals": [
   {

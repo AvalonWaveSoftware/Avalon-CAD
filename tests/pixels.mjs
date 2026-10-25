@@ -218,6 +218,9 @@ const scenes={
   // are held (see open()), so release them and wait for the hide before the undo capture.
   await p.locator('#undo').click();await idle(p);await p.evaluate(()=>window.__pixelRelease());await p.waitForFunction(()=>document.querySelector('#liveMeasure')?.hidden!==false,null,{timeout:5000});await p.evaluate(()=>window.__pixelRehold());await s('undo');
   await p.locator('#redo').click();await idle(p);await s('redo');},
+ // ADR-0001 F3 §5.4: Rotate mode on the plate, its three world-axis rings round the selection centre (no drag; the readout
+ // and snapped turns are covered by tests/rotate-handles-ui.mjs).
+ 'rotate-rings':async(p,s)=>{await loadTemplate(p,'plate');await H.tap(p,'select',[[0,0,6]]);await p.evaluate(()=>window.__cad.touch.setMode('rotate'));await idle(p);await s();},
 };
 // ADR unified-desktop-layout (Architect ruling 5): AVALON_PIXEL_MASK_BASE=<pre-change baseline> additionally checks
 // every capture against that baseline with only the help line approved to change: every pixel outside the help line's

@@ -16,11 +16,17 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  const fit=await page.evaluate(()=>{const b=document.querySelector('[data-mode=round]'),r=document.createRange(),cs=getComputedStyle(b);r.selectNodeContents(b);return {label:b.textContent,text:r.getBoundingClientRect().width,inner:b.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight),lines:r.getClientRects().length,textH:r.getBoundingClientRect().height,lineH:parseFloat(cs.lineHeight)||parseFloat(cs.fontSize)*1.4,overflow:b.scrollWidth>b.clientWidth||b.scrollHeight>b.clientHeight,h:b.getBoundingClientRect().height};});
  assert.equal(fit.label,'Edge ▾',name+': Edge ▾ label');assert.ok(fit.lines===1&&fit.textH<=fit.lineH+0.5&&fit.text<=fit.inner&&!fit.overflow&&Math.abs(fit.h-37)<=0.5,name+': Edge ▾ fits its reserved box on one line '+JSON.stringify(fit));
  if(name==='phone-360x800')assert.ok(fit.inner-fit.text>=0,'360 px: Edge ▾ has no wrap and no clipping');
- const st=await page.evaluate(()=>['#rotateMode'].map(s=>{const e=document.querySelector(s),c=getComputedStyle(e);return [c.visibility,e.tabIndex,e.getAttribute('aria-hidden'),!!e.dataset.mode,typeof e.onclick==='function'];}));
+ const st=await page.evaluate(()=>[].map(s=>{const e=document.querySelector(s),c=getComputedStyle(e);return [c.visibility,e.tabIndex,e.getAttribute('aria-hidden'),!!e.dataset.mode,typeof e.onclick==='function'];}));
+// F3 (rotate-handles): the live Rotate button (the reserved #rotateMode itself, made live with data-mode rotate) takes the
+// same cell, with exactly the reserved box; Mirror (F4) is live too, so no reserved slot is left here.
  for(const s of st)assert.deepEqual(s,['hidden',-1,'true',false,false],name+': reserved button hidden, unfocusable, inert');
- // A tap on a reserved slot changes nothing: the mode stays Select.
- const r=EXPECTED[name].rotateMode;await page.mouse.click(r[0]+r[2]/2,r[1]+r[3]/2);
- assert.equal(await page.evaluate(()=>window.__cad.touch.getState().mode),'select');
+ // batch-3.0 on 6ccc903: Mirror (F4) and Rotate (F3) are both live, so no reserved slot is left to tap.
+ // F3: Rotate is live in its cell: visible, focusable, one line inside the box at every size (360 px included), and a tap
+ // enters Rotate mode.
+ const rot=await page.evaluate(()=>{const b=document.querySelector('#rotateMode'),c=getComputedStyle(b),g=document.createRange();g.selectNodeContents(b);return {label:b.textContent,vis:c.visibility,tab:b.tabIndex,aria:b.getAttribute('aria-hidden'),mode:b.dataset.mode,text:g.getBoundingClientRect().width,inner:b.clientWidth-parseFloat(c.paddingLeft)-parseFloat(c.paddingRight),lines:g.getClientRects().length,overflow:b.scrollWidth>b.clientWidth};});
+ assert.ok(rot.label==='Rotate'&&rot.vis==='visible'&&rot.tab===0&&rot.aria===null&&rot.mode==='rotate'&&rot.lines===1&&rot.text<=rot.inner&&!rot.overflow,name+': Rotate live and fits its box '+JSON.stringify(rot));
+ const q=EXPECTED[name].rotateMode;await page.mouse.click(q[0]+q[2]/2,q[1]+q[3]/2);assert.equal(await page.evaluate(()=>window.__cad.touch.getState().mode),'rotate',name+': Rotate tap');
+ await page.evaluate(()=>window.__cad.touch.setMode('select'));
  assert.equal(await page.evaluate(()=>document.querySelector('#exportBtn').textContent),'⇩Export');
  // F6 (Master Chief 18:35 CT): the Edge ▾ dropdown is an overlay: opening it moves no mode-bar box and keeps the label.
  const boxes=()=>page.evaluate(()=>[...document.querySelectorAll('#touchModes button'),document.querySelector('#measureBtn'),document.querySelector('#wire')].map(b=>{const r=b.getBoundingClientRect();return [r.x,r.y,r.width,r.height].join();}));
@@ -29,4 +35,4 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  assert.equal(await page.evaluate(()=>window.__cad.touch.getState().mode),'select',name+': opening the dropdown changes no mode');await page.keyboard.press('Escape');await page.locator('#edgeToolMenu').waitFor({state:'detached'});
  await ctx.close();}}
 finally{await env.close();}
-console.log('PASS: mode bar reserved layout at 4 sizes: 6 cells, Rotate/Mirror/ruler hidden and inert with boxes as reserved, Edge ▾ fits Round\'s box (one line at 360 px), dropdown open moves no box, dock reads Export');
+console.log('PASS: mode bar reserved layout at 4 sizes: 6 cells, Rotate and Mirror live in their reserved boxes, Edge ▾ fits Round\'s box (one line at 360 px), dropdown open moves no box, dock reads Export');

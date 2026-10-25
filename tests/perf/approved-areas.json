@@ -6,7 +6,8 @@
  "scenes": {
   "*": [
    "#measureBtn",
-   "#mirrorMode"
+   "#mirrorMode",
+   "#rotateMode"
   ],
   "edit-glyph": [
    "#sheet",
@@ -489,6 +490,22 @@
    "kind": "title",
    "expected": "Mirror",
    "approval": "Architect ruling 2026-10-25 07:58 CT (scoped approved area for a stage's own new control): F4 mirror mode button going live; scoped to #mirrorMode only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
+  },
+  {
+   "scene": "*",
+   "selector": "#rotateMode",
+   "kind": "unreserved",
+   "modes": ["rotate"],
+   "approval": "Architect rulings 2026-10-25 07:58/08:28/09:28 CT (scoped approved area for a stage's own new control): F3 Rotate mode button going live; scoped to #rotateMode only, phone and desktop; strings approved by Master Chief 08:14"
+  },
+  {
+   "scene": "*",
+   "selector": "#rotateMode",
+   "kind": "title",
+   "expected": "Rotate (R)",
+   "approval": "Architect rulings 2026-10-25 07:58/08:28/09:28 CT (scoped approved area for a stage's own new control): F3 Rotate mode button going live; scoped to #rotateMode only, phone and desktop; strings approved by Master Chief 08:14"
+  },
+  {
   }
  ]
 }

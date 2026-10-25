@@ -297,7 +297,7 @@ const commands=createCommands({
  ...Object.fromEntries(['3d','top','front','right'].map(v=>[`view:${v}`,{run:()=>document.querySelector(`[data-view="${v==='3d'?'iso':v}"]`).click()}])),
  // Modes run through their mode-bar button, so F follows whatever the Round button does (F6 turns it into the Edge ▾
  // dropdown opener; F then opens it with no change here, or F6 passes its own mode:round handler).
- ...Object.fromEntries(['select','move','stretch','round'].map(m=>[`mode:${m}`,{run:()=>document.querySelector(`[data-mode="${m}"]`).click()}])),
+ ...Object.fromEntries(['select','move','rotate','stretch','round'].map(m=>[`mode:${m}`,{run:()=>document.querySelector(`[data-mode="${m}"]`).click()}])),
  group:{run:()=>groupCommand('group'),enabled:()=>selection().length>1},ungroup:{run:()=>groupCommand('ungroup'),enabled:()=>!!rootGroup(project,current()?.groupId)},
  delete:{run:deleteSelected,enabled:()=>!!selection().length},duplicate:{run:()=>duplicateDraft(current()),enabled:()=>!!current()},
  escape:{run:()=>{if(measureTool?.close())return;if(!$('sheet').hidden)closeSheet();else touch.deselect();}}});
