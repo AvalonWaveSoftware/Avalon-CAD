@@ -27,6 +27,9 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private WebView web;
+    private FrameLayout root;
+    private long lastRendererCrash=-1;
+    private volatile boolean recoveryPending=false, recoveryBlank=false;
     private File stagingFile;
     private FileOutputStream stagingStream;
     private String outputName,outputMime;
@@ -43,18 +46,31 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         getWindow().setStatusBarColor(Color.rgb(16,25,31));
         getWindow().setNavigationBarColor(Color.rgb(16,25,31));
-        FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.rgb(16,25,31));
-        web=new WebView(this);web.setBackgroundColor(Color.rgb(16,25,31));
-        root.addView(web,new FrameLayout.LayoutParams(-1,-1));setContentView(root);
+        root=new FrameLayout(this);root.setBackgroundColor(Color.rgb(16,25,31));
+        setContentView(root);
         root.setOnApplyWindowInsetsListener((v,insets)->{
             if(android.os.Build.VERSION.SDK_INT>=30){android.graphics.Insets i=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());v.setPadding(i.left,i.top,i.right,i.bottom);}
             else v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());
             return insets.consumeSystemWindowInsets();
         });root.requestApplyInsets();
         readStartupFlags();
+        if(state!=null&&state.getString("pending")!=null){File pending=new File(getCacheDir(),state.getString("pending"));if(pending.isFile()){stagingFile=pending;outputName=state.getString("name");outputMime=state.getString("mime");awaitingSave=state.getBoolean("awaiting");}}
+        createWebView();
+    }
+    private void createWebView(){
+        web=new WebView(this);web.setBackgroundColor(Color.rgb(16,25,31));
+        root.addView(web,new FrameLayout.LayoutParams(-1,-1));root.requestApplyInsets();
         WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setCacheMode(parallelInit?WebSettings.LOAD_DEFAULT:WebSettings.LOAD_NO_CACHE);s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setAllowFileAccessFromFileURLs(false);s.setAllowUniversalAccessFromFileURLs(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setMediaPlaybackRequiresUserGesture(true);s.setSupportMultipleWindows(false);
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient(){
+            @Override public boolean onRenderProcessGone(WebView view,android.webkit.RenderProcessGoneDetail detail){
+                long now=android.os.SystemClock.elapsedRealtime();
+                recoveryBlank=lastRendererCrash>=0&&now-lastRendererCrash<=60000;
+                lastRendererCrash=now;recoveryPending=true;
+                synchronized(MainActivity.this){closeStage();outputName=null;outputMime=null;awaitingSave=false;exportError=false;}
+                root.removeView(view);view.removeJavascriptInterface("Android");view.destroy();
+                createWebView();return true;
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest request){return true;}
             @Override public WebResourceResponse shouldInterceptRequest(WebView v,WebResourceRequest request){
                 Uri uri=request.getUrl();
@@ -72,10 +88,16 @@ public class MainActivity extends Activity {
             }
         });
         web.addJavascriptInterface(new Bridge(),"Android");
-        if(state!=null&&state.getString("pending")!=null){File pending=new File(getCacheDir(),state.getString("pending"));if(pending.isFile()){stagingFile=pending;outputName=state.getString("name");outputMime=state.getString("mime");awaitingSave=state.getBoolean("awaiting");}}
         web.loadUrl("https://"+ORIGIN+"/assets/index.html");
     }
     class Bridge {
+        @JavascriptInterface public synchronized boolean recovered(){boolean value=recoveryPending;recoveryPending=false;return value;}
+        @JavascriptInterface public boolean recoveryBlank(){return recoveryBlank;}
+        // BEGIN TEST_RENDERER_CRASH_HOOK (removed from release source by build-apk.sh)
+        @JavascriptInterface public void debugCrashRenderer(){runOnUiThread(()->{
+            if(android.os.Build.VERSION.SDK_INT>=29&&web.getWebViewRenderProcess()!=null)web.getWebViewRenderProcess().terminate();
+        });}
+        // END TEST_RENDERER_CRASH_HOOK
         @JavascriptInterface public synchronized void beginFile(String name,String mime){
             exportError=false;
             if(awaitingSave){exportError=true;notice("Finish saving the previous file first.",true);return;}
@@ -98,6 +120,7 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(request==SAVE){
+            if(!awaitingSave||stagingFile==null)return;
             if(result!=RESULT_OK||data==null||data.getData()==null){awaitingSave=false;closeStage();notice("Save canceled. Your model is still open.",false);return;}
             final Uri uri=data.getData();final File source=stagingFile;
             files.execute(()->{try(InputStream in=new FileInputStream(source);OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException();byte[] buf=new byte[32768];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);out.flush();notice("File saved. You can open it from My Files.",false);}catch(Exception e){notice("Could not save the file. Try another folder.",true);}finally{closeStage();awaitingSave=false;}});

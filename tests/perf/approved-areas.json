@@ -333,6 +333,20 @@
    "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle",
    "hidden": true,
    "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "*",
+   "selector": "#toast",
+   "kind": "text",
+   "expected": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
+   "approval": "Android safety stages (pending Master Chief)"
+  },
+  {
+   "scene": "*",
+   "selector": "#toast",
+   "kind": "text",
+   "expected": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
+   "approval": "Android safety stages (pending Master Chief)"
   }
  ]
 }

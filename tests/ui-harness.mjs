@@ -12,7 +12,7 @@ export async function harness(){
  const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:process.cwd()+'/node_modules/pyodide/',pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
  await build({entryPoints:['web/main.mjs'],outfile:'build/test-panel-ui.js',bundle:true,format:'iife',platform:'browser',target:'chrome100',external:['manifold-3d','node:*'],define:{'import.meta.url':'"https://appassets.androidplatform.net/assets/main.js"'},plugins:[{name:'test-renderer',setup(b){b.onResolve({filter:/^three$/},args=>args.importer.endsWith('three-test.mjs')?null:{path:process.cwd()+'/tests/three-test.mjs'});}}]});
  const bundle=fs.readFileSync('build/test-panel-ui.js','utf8'),html=fs.readFileSync('web/index.html','utf8');
- async function boot(storage={},{fill=false,desktop=false}={}){
+ async function boot(storage={},{fill=false,desktop=false,android={}}={}){
   const dom=new JSDOM(html,{url:'https://appassets.androidplatform.net/assets/index.html',pretendToBeVisual:true,runScripts:'outside-only'}),w=dom.window;
   for(const [k,v] of Object.entries(storage))w.localStorage.setItem(k,v);
   // fill: pack localStorage to its quota so any further write throws (QuotaExceededError).
@@ -24,6 +24,7 @@ export async function harness(){
   w.Element.prototype.scrollIntoView=function(){scrolled.push(this.dataset?.row);};
   w.Worker=class {postMessage(input){posted.push(input.type);const data=structuredClone(input);setTimeout(()=>{try{const result=runtime.process(data);result.engine=runtime.info;shipTopologies(result);this.onmessage({data:result});}catch(e){this.onmessage({data:{id:data.id,error:e.message}})}},0)}};
   w.Android={beginFile(name,mime){w.testSaved={name,mime,chunks:[]}},appendFile(x){w.testSaved.chunks.push(x)},finishFile(){w.testSaved.done=true}};
+  if(android===null)delete w.Android;else Object.assign(w.Android,android);
   // desktop: stub the Electron bridge the way tests/desktop-runtime.mjs does.
   if(desktop){w.desktopActions=[];w.AvalonDesktop={platform:'mac',saveFile:async(bytes,name)=>({canceled:false,name}),openFile:async()=>({canceled:true}),onAction:fn=>w.desktopActions.push(fn),onFile:()=>{},onNotice:()=>{}};}
   w.eval(bundle);

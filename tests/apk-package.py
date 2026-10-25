@@ -14,7 +14,7 @@ PYTHON_ENTRIES = ['assets/python/pyodide.mjs', 'assets/python/pyodide.asm.js', '
 STORED_ASSETS = 'PARALLEL_INIT=true' in _FLAGS
 
 
-def check_apk(path):
+def check_apk(path, test_build=False):
     with ZipFile(path) as apk:
         names = apk.namelist()
         assert len(names) == len(set(names)), 'Duplicate APK entries'
@@ -24,6 +24,10 @@ def check_apk(path):
                      'assets/cad-kernel.wasm', 'assets/manifold.wasm',
                      'assets/mesh-core.wasm'] + PYTHON_ENTRIES:
             assert name in names, f'Missing required APK entry: {name}'
+        if not test_build:
+            for name in names:
+                if re.fullmatch(r'classes(?:\d+)?\.dex', name):
+                    assert b'debugCrashRenderer' not in apk.read(name), 'Release APK contains renderer crash hook'
         resources = apk.getinfo('resources.arsc')
         assert resources.compress_type == ZIP_STORED, (
             'Android API 30+ rejects compressed resources.arsc')
@@ -68,4 +72,6 @@ def check_apk(path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('apk', type=Path)
-    check_apk(parser.parse_args().apk)
+    parser.add_argument('--test-build', action='store_true')
+    args = parser.parse_args()
+    check_apk(args.apk, args.test_build)

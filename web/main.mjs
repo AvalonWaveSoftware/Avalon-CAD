@@ -33,6 +33,9 @@ if(window.AvalonDesktop)$('sheet').style.animation='none';
 let invalidate=()=>{},touch=null,prefabs=null,objectsPanel=null,smoothNewShapes=true,panelBusy=false,panelControls=[];
 try{smoothNewShapes=localStorage.getItem('tristancad.smoothNewShapes')!=='false';}catch(e){}
 let project={...blank(),buildPlaneEnabled:true},selected=null,history=[],future=[],dirty=false,model=null,previewId=0,sequence=0,wireframe=false,pickMeshes=[],overlay=new THREE.Group(),saved={},toastTimer,saveTimer;
+const recovered=typeof window.Android?.recovered==='function'&&window.Android.recovered(),blankRecovery=recovered&&window.Android.recoveryBlank?.();
+// Startup refresh/applyModel also autosave; keep the poisoned keys until an explicit model edit (any pushHistory: change, replace or touch record).
+let recoveryPaused=!!blankRecovery;
 const BACKUP='tristancad.autosave.v1-backup',pendingWarnings=[];
 // Every project load (autosave, saved list, import, __cad.load) migrates v1 → v2 before validation.
 // Undo/redo snapshots are already v2 and use validateProject directly.
@@ -40,7 +43,7 @@ function loadProject(raw){const warnings=[],p=validateProject(migrateProject(raw
 // Load order is deliberately split so a full localStorage can never stop the project or the saved list from loading.
 // A v1 autosave is copied to BACKUP before it can be overwritten; if that copy fails, autosave stays off (keepV1) so the original survives.
 let keepV3Backup=false,keepV1=false,v1Loaded=false,lastAutosaveWarning=0;const AUTOSAVE_REWARN_MS=60000;
-{const {raw,value,v3Backup}=readAutosave(localStorage);keepV3Backup=v3Backup;
+{const {raw,value,v3Backup}=blankRecovery?{}:readAutosave(localStorage);keepV3Backup=v3Backup;
  const v1=raw&&value?.version===1;let backedUp=false;
  if(v1){try{localStorage.setItem(BACKUP,raw);backedUp=true;}catch(e){console.warn(e);keepV1=true;pendingWarnings.push('Storage is full, so your older autosave could not be backed up. Autosave is paused to keep it; use Project → Export project or free space.');}}
  if(value){try{project=loadProject(value);v1Loaded=!!v1;}catch(e){console.warn(e);if(v1){keepV1=keepV1||!backedUp;const reason=String(e.message).replace(/[.\s]+$/,'');pendingWarnings.push(backedUp?'Your older autosave could not be opened ('+reason+'). A copy is kept under tristancad.autosave.v1-backup.':'Your older autosave could not be opened ('+reason+'). It was left untouched.');}}}
@@ -67,7 +70,7 @@ function autosavePaused(){autosaveMarker(true);const now=Date.now();if(now-lastA
 // WS11 (SHARED_HISTORY): the write runs in an idle callback, and is skipped when the project equals the last written one
 // (same snapshot) and storage still holds exactly those bytes; the key and JSON are unchanged.
 let saveIdle=null,savedSnap=null,savedJSON=null,savedKey=AUTOSAVE;
-function autosave(){if(touch?.isDragging()||touch?.isCommitting())return;clearTimeout(saveTimer);if(saveIdle!==null){cancelIdleCallback(saveIdle);saveIdle=null;}saveTimer=setTimeout(()=>{const write=()=>{saveIdle=null;if(touch?.isDragging()||touch?.isCommitting())return;if(keepV1){try{localStorage.setItem(BACKUP,localStorage.getItem('tristancad.autosave'));keepV1=false;}catch(e){autosavePaused();return;}}try{if(SHARED_HISTORY){const s=snapshot(project,savedSnap);if(s===savedSnap&&savedJSON!==null&&localStorage.getItem(savedKey)===savedJSON){dirty=false;autosaveMarker(false);return;}savedSnap=s;savedJSON=null;}const {key,json}=autosaveEntry(localStorage,project);localStorage.setItem(key,json);if(key===AUTOSAVE){if(!keepV3Backup)localStorage.removeItem(AUTOSAVE_V3);}else keepV3Backup=false;if(SHARED_HISTORY){savedJSON=json;savedKey=key;}dirty=false;autosaveMarker(false);}catch(e){savedSnap=null;savedJSON=null;toast('Autosave is full. Use Project → Export project to back up this model.',true);}};if(SHARED_HISTORY&&typeof requestIdleCallback==='function')saveIdle=requestIdleCallback(write,{timeout:1000});else write();},350);}
+function autosave(){if(recoveryPaused)return;if(touch?.isDragging()||touch?.isCommitting())return;clearTimeout(saveTimer);if(saveIdle!==null){cancelIdleCallback(saveIdle);saveIdle=null;}saveTimer=setTimeout(()=>{const write=()=>{saveIdle=null;if(touch?.isDragging()||touch?.isCommitting())return;if(keepV1){try{localStorage.setItem(BACKUP,localStorage.getItem('tristancad.autosave'));keepV1=false;}catch(e){autosavePaused();return;}}try{if(SHARED_HISTORY){const s=snapshot(project,savedSnap);if(s===savedSnap&&savedJSON!==null&&localStorage.getItem(savedKey)===savedJSON){dirty=false;autosaveMarker(false);return;}savedSnap=s;savedJSON=null;}const {key,json}=autosaveEntry(localStorage,project);localStorage.setItem(key,json);if(key===AUTOSAVE){if(!keepV3Backup)localStorage.removeItem(AUTOSAVE_V3);}else keepV3Backup=false;if(SHARED_HISTORY){savedJSON=json;savedKey=key;}dirty=false;autosaveMarker(false);}catch(e){savedSnap=null;savedJSON=null;toast('Autosave is full. Use Project → Export project to back up this model.',true);}};if(SHARED_HISTORY&&typeof requestIdleCallback==='function')saveIdle=requestIdleCallback(write,{timeout:1000});else write();},350);}
 // historySelection/futureSelection run parallel to history/future so Undo/Redo also restore the selection.
 let historySelection=[],futureSelection=[];
 // WS11: with SHARED_HISTORY entries are frozen snapshots sharing unchanged subtrees (web/history.mjs); a JSON string
@@ -76,7 +79,7 @@ let lastSnap=null;const snap=()=>SHARED_HISTORY?(lastSnap=snapshot(project,lastS
 // Undo still validates the restored copy: edits made through change() are not all validated, and validation
 // normalises them exactly as it did for the JSON string.
 const unsnap=e=>typeof e==='string'?validateProject(JSON.parse(e)):(lastSnap=e,validateProject(e,true));
-function pushHistory(entry,ids=null){history.push(entry);historySelection.push(ids);if(history.length>40){history.shift();historySelection.shift();}future=[];futureSelection=[];}
+function pushHistory(entry,ids=null){recoveryPaused=false;history.push(entry);historySelection.push(ids);if(history.length>40){history.shift();historySelection.shift();}future=[];futureSelection=[];}
 function restoreSelection(ids){const valid=(ids||[]).filter(id=>project.objects.some(o=>o.id===id));if(touch&&(valid.length>1||touch.multi().length))return touch.setMulti(valid);if(valid.length)selected=valid[0];if(!current())selected=null;}
 function checkpoint(){pushHistory(snap(),selection());dirty=true;}
 // Like change(), but clears the tool selection first while Undo still restores the selection from before.
@@ -243,6 +246,7 @@ window.handleBack=()=>{if(touch?.isCommitting()||panelBusy)return true;if(touch?
 touch=installTouch({canvas,scene,camera,controls,project:()=>project,current,selected:()=>selected,parts:()=>pickMeshes,select,refresh,request,change,autosave,dragVisual:()=>disposeGroup(overlay),record:before=>{pushHistory(before,selection());autosave();refreshLabels();},snapshot:snap,toast,openSheet,closeSheet,escape});
 prefabs=installPrefabs({project:()=>project,current,selection,parts:()=>pickMeshes,commit:(p,id)=>replaceProject(()=>{project=p;selected=id;}),editDraft:editMenu,place:o=>touch.placeNew(o),request,openSheet,closeSheet,escape,toast,saveFile,importDialog,lock:lockPanel});
 objectsPanel=installObjectsPanel({project:()=>project,selected:()=>selected,selection,select,toggleMulti:id=>touch.toggleMulti(id),deselect:()=>touch.deselect(),change,escape,editMenu:()=>editMenu(),addMenu,mergeMenu:ids=>touch.mergeMenu(ids),createPrefab:()=>prefabs.form({source:'selection'})});
+if(recovered)pendingWarnings.push(blankRecovery?'Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.':'Avalon CAD hit a problem and restarted. Your last autosave was reopened.');
 {const messages=pendingWarnings.splice(0);if(messages.length)toast(messages.join(' '),messages.length>1);}
 const layers=installLayerTools({project:()=>project,change,current,select,openSheet,closeSheet,escape,clear:()=>touch.deselect()});
 $('layersBtn').onclick=()=>{if(!touch.isDragging()&&!touch.isCommitting())layers.menu();};
@@ -292,6 +296,6 @@ if(window.AvalonDesktop){
  };
  AvalonDesktop.onAction(action);AvalonDesktop.onFile(file=>importDesktopFile(file).catch(e=>toast(e.message,true)));AvalonDesktop.onNotice(message=>toast(message,true));
  const updateHint=()=>{const label={select:'Click a face · double-click for the whole shape · click an edge to round · Ctrl/Shift-click to multi-select',move:'Drag the object or X/Y/Z handles · centers snap',stretch:'Click a face to pull · double-click for the whole shape',round:'Edge clicks: 1 edge · 2 face perimeter · 3 all edges · drag to round'}[touch.getState().mode];if($('touchHint').textContent!==label)$('touchHint').textContent=label;};
- const hintObserver=new MutationObserver(updateHint);hintObserver.observe($('touchHint'),{childList:true});window.addEventListener('beforeunload',()=>{if(keepV1){try{localStorage.setItem(BACKUP,localStorage.getItem('tristancad.autosave'));keepV1=false;}catch{return;}}try{writeAutosave(localStorage,JSON.parse(touch.snapshotForSave()),undefined,keepV3Backup);}catch{}});
+ const hintObserver=new MutationObserver(updateHint);hintObserver.observe($('touchHint'),{childList:true});window.addEventListener('beforeunload',()=>{if(recoveryPaused)return;if(keepV1){try{localStorage.setItem(BACKUP,localStorage.getItem('tristancad.autosave'));keepV1=false;}catch{return;}}try{writeAutosave(localStorage,JSON.parse(touch.snapshotForSave()),undefined,keepV3Backup);}catch{}});
  new MutationObserver(updateHint).observe($('touchModes'),{attributes:true,subtree:true});updateHint();
 }

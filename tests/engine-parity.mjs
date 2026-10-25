@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 // WS5 parity: the cached engine must give geometrically equal previews and byte-identical parts, checks and exports to a full rebuild. Each job is
 // compared with the same job after clearing every cache (a full rebuild) and, where the legacy JS builder applies, with
 // buildModel. Covers the fixtures and 500 seeded random edit sequences (move, rotate, resize, add, duplicate, delete,
@@ -13,15 +14,15 @@ import {ENGINE_CACHE,ENGINE_CACHE_MERGE} from '../web/perf-flags.mjs';
 import {corners} from './display-corners.mjs';
 // The reference is full-rebuild mode itself: a second engine loaded from a temporary copy of web/ with ENGINE_CACHE=false
 // (its own manifold instance, so its run IDs are independent).
-const offDir=new URL('./.engine-parity-off/',import.meta.url).pathname;fs.rmSync(offDir,{recursive:true,force:true});fs.cpSync('web',offDir+'web',{recursive:true});
+const offDir=fileURLToPath(new URL('./.engine-parity-off/',import.meta.url));fs.rmSync(offDir,{recursive:true,force:true});fs.cpSync('web',offDir+'web',{recursive:true});
 fs.writeFileSync(offDir+'web/perf-flags.mjs',fs.readFileSync(offDir+'web/perf-flags.mjs','utf8').replace('ENGINE_CACHE=true','ENGINE_CACHE=false'));
 process.on('exit',()=>fs.rmSync(offDir,{recursive:true,force:true}));
 const offKernel=await import(offDir+'web/kernel.mjs'),offEngine=await import(offDir+'web/local-engine.mjs');
 // The reference copy has its own glyph-geometry module instance; load its outlines too (the worker does this per job).
 await (await import(offDir+'web/glyph-geometry.mjs')).loadGlyphs();
 const K=await initKernel(),K0=await offKernel.initKernel();
-const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
-const reference=await offEngine.initLocalEngine(K0,{loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});assert.equal(reference.engineCache,null);
+const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:fileURLToPath(new URL('../node_modules/pyodide/',import.meta.url)),pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
+const reference=await offEngine.initLocalEngine(K0,{loadPyodide,pythonURL:fileURLToPath(new URL('../node_modules/pyodide/',import.meta.url)),pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});assert.equal(reference.engineCache,null);
 const cache=runtime.engineCache;if(!ENGINE_CACHE){assert.equal(cache,null);console.log('Engine parity skipped: ENGINE_CACHE is off');process.exit(0);}
 let id=0,jobs=0;const run=data=>runtime.process({id:++id,...data}),rebuild=data=>{const r=reference.process({id,...data});return r;};
 const KEYS=['vertices','triangles','flatTriangles','smoothingGroups','displayPositions','displayNormals','displayIndex','buffer'];
