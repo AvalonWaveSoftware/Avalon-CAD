@@ -213,6 +213,11 @@
    "source": "web/main.mjs:253",
    "approval": "export-3mf: id of the File format select, used by its <label for>; not shown text. export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
+  "Choose a mirror plane through the object center",
+  "YZ",
+  "XZ",
+  "Copy",
+  "Invalid mirror plane.",
   "Measure",
   "Point to point",
   "Face distance and angle",
@@ -227,7 +232,7 @@
   "This measurement needs CAD faces or edges.",
   "Measure the whole object for finished edges.",
   "T Measure",
-  {"text": "Measure (T)", "runtime": true, "source": "web/tooltips.mjs:19", "approval": "F1e measure tooltip = label + ' (' + shortcut + ')' (pending Master Chief)"}
+  {"text": "Measure (T)", "runtime": true, "source": "web/tooltips.mjs:19", "approval": "F1e measure tooltip = label + ' (' + shortcut + ')' (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"}
  ],
  "removals": [
   {

@@ -11,8 +11,8 @@ export function glyphDimensions(p){const m=GLYPH_METRICS.m[p.char],k=p.size/GLYP
  if(!(p.plate>0))return d;const g=p.plateMargin>0?2*p.plateMargin:0;return [d[0]+g,d[1]+g,p.engrave===true?p.plate:p.plate+p.depth];}
 export const axes=['X','Y','Z'];
 export function rotation(o){return new T.Euler(...o.rotation.map(T.MathUtils.degToRad),'ZYX');}
-export function matrix(o){return new T.Matrix4().compose(new T.Vector3(...o.position),new T.Quaternion().setFromEuler(rotation(o)),new T.Vector3(...(o.scale||[1,1,1])));}
-export function direction(o,axis,sign=1){const v=new T.Vector3();v.setComponent(axis,sign);return v.applyEuler(rotation(o));}
+export function matrix(o){return new T.Matrix4().compose(new T.Vector3(...o.position),new T.Quaternion().setFromEuler(rotation(o)),new T.Vector3(...(o.scale||[1,1,1])).multiply(new T.Vector3(o.mirrored?-1:1,1,1)));}
+export function direction(o,axis,sign=1){const v=new T.Vector3();v.setComponent(axis,sign*(axis===0&&o.mirrored?-1:1));return v.applyEuler(rotation(o));}
 function facetedBounds(o){const n=customFaces(o);if(!n||!['cylinder','cone','tube','sphere'].includes(o.type))return null;const p=o.params,r=Math.max(p.diameter,p.top||0)/2,pts=o.type==='sphere'?facetedSphere(n,p.diameter).flatMap(f=>f.points):Array.from({length:n},(_,i)=>[r*Math.cos(i*2*Math.PI/n),r*Math.sin(i*2*Math.PI/n),0]);const min=[0,1,2].map(i=>Math.min(...pts.map(a=>a[i]))),max=[0,1,2].map(i=>Math.max(...pts.map(a=>a[i])));if(o.type!=='sphere'){min[2]=-p.h/2;max[2]=p.h/2;}return {min,max};}
 export function dimensions(o){const p=o.params,s=o.scale||[1,1,1];let d;
  switch(o.type){case'threadrod':{const diameter=p.diameter-2*p.clearance;d=[diameter,diameter,p.h];break;}case'threadtube':d=[p.outer,p.outer,p.h];break;case'wedge':case'pyramid':case'box':case'rounded':case'triprism':d=[p.w,p.d,p.h];break;case'tetrahedron':case'octahedron':case'decahedron':case'dodecahedron':case'icosahedron':d=polyBounds(o.type,p);break;case'torus':d=[p.diameter,p.diameter,p.tube];break;case'glyph':d=glyphDimensions(p);break;case'cylinder':case'cone':case'tube':d=[Math.max(p.diameter,p.top||0),Math.max(p.diameter,p.top||0),p.h];break;case'sphere':d=[p.diameter,p.diameter,p.diameter];break;case'polygon':d=[Math.max(...p.points.map(a=>a[0]))-Math.min(...p.points.map(a=>a[0])),Math.max(...p.points.map(a=>a[1]))-Math.min(...p.points.map(a=>a[1])),p.h];break;default:{const b=o.localBounds;if(b)d=b.max.map((v,i)=>v-b.min[i]);else d=[1,1,1];}}
@@ -65,3 +65,14 @@ export function mergeResult(objects,id,bounds,cutouts=[],fillOverlaps=false){
  result.name='Merged solid';return result;
 }
 export function connectingBridges(objects,diameter,create){const result=[];for(let i=1;i<objects.length;i++){const a=new T.Vector3(...objects[0].position),b=new T.Vector3(...objects[i].position),v=b.clone().sub(a),length=v.length();if(length<.05)continue;const q=new T.Quaternion().setFromUnitVectors(new T.Vector3(0,0,1),v.normalize()),e=new T.Euler().setFromQuaternion(q,'ZYX'),o=create('cylinder',{diameter,h:length+diameter},a.add(b).multiplyScalar(.5).toArray(),'Connecting bridge');o.rotation=[e.x,e.y,e.z].map(T.MathUtils.radToDeg);o.layerId=layerOf(objects[0]);result.push(o);}return result;}
+
+// S R F is a proper rotation; the remaining local reflection toggles handedness.
+export function mirrorObject(o,plane,center=worldCenter(o)){
+ const axis={YZ:0,XZ:1,XY:2}[plane];if(axis===undefined)throw Error('Invalid mirror plane.');
+ const out=structuredClone(o),s=new T.Matrix4().makeScale(...[0,1,2].map(i=>i===axis?-1:1));
+ const r=s.multiply(new T.Matrix4().makeRotationFromEuler(rotation(o))).multiply(new T.Matrix4().makeScale(-1,1,1));
+ const e=new T.Euler().setFromRotationMatrix(r,'ZYX');out.rotation=[e.x,e.y,e.z].map(T.MathUtils.radToDeg);
+ out.position[axis]=2*center[axis]-out.position[axis];
+ if(out.placement)out.placement[axis]=2*center[axis]-out.placement[axis];
+ if(o.mirrored)delete out.mirrored;else out.mirrored=true;return out;
+}

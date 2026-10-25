@@ -84,8 +84,18 @@ export function validSelector(sel){
 // Reserved-slot ruling (Architect 2026-10-25, F1e measure): {scene, selector:'#id', kind:'unreserved', approval} approves
 // exactly the W0 reserved-slot markers coming off that one element when its feature goes live: class "pending" -> "",
 // data-pending removed, aria-hidden "true" removed, tabindex "-1" removed, data-mode added (a lowercase mode name,
-// for the mode-bar slots). Nothing else (its title/aria-label/children
-// need their own entries; its pixels need an approved area).
+// only for the mode-bar slots, and only the exact name(s) the entry lists in "modes": an entry with no "modes" allows
+// no data-mode at all, QA M3). Nothing else: its title/aria-label/children need their own entries, its pixels need an
+// approved area.
+// Style (QA M2): an unreserved match does NOT open the general style ruling for that element. On an element any
+// unreserved entry matched (even when a title/aria-label entry matched it too):
+//  - an inline style attribute change fails;
+//  - a computed-style change passes ONLY when it follows from the allowed marker changes: checkCapture puts the matched
+//    marker changes back on the LIVE element (class "pending", aria-hidden "true", tabindex "-1", data-pending, data-mode
+//    removed), recomputes the element's non-layout computed-style hash exactly as dom-baseline.mjs does, restores the
+//    element, and passes the change only when that hash equals the baseline's. In the app the only rule involved is
+//    .pending{visibility:hidden;pointer-events:none}, so in practice exactly visibility and pointer-events may change;
+//  - a box-only change (same computed style) passes only when the old and new boxes lie inside an approved pixel area.
 export function validKind(kind){if(kind==='text'||kind==='added'||kind==='replaced'||kind==='unreserved')return null;if(typeof kind!=='string'||!/^[a-z][a-z0-9-]*$/.test(kind))return 'kind must be "text" or an attribute name';if(kind==='style'||kind==='class')return `kind "${kind}" is not approvable`;return null;}
 // Strings an entry may expect: the active baseline's strings-baseline.json and tests/perf/strings-additions.json (plain
 // strings and runtime texts; the file is validated, so a bad runtime entry fails here too).
@@ -102,7 +112,8 @@ export function loadDomEntries(list,strings){
    for(const k of ['selector','expected'])if(k in e)bad.push(`${at}: a "replaced" entry takes oldSelector/newSelector, not "${k}"`);
    for(const k of ['oldSelector','newSelector']){const v=validSelector(e[k]);if(v)bad.push(`${at}: invalid ${k}: ${v}`);}return;}
   for(const k of ['scene','selector','kind','approval'])if(typeof e[k]!=='string'||!e[k])bad.push(`${at}: "${k}" must be a non-empty string`);
-  if(e.kind==='unreserved'){if('expected' in e)bad.push(`${at}: an "unreserved" entry takes no "expected"`);if(!/^#[A-Za-z][\w-]*$/.test(e.selector||''))bad.push(`${at}: an "unreserved" selector must be one #id`);if(e.hidden)bad.push(`${at}: "unreserved" cannot be hidden`);}
+  if(e.kind==='unreserved'){if('expected' in e)bad.push(`${at}: an "unreserved" entry takes no "expected"`);if(!/^#[A-Za-z][\w-]*$/.test(e.selector||''))bad.push(`${at}: an "unreserved" selector must be one #id`);if(e.hidden)bad.push(`${at}: "unreserved" cannot be hidden`);if('modes' in e&&!(Array.isArray(e.modes)&&e.modes.length&&e.modes.every(m=>typeof m==='string'&&/^[a-z]+$/.test(m))))bad.push(`${at}: "modes" must be a non-empty list of lowercase mode names`);}
+  else if('modes' in e)bad.push(`${at}: only an "unreserved" entry takes "modes"`);
   else if(!added&&typeof e.expected!=='string')bad.push(`${at}: "expected" must be a string`);
   if(added&&e.expected!=null&&typeof e.expected!=='string')bad.push(`${at}: "expected" (optional for added) must be a string`);
   const s=validSelector(e.selector);if(s)bad.push(`${at}: invalid selector: ${s}`);
@@ -129,7 +140,7 @@ export function loadDomEntries(list,strings){
   else if(!twins.some(v=>v.approval===e.approval))bad.push(`${at}: approval must equal the visible entry's approval (${twins.map(v=>JSON.stringify(v.approval)).join(' or ')})`);});
  if(bad.length)throw Error('approved-areas.json dom entries rejected:\n  '+bad.join('\n  '));
  const hid=e=>e.hidden===true?{hidden:true,regionFrom:e.regionFrom}:{};
- return list.map(e=>e.kind==='replaced'?{scene:e.scene,kind:'replaced',oldSelector:e.oldSelector,newSelector:e.newSelector,approval:e.approval,...hid(e)}:({scene:e.scene,selector:e.selector,kind:e.kind,expected:e.expected??null,approval:e.approval,...hid(e)}));}
+ return list.map(e=>e.kind==='replaced'?{scene:e.scene,kind:'replaced',oldSelector:e.oldSelector,newSelector:e.newSelector,approval:e.approval,...hid(e)}:({scene:e.scene,selector:e.selector,kind:e.kind,expected:e.expected??null,approval:e.approval,...(Array.isArray(e.modes)?{modes:[...e.modes]}:{}),...hid(e)}));}
 // Runs IN THE PAGE: page.evaluate(domChanges,[base,now,ctx]); base/now = {html,styles,split?} snapshots, ctx = {entries,
 // scene, id, areas: [selector...]} (areas are measured in the live page). Parses both bodies, aligns elements (children by
 // tag#id, LCS) and lists every change as matched or unmatched.
@@ -172,9 +183,9 @@ export function domChanges([base,now,ctx]){
  const hidRec=(e,container)=>({approval:e.approval,hidden:{container,regionFrom:e.regionFrom}});
  const ZERO_WHY='zero-size (0Ã—0) element: never inside a visible area; only a hidden entry can approve it';
 const HIDDEN_WHY='hidden entry, but the container is rendered (no ancestor is 0Ã—0 in both captures, or the element itself is drawn)';
- const matchedEls=new Set(),hiddenMatched=new Map(),styleAttr=[];
+ const matchedEls=new Set(),hiddenMatched=new Map(),styleAttr=[],unres=new Map();out.unreservedStyle=[];
  for(const c of changes){if(c.kind==='style'){styleAttr.push(c);continue;}
-  {const u=c.el&&entries.find(e=>e.kind==='unreserved'&&sceneOk(e)&&c.el.matches(e.selector)&&((c.kind==='class'&&c.old==='pending'&&c.now==='')||(c.kind==='data-pending'&&typeof c.old==='string'&&c.now===null)||(c.kind==='aria-hidden'&&c.old==='true'&&c.now===null)||(c.kind==='tabindex'&&c.old==='-1'&&c.now===null)||(c.kind==='data-mode'&&c.old===null&&typeof c.now==='string'&&/^[a-z]+$/.test(c.now))));if(u){matchedEls.add(c.el);out.matched.push(rec(c,{approval:u.approval}));continue;}}const v=c.kind==='text'&&typeof c.now==='string'?c.now.trim():c.now;
+  {const u=c.el&&entries.find(e=>e.kind==='unreserved'&&sceneOk(e)&&c.el.matches(e.selector)&&((c.kind==='class'&&c.old==='pending'&&c.now==='')||(c.kind==='data-pending'&&typeof c.old==='string'&&c.now===null)||(c.kind==='aria-hidden'&&c.old==='true'&&c.now===null)||(c.kind==='tabindex'&&c.old==='-1'&&c.now===null)||(c.kind==='data-mode'&&c.old===null&&typeof c.now==='string'&&Array.isArray(e.modes)&&e.modes.includes(c.now))));if(u){unres.has(c.el)||unres.set(c.el,{selector:u.selector,approval:u.approval,reverts:[]});unres.get(c.el).reverts.push([c.kind,c.old]);out.matched.push(rec(c,{approval:u.approval}));continue;}}const v=c.kind==='text'&&typeof c.now==='string'?c.now.trim():c.now;
   const fits=e=>e.kind!=='added'&&e.kind!=='replaced'&&sceneOk(e)&&e.kind===c.kind&&e.expected===v&&c.el.matches(e.selector);
   const he=c.el&&typeof c.now==='string'?entries.find(e=>e.hidden&&fits(e)):null,hc=he&&hidPaired(c.el);
   if(he&&hc){matchedEls.add(c.el);hiddenMatched.set(c.el,he);out.matched.push(rec(c,hidRec(he,hc)));continue;}
@@ -190,7 +201,7 @@ const HIDDEN_WHY='hidden entry, but the container is rendered (no ancestor is 0Ã
  const styleMatch=(c,b,extra)=>{if(styleOk(b)){out.matched.push(rec(c,{approval:'style of an element matched by an approved DOM entry, inside an approved pixel area'}));return true;}
   const h=styleHidden(b);if(h){const e=hiddenMatched.get(b);out.matched.push(rec(c,{approval:'style of an element matched by a hidden entry ('+e.approval+'), in a non-rendered container',hidden:{container:h,regionFrom:e.regionFrom}}));return true;}return false;};
  const styleWhy=b=>!matchedEls.has(b)?'style change on an element no approved entry matched':!(bs?.box&&ns?.box)?'no style/box split data':(zero(boxA(pairOf.get(b)))||zero(boxB(b)))?ZERO_WHY:'style change outside the approved areas';
- for(const c of styleAttr)if(!styleMatch(c,c.el))out.unmatched.push(rec(c,{why:styleWhy(c.el)}));
+ for(const c of styleAttr){if(unres.has(c.el)){out.unmatched.push(rec(c,{why:'inline style change on an unreserved element (not one of the allowed marker changes)'}));continue;}if(!styleMatch(c,c.el))out.unmatched.push(rec(c,{why:styleWhy(c.el)}));}
  // Replaced ruling: a removed element passes only when a "replaced" entry pairs it (old element matches oldSelector in the
  // baseline) with a new element matching newSelector that was added under the same parent in this capture. Each new
  // element pairs once. The new element itself still needs its own "added" entry (below).
@@ -219,15 +230,17 @@ const HIDDEN_WHY='hidden entry, but the container is rendered (no ancestor is 0Ã
  // accepted added elements, the new side of replaced pairs). An element inside such a container whose box moved with the
  // SAME size, the same computed style and the same layout values passes when every such moved element in that container
  // moved by the same (dx, dy), on screen or scrolled off. Any size, style or layout change, or a non-uniform offset, fails.
- const anchors=[...matchedEls,...acceptedAdded,...usedNew],containers=[...new Set(anchors.map(x=>x.parentElement).filter(x=>x&&x!==B&&x.tagName!=='HTML'))];
+ const anchors=[...matchedEls,...unres.keys(),...acceptedAdded,...usedNew],containers=[...new Set(anchors.map(x=>x.parentElement).filter(x=>x&&x!==B&&x.tagName!=='HTML'))];
  const containerOf=b=>{let best=null;for(const c of containers)if(c!==b&&c.contains(b)&&(!best||best.contains(c)))best=c;return best;};
  const offsets=new Map();
  for(const [a,b] of pairs){const pa=pathOf(a,A),pb=pathOf(b,B),x=base.styles[pa],y=now.styles[pb];if(x===y)continue;
   const c={path:pb,kind:'computed style/box',old:x??null,now:y??null};
   if(!bs?.style||!ns?.style||bs.style[pa]==null||ns.style[pb]==null){out.unmatched.push(rec(c,{why:'no style/box split data'}));continue;}
   if(bs.style[pa]!==ns.style[pb]){const cs={...c,kind:'computed style'};
+   if(unres.has(b)){const u=unres.get(b);out.unreservedStyle.push({change:rec(cs),selector:u.selector,approval:u.approval,reverts:u.reverts,baseStyle:bs.style[pa],nowStyle:ns.style[pb]});continue;}
    if(!styleMatch(cs,b))out.unmatched.push(rec(cs,matchedEls.has(b)?{why:styleWhy(b)}:{}));continue;}
   const ob=bs.box[pa],nb=ns.box[pb],cb={...c,kind:'box',old:ob,now:nb};
+  if(unres.has(b)){if(inside(ob)&&inside(nb))out.matched.push(rec(cb,{approval:'box of an unreserved element, inside an approved pixel area'}));else out.unmatched.push(rec(cb,{why:'box change of an unreserved element outside the approved areas'}));continue;}
   if(matchedEls.has(b)){out.matched.push(rec(cb,{approval:'box of an element matched by an approved DOM entry'}));continue;}
   if(inside(ob)&&inside(nb)){out.matched.push(rec(cb,{approval:'box inside an approved pixel area'}));continue;}
   const C=containerOf(b),same=ob&&nb&&!zero(ob)&&!zero(nb)&&Math.abs(ob[2]-nb[2])<=EPS&&Math.abs(ob[3]-nb[3])<=EPS&&bs.layout?.[pa]!=null&&bs.layout[pa]===ns.layout?.[pb];
@@ -237,6 +250,17 @@ const HIDDEN_WHY='hidden entry, but the container is rendered (no ancestor is 0Ã
   for(const {cb} of list)if(uni)out.matched.push(rec(cb,{approval:`uniform offset (${+dx.toFixed(3)}, ${+dy.toFixed(3)}) in the container of an approved element`}));else out.unmatched.push(rec(cb,{why:'offset not uniform within the container'}));}
  return out;}
 export const fmtChange=c=>`${c.hidden?'[hidden] ':''}${c.kind} at ${c.path}: ${JSON.stringify(c.old)} â†’ ${JSON.stringify(c.now)}${c.why?' ('+c.why+')':''}`.slice(0,300);
+// Runs IN THE PAGE. The element's non-layout computed-style hash (dom-baseline.mjs domSnapshot split.style: sorted
+// property names, LAYOUT excluded, #toast display skipped, sha-256 hex first 16) now and with the reverts applied
+// ([kind, old]: old null = remove the attribute), then the element's attributes are restored exactly.
+export async function unreservedStyleHash({selector,reverts}){
+ const e=document.querySelector(selector);if(!e)return {error:`no live element ${selector}`};
+ const LAYOUT=new Set(['width','height','inline-size','block-size','top','right','bottom','left','inset-block-start','inset-block-end','inset-inline-start','inset-inline-end','transform-origin','perspective-origin']);
+ const enc=new TextEncoder(),hex=async s=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(s)))].map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,16);
+ const style=()=>{const cs=getComputedStyle(e),names=[];for(let i=0;i<cs.length;i++)names.push(cs[i]);names.sort();let sv='';for(const k of names){if(k==='display'&&e.id==='toast')continue;if(!LAYOUT.has(k))sv+=k+':'+cs.getPropertyValue(k)+';';}return sv;};
+ const saved=e.getAttributeNames().map(n=>[n,e.getAttribute(n)]),now=await hex(style());
+ try{for(const [k,old] of reverts)old===null?e.removeAttribute(k):e.setAttribute(k,old);return {now,reverted:await hex(style())};}
+ finally{for(const n of e.getAttributeNames())e.removeAttribute(n);for(const [n,v] of saved)e.setAttribute(n,v);}}
 // One capture. page = a Playwright page (domChanges runs in it); base/now = snapshots; splitRef = an optional capture of
 // the baseline's own build with split data, used only when the baseline snapshot has none and the reference's html and
 // combined styles are identical to the baseline's. Returns {matched, unmatched, errors}; errors are the old messages
@@ -250,6 +274,14 @@ export async function checkCapture(page,{name,id,base,now,entries,areas=[],split
  // area) in its container's region, which is the container's box (same path) in the BASELINE snapshot of regionFrom
  // (its split data, or the split reference's when that is the same state). If the region cannot be determined, or the
  // pixels cannot be read, the matches fail and the capture gets an error naming why.
+ // Unreserved style ruling (QA M2, see the comment at validKind): verify each computed-style change on an unreserved
+ // element by putting its matched marker changes back on the live element and comparing the recomputed style hash.
+ for(const u of res.unreservedStyle||[]){const h=await page.evaluate(unreservedStyleHash,{selector:u.selector,reverts:u.reverts});
+  if(h.error)res.unmatched.push({...u.change,why:'unreserved element: cannot verify the style change: '+h.error});
+  else if(h.now!==u.nowStyle)res.unmatched.push({...u.change,why:'unreserved element: the live element no longer has the captured style'});
+  else if(h.reverted===u.baseStyle)res.matched.push({...u.change,approval:'style change caused only by the unreserved marker changes (reverting them restores the baseline computed style) ('+u.approval+')'});
+  else res.unmatched.push({...u.change,why:'unreserved element: computed-style change beyond the allowed marker changes'});}
+ delete res.unreservedStyle;
  const hidErrors=[];
  {const groups=new Map();for(const m of res.matched)if(m.hidden){const k=m.hidden.container+'|'+m.hidden.regionFrom;if(!groups.has(k))groups.set(k,[]);groups.get(k).push(m);}
   for(const [k,ms] of groups){const [container,regionFrom]=k.split('|');let why=null;

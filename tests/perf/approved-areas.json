@@ -5,7 +5,8 @@
  "overlay": null,
  "scenes": {
   "*": [
-   "#measureBtn"
+   "#measureBtn",
+   "#mirrorMode"
   ],
   "edit-glyph": [
    "#sheet",
@@ -451,27 +452,43 @@
    "scene": "*",
    "selector": "#measureBtn",
    "kind": "unreserved",
-   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings pending Master Chief)"
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
   },
   {
    "scene": "*",
    "selector": "#measureBtn",
    "kind": "aria-label",
    "expected": "Measure",
-   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings pending Master Chief)"
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
   },
   {
    "scene": "*",
    "selector": "#measureBtn",
    "kind": "title",
    "expected": "Measure (T)",
-   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings pending Master Chief)"
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
   },
   {
    "scene": "*",
    "selector": "#measureBtn>svg[aria-hidden=\"true\"]",
    "kind": "added",
-   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings pending Master Chief)"
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
+  },
+  {
+   "scene": "*",
+   "selector": "#mirrorMode",
+   "kind": "unreserved",
+   "approval": "Architect ruling 2026-10-25 07:58 CT (scoped approved area for a stage's own new control): F4 mirror mode button going live; scoped to #mirrorMode only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)",
+   "modes": [
+    "mirror"
+   ]
+  },
+  {
+   "scene": "*",
+   "selector": "#mirrorMode",
+   "kind": "title",
+   "expected": "Mirror",
+   "approval": "Architect ruling 2026-10-25 07:58 CT (scoped approved area for a stage's own new control): F4 mirror mode button going live; scoped to #mirrorMode only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
   }
  ]
 }

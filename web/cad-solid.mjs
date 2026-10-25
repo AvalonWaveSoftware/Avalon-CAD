@@ -125,6 +125,7 @@ function fullShape(o) {
  if(o.scale?.some(v=>Math.abs(v-1)>1e-8))throw Error('A scaled compound uses mesh editing. Round its component shapes before conjoining.');
  const s=baseShape(o),edges=s.edges;let r;
  try{r=applyFillets(s,o.fillets,edges);}finally{edges.forEach(dispose);dispose(s);}
+ if(o.mirrored)r=r.mirror('YZ');
  if(o.rotation?.some(v=>v)){for(let i=0;i<3;i++)if(o.rotation[i]){const dir=[0,0,0];dir[i]=1;r=r.rotate(o.rotation[i],[0,0,0],dir);}}
  if(o.position)r=r.translate(o.position);return r;
 }

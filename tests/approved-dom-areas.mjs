@@ -1,7 +1,7 @@
 // ADR-0001 approved-dom-areas: unit tests for tests/perf/approved-dom.mjs (the "dom" entries of approved-areas.json
 // used by tests/pixels.mjs). Runs domChanges in a blank Chromium page; no app, no baseline folder is written.
 import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
-import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn,regionDiff} from './perf/png.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions,correctionSource,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds} from './perf/dom-baseline.mjs';
+import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn,regionDiff} from './perf/png.mjs';import {compareDom,compareStrings,stripComments,extractStrings,validateAdditions,correctionSource,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds,domSnapshot} from './perf/dom-baseline.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const STR=new Set(['Edge (F)','Move (M)','Project menu','Ready · millimeters','Fit model (0)']);
 const E=(o)=>({scene:'*',kind:'title',approval:'test',...o});
@@ -383,5 +383,50 @@ try{const page=await browser.newPage();
    r=await chk(ob,nb,[E({selector:'#hd',kind:'text',expected:'Dims · millimeters'})],['#area']);
    assert.deepEqual([r.unmatched.map(c=>c.path+': '+c.why),r.matched.filter(c=>/uniform offset/.test(c.approval)).map(c=>c.path)],[['div#app:0>div#sc:0>div#f2:2: '+ZW],['div#app:0>div#sc:0>div#f1:1']],'a 0×0 element never passes as a uniform offset');}
   await page.evaluate(()=>document.getElementById('hdrA').remove());}
+ // 9. "unreserved" (QA M2/M3, 2026-10-25): real computed styles from domSnapshot on live pages. The only stylesheet rule
+ // tied to the markers is the app's .pending{visibility:hidden;pointer-events:none}.
+ {const CSS='.pending{visibility:hidden;pointer-events:none}#area{position:absolute;left:0;top:0;width:400px;height:200px}button{position:absolute;left:10px;top:10px}';
+  const BODY=b=>`<div id="area"></div>${b}<button id="other" class="pending" aria-hidden="true" tabindex="-1">O</button>`;
+  // served from an https origin: crypto.subtle (the style hash) needs a secure context, as the app's http://localhost has
+  let doc='';await page.route('https://unreserved.test/**',rt=>rt.fulfill({contentType:'text/html',body:doc}));
+  const cap=async(body,extra='')=>{doc=`<html><head><style>${CSS}${extra}</style></head><body>${BODY(body)}</body></html>`;await page.goto('https://unreserved.test/');return domSnapshot(page);};
+  const base=await cap('<button id="m" class="pending" aria-hidden="true" tabindex="-1" data-pending="F1e">M</button>');
+  const U={scene:'*',selector:'#m',kind:'unreserved',approval:'u'},UM={...U,modes:['mirror']};
+  const go=async(body,entries,extra)=>{const now=await cap(body,extra);return checkCapture(page,{name:'s',id:'s@desktop',base,now,entries,areas:['#area'],compareDom});};
+  const LIVE='<button id="m" class="">M</button>';
+  // positive: the four markers come off; the visibility/pointer-events change is verified by reverting them on the live element
+  let r=await go(LIVE,[U]);
+  assert.deepEqual(r.unmatched.map(fmtChange),[],'unhiding passes');assert.deepEqual(r.matched.map(c=>c.kind).sort(),['aria-hidden','class','computed style','data-pending','tabindex'],'4 markers + the derived style');
+  assert.match(r.matched.find(c=>c.kind==='computed style').approval,/caused only by the unreserved marker changes/);
+  assert.equal(await page.evaluate(()=>document.getElementById('m').outerHTML),LIVE,'the live element is restored exactly');
+  // negative: a stylesheet change on top of the unhiding (not caused by a marker) fails
+  r=await go(LIVE,[U],'#m{color:red}');assert.deepEqual(r.unmatched.map(c=>c.kind+': '+c.why),['computed style: unreserved element: computed-style change beyond the allowed marker changes'],'extra computed style fails');
+  // … even when a title entry also matched the element (no general style ruling for unreserved elements)
+  r=await go('<button id="m" class="" title="Mirror">M</button>',[U,E({selector:'#m',expected:'Mirror'})],'#m{font-weight:700}');assert.deepEqual(r.unmatched.map(c=>c.kind),['computed style'],'title match does not widen it');
+  r=await go('<button id="m" class="" title="Mirror">M</button>',[U,E({selector:'#m',expected:'Mirror'})]);assert.deepEqual(r.unmatched.length,0,'title + unhide alone passes');
+  // negative: an inline style attribute fails even if the computed style comes out equal
+  r=await go('<button id="m" class="" style="color:canvastext">M</button>',[U]);assert.ok(r.unmatched.some(c=>c.kind==='style'&&/inline style change on an unreserved element/.test(c.why)),'inline style fails');
+  // negative: half-unhidden (class stays pending) still fails nothing extra, but a different class value fails
+  r=await go('<button id="m" class="primary">M</button>',[U]);assert.ok(r.unmatched.some(c=>c.kind==='class'),'class pending→primary fails');
+  r=await go('<button id="m" class="" aria-hidden="false">M</button>',[U]);assert.ok(r.unmatched.some(c=>c.kind==='aria-hidden'),'aria-hidden→false fails');
+  r=await go('<button id="m" class="" tabindex="0">M</button>',[U]);assert.ok(r.unmatched.some(c=>c.kind==='tabindex'),'tabindex→0 fails');
+  // the same unhiding on an element the entry does not name fails, markers and style
+  r=await go('<button id="m" class="pending" aria-hidden="true" tabindex="-1" data-pending="F1e">M</button>'.replace('id="other"',''),[U]);assert.equal(r.unmatched.length,0,'no change, nothing to report');
+  {const now=await cap('<button id="m" class="pending" aria-hidden="true" tabindex="-1" data-pending="F1e">M</button>');now.html=now.html.replace('<button id="other" class="pending" aria-hidden="true" tabindex="-1">','<button id="other" class="">');
+   const rr=await checkCapture(page,{name:'s',id:'s@desktop',base,now,entries:[U],areas:['#area'],compareDom});assert.deepEqual(rr.unmatched.map(c=>c.kind).sort(),['aria-hidden','class','tabindex'],'other element fails');}
+  // data-mode per id (M3): none without "modes"; only the listed names with it
+  r=await go('<button id="m" class="" data-mode="measure">M</button>',[U]);assert.deepEqual(r.unmatched.map(c=>c.kind),['data-mode'],'no modes: data-mode fails');
+  r=await go('<button id="m" class="" data-mode="mirror">M</button>',[UM]);assert.deepEqual(r.unmatched.length,0,'listed mode passes');
+  r=await go('<button id="m" class="" data-mode="round">M</button>',[UM]);assert.deepEqual(r.unmatched.map(c=>c.kind),['data-mode'],'unlisted mode fails');
+  // loader: "modes" must be a non-empty list of lowercase names, and only on "unreserved"
+  for(const bad of [{...U,modes:[]},{...U,modes:['Mirror']},{...U,modes:'mirror'},{...U,modes:['a b']}])assert.throws(()=>loadDomEntries([bad],STR),/"modes" must be/,'bad modes '+JSON.stringify(bad.modes));
+  assert.throws(()=>loadDomEntries([E({selector:'#projectMenu',expected:'Project menu',modes:['x']})],STR),/only an "unreserved" entry takes "modes"/);
+  assert.doesNotThrow(()=>loadDomEntries([UM,U],STR));
+  // the loader keeps "modes" (pixels.mjs only sees loaded entries): a loaded entry still passes its listed mode
+  {const [LM,LU]=loadDomEntries([UM,U],STR);assert.deepEqual([LM.modes,'modes' in LU],[['mirror'],false],'loader keeps modes');
+   r=await go('<button id="m" class="" data-mode="mirror">M</button>',[LM]);assert.deepEqual(r.unmatched.length,0,'loaded entry: listed mode passes');}
+  // live element missing: the derived style cannot be verified, so it fails
+  {const now=await cap(LIVE);await page.setContent('<div id="area" style="position:absolute;left:0;top:0;width:400px;height:200px"></div>');
+   const rr=await checkCapture(page,{name:'s',id:'s@desktop',base,now,entries:[U],areas:['#area'],compareDom});assert.ok(rr.unmatched.some(c=>/cannot verify the style change: no live element #m/.test(c.why)),'missing live element fails');}}
 }finally{await browser.close();}
-console.log('PASS approved-dom-areas: selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor; box on matched element / inside area pass, outside fails, style change fails, added inside passes / outside / wrong text fail, removed fails; runtime texts and extractor corrections validated');
+console.log('PASS approved-dom-areas: unreserved kind (markers only, derived style verified by revert, data-mode per id), selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor; box on matched element / inside area pass, outside fails, style change fails, added inside passes / outside / wrong text fail, removed fails; runtime texts and extractor corrections validated');

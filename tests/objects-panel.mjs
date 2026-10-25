@@ -12,7 +12,7 @@ assert.deepEqual(qa('#objectsList [data-row]').map(r=>r.dataset.row),expected);f
 function tapScreen(point,mods={}){const at=tool.pointScreen(point);for(const type of ['pointerdown','pointerup']){const ev=new w.MouseEvent(type,{clientX:at[0],clientY:at[1],bubbles:true,cancelable:true,...mods});Object.defineProperty(ev,'pointerId',{value:1});Object.defineProperty(ev,'pointerType',{value:'mouse'});$('scene').dispatchEvent(ev);}}
 w.__cad.load(start);await wait(()=>w.__cad.model.parts.length===6,'load');
 // 1: four modes (F6: Round reads 'Edge ▾', Master Chief ruling 1), three dock buttons, no Objects dock button.
-assert.deepEqual(qa('#touchModes button[data-mode]').map(b=>b.textContent),['Select','Move','Stretch','Edge ▾']);assert.deepEqual(qa('nav.dock button').map(b=>b.id),['addBtn','editBtn','exportBtn']);assert.equal($('objectsBtn'),null);checks++;
+assert.deepEqual(qa('#touchModes button[data-mode]').map(b=>b.textContent),['Select','Move','Stretch','Edge ▾','Mirror']);assert.deepEqual(qa('nav.dock button').map(b=>b.id),['addBtn','editBtn','exportBtn']);assert.equal($('objectsBtn'),null);checks++;
 // 4: toggle overlays the viewport, shows the count, starts closed; panel state is never saved.
 assert.equal($('objectsToggle').parentElement.id,'viewport');assert.equal($('objectCount').textContent,'7');assert.equal($('objectsPanel').hidden,true);assert.equal($('objectsToggle').getAttribute('aria-expanded'),'false');
 for(const mode of ['move','stretch','round','select']){tool.setMode(mode);assert.equal($('objectsToggle').hidden,false);}checks++;

@@ -43,6 +43,7 @@ export function validateProject(p, shareFrozen=false) {
       if(r.mode==='faces'&&(!Number.isInteger(r.count)||r.count<(o.type==='sphere'?4:o.type==='rounded'?1:3)||r.count>(o.type==='rounded'?128:512)))throw Error(o.type==='sphere'?'Sphere face count must be a whole number from 4 to 512.':o.type==='rounded'?'Segments per corner must be a whole number from 1 to 128.':'Sides must be a whole number from 3 to 512.');
       if(r.mode==='tolerance'&&(!Number.isFinite(r.tolerance)||r.tolerance<.005||r.tolerance>2))throw Error('Face resolution must be from 0.005 to 2 mm.');
     }
+    if(o.mirrored!==undefined&&typeof o.mirrored!=='boolean')throw Error('Invalid object coordinates.');
     if(o.scale && (!Array.isArray(o.scale)||o.scale.length!==3||o.scale.some(v=>!Number.isFinite(v)||v<.001||v>1000)))throw Error('Invalid object scale.');
     if(o.fillets && (!Array.isArray(o.fillets)||o.fillets.length>100||o.fillets.some(f=>!Number.isFinite(f.radius)||f.radius<0||f.radius>10000||!Array.isArray(f.edges)||f.edges.length>500||f.kind!==undefined&&f.kind!=='chamfer'||f.edges.some(i=>!Number.isInteger(i)||i<0||i>10000))))throw Error('Invalid roundover.');
     if(o.type==='joined') {if(!Array.isArray(o.params.children)||o.params.children.length<2)throw Error('A combined solid needs at least two components.');if(!o.params.children.some(c=>c.mode!=='cut'))throw Error('Combined objects need positive material.');validateProject({format:'tristancad',version:2,objects:o.params.children,layers:out.layers,activeLayer:out.activeLayer});}
