@@ -4,7 +4,7 @@ export const HELP_TITLE='Make your first part';
 // ADR-0001 F1a: the Keyboard shortcuts item (Sean-approved text). It grows with the features (round-2 ruling 2): a row
 // shows only when the command has a shortcut in the registry, and later workstreams add their rows here, in the order
 // of the approved table (R Rotate after M Move, I Mirror and T Measure after F, copy/paste and group after duplicate).
-const SHORTCUT_ROWS=[['mode:select','V Select'],['mode:move','M Move'],['mode:stretch','S Stretch'],['mode:round','F Edge (Round/Chamfer)'],['add','A Add'],
+const SHORTCUT_ROWS=[['mode:select','V Select'],['mode:move','M Move'],['mode:stretch','S Stretch'],['mode:round','F Edge (Round/Chamfer)'],['measure','T Measure'],['add','A Add'],
  ['delete','Delete or Backspace deletes'],['clear','Shift+Delete clears the selection'],['duplicate','Cmd/Ctrl+D duplicate'],['undo','Cmd/Ctrl+Z undo'],
  ['redo','Cmd/Ctrl+Shift+Z or Ctrl+Y redo'],['save','Cmd/Ctrl+S save'],['backup','Cmd/Ctrl+Shift+S export the project'],['open','Cmd/Ctrl+O open'],
  ['new','Cmd/Ctrl+N new project'],['export','Cmd/Ctrl+E export'],['fit','0 or Home fit the view'],['wire','W wireframe'],
