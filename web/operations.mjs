@@ -44,6 +44,18 @@ export function stretch(o,axis,sign,amount){const out=structuredClone(o),d=dimen
 export function faceAxis(o,normal){const n=new T.Vector3(...normal);const order=[0,1,2].sort((a,b)=>Math.abs(n.getComponent(b))-Math.abs(n.getComponent(a)));return {axis:order[0],sign:n.getComponent(order[0])>=0?1:-1};}
 export function localCenter(o){const b=facetedBounds(o);if(b)return b.min.map((v,i)=>(v+b.max[i])/2);if(o.type==='polygon'){return [0,1].map(i=>(Math.max(...o.params.points.map(p=>p[i]))+Math.min(...o.params.points.map(p=>p[i])))/2).concat(0);}if(o.localBounds)return o.localBounds.min.map((v,i)=>(v+o.localBounds.max[i])/2);return [0,0,0];}
 export function worldCenter(o){return new T.Vector3(...localCenter(o)).applyMatrix4(matrix(o)).toArray();}
+// ADR-0001 F3 (Rotate handles): turn o by deg about the WORLD axis (0 X, 1 Y, 2 Z) through center (world). The new
+// orientation is Raxis·R, stored back as the ZYX Euler degrees of rotation() (the separateObject quaternion pattern); the
+// position turns about center, so the selection centre stays put. Float noise within 1e-9 of a micro-degree/micro-mm is
+// dropped (and -0 becomes 0), so 15° steps store exact values and 24 × 15° comes back to the start.
+const tidy=v=>{const r=Math.round(v*1e6)/1e6;return Math.abs(v-r)<1e-9?r+0:v;};
+export const ROTATE_SNAP=15;
+// Q7: snapped turns are whole multiples of 15°; free (Shift held, or Snap off) passes the angle through.
+export const snapAngle=(deg,free=false)=>free?deg:Math.round(deg/ROTATE_SNAP)*ROTATE_SNAP+0;
+// Shallow copy: runs on every pointermove of a ring drag, so params (an imported mesh) are shared, never cloned.
+export function rotateAbout(o,axis,deg,center){const out={...o},n=new T.Vector3(),c=new T.Vector3(...center);n.setComponent(axis,1);
+ const q=new T.Quaternion().setFromAxisAngle(n,T.MathUtils.degToRad(deg)),e=new T.Euler().setFromQuaternion(q.clone().multiply(new T.Quaternion().setFromEuler(rotation(o))),'ZYX');
+ out.rotation=[e.x,e.y,e.z].map(v=>tidy(T.MathUtils.radToDeg(v)));out.position=new T.Vector3(...o.position).sub(c).applyQuaternion(q).add(c).toArray().map(tidy);return out;}
 export function centerPoints(o,topology){const m=matrix(o),d=dimensions(o),points=[{kind:'center',label:'Object center',point:worldCenter(o)}];
  for(let axis=0;axis<3;axis++)for(const sign of [-1,1]){const local=localCenter(o);local[axis]+=sign*d[axis]/2/(o.scale?.[axis]||1);const v=new T.Vector3(...local).applyMatrix4(m);points.push({kind:'axis',axis,sign,label:axes[axis]+' face center',point:v.toArray()});}
  if(topology)for(const f of topology.faces.filter(f=>f.kind==='PLANE')){const p=new T.Vector3(...f.center).applyMatrix4(m);points.push({kind:'face',face:f.index,label:'Face center',point:p.toArray()});}
@@ -57,7 +69,7 @@ export function conjoined(objects,id,bounds){const center=bounds?bounds.min.map(
 export function selectedPieces(project,ids){return ids.map(id=>project.objects.find(o=>o.id===id)).filter(o=>o?.enabled);}
 export function mergeResult(objects,id,bounds,cutouts=[],fillOverlaps=false){
  assertSameLayer(objects,cutouts);
- const child=(o,mode)=>({...structuredClone(o),sourceMode:o.mode,mode});
+ const child=(o,mode)=>{const c={...structuredClone(o),sourceMode:o.mode,mode};delete c.groupId;return c;};// F5: groupId is top-level only
  const result=conjoined([...objects.map(o=>child(o,'solid')),...cutouts.map(o=>child(o,'cut'))],id,bounds);result.params.operation='add';
  if(fillOverlaps)result.params.fillOverlaps=true;
  const excluded=objects.flatMap(o=>o.excludedCutouts||[]);

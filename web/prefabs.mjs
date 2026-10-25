@@ -16,7 +16,7 @@ export function prefabParts(objects,includeSubtractions=true){
 export function makePrefab(objects,name,bounds,layers,{pruneLayers=false}={}){
  if(!bounds||!objects.some(o=>o.mode!=='cut'))throw Error('A prefab needs solid material.');
  if(pruneLayers){const used=new Set(objects.map(layerOf)),kept=layers.filter(l=>used.has(l.id));if(kept.length)layers=kept;}
- const center=bounds.min.map((v,i)=>(v+bounds.max[i])/2),id=uid(),children=freshComponents(objects).map(o=>({...o,position:o.position.map((v,i)=>v-center[i])}));
+ const center=bounds.min.map((v,i)=>(v+bounds.max[i])/2),id=uid(),children=freshComponents(objects).map(o=>{const c={...o,position:o.position.map((v,i)=>v-center[i])};delete c.groupId;return c;});
  const shape={id:uid(),name,type:'prefab',mode:'solid',enabled:true,layerId:DEFAULT_LAYER,position:[0,0,0],rotation:[0,0,0],localBounds:{min:bounds.min.map((v,i)=>v-center[i]),max:bounds.max.map((v,i)=>v-center[i])},params:{children,layers:structuredClone(layers)}};
  return validatePrefab(prefabForWrite({format:'avaloncad-prefab',version:1,id,name,createdAt:Date.now(),object:shape}));
 }

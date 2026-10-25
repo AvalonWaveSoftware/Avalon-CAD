@@ -24,6 +24,9 @@ async function run(origin,android=false){const ctx=await browser.newContext({vie
    if(android)window.Android=window.__androidStub;window.__workers=[];
    const W=window.Worker;window.Worker=class extends W{constructor(...a){super(...a);window.__workers.push(String(a[0]).replace(/^.*\//,''));this.addEventListener('message',e=>{(window.__msgs??=[]).push({t:performance.now(),id:e.data?.id,interim:!!e.data?.interim,canceled:!!e.data?.canceled});if(e.data?.interim)window.__interims.push({t:performance.now(),busy:document.getElementById('busy').textContent,model:window.__cad?.model});});}};},android);
   await page.goto(origin+'/index.html');await page.waitForFunction(()=>window.__cad?.model?.engine?.local===true);
+  // occt-sidecar-warmup: desktop/web ask for the warm-up in the first idle period after startup; let the sidecar's
+  // torus and 'B' warm-up run first, so every check below (and the byte comparison) runs on a warmed sidecar.
+  if(!android){await page.waitForFunction(()=>globalThis.__avalonWarmAt>0);await page.waitForTimeout(3000);}
   const settle=n=>page.waitForFunction(n=>window.__cad.model?.parts?.length===n&&!/Building/.test(document.getElementById('busy').textContent),n,{timeout:180000});
   // 1. first-time fillet
   await page.evaluate(p=>window.__cad.load(p),P(3,40));await settle(2);

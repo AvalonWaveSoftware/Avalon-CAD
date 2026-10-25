@@ -7,6 +7,7 @@ import {isThread,containsThreads,validateThread} from './threads.mjs';
 import {layerOf,normalizeLayers,materialGroups} from './layers.mjs';
 import {QUALITY,segments,validateProject,ccwPoints,assertSimplePolygon,readSTL} from './kernel-ui.mjs';
 export {QUALITY,segments,validateProject,ccwPoints,assertSimplePolygon,readSTL};
+import {shellLocalSolid} from './shell-mesh.mjs';
 
 export async function initKernel(options={}) {
   const {default:Module}=await import('manifold-3d');
@@ -25,6 +26,7 @@ export function placeObjectSolid(o,local,keepLocal=false){const keep=keepLocal?[
   } finally {for(const x of keep)x.delete();}
 }
 export function makeLocalSolid(K,o,tolerance=0.15,styles) {
+  if(o.shell)return shellLocalSolid(K,o,tolerance,styles,makeLocalSolid); // ADR-0001 F8 (shell-mesh.mjs)
   const requested=tolerance;tolerance=resolutionTolerance(o,tolerance);
   const {Manifold:M}=K,p=o.params,custom=customFaces(o),n=custom||segments((p.diameter||p.r*2||20)/2,tolerance);
   let s,tagged=false; const keep=[]; const own=x=>(keep.push(x),x);

@@ -195,6 +195,9 @@ const scenes={
  'sheet-export':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#exportBtn').click();await p.locator('#quality').selectOption('maximum');await s();},
  'sheet-add-shape':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await s();},
  'sheet-edit-object':async(p,s)=>{await loadTemplate(p,'plate');await H.tap(p,'select',[[0,0,6]],2);await p.locator('#quickEdit').click();await s();},
+ // ADR-0001 F8 (§5.4 new scenes): a closed hollow box with its edit sheet (Hollow section), and an open-top hollow box.
+ 'shell-closed':async(p,s)=>{await load(p,proj('Hollow box',[ob('hb','box',{w:30,d:30,h:15},[0,0,7.5],{shell:{thickness:2}})],{version:3}));await H.tap(p,'select',[[0,0,15]],2);await p.locator('#quickEdit').click();await p.waitForSelector('#hollowOn');await s();},
+ 'shell-open':async(p,s)=>{await load(p,proj('Open hollow box',[ob('hb','box',{w:30,d:30,h:15},[0,0,7.5],{shell:{thickness:2,open:[5]}})],{version:3}));await s();},
  'build-plane-on':async(p,s)=>{await loadTemplate(p,'plate');if(!(await p.locator('#buildPlane').isChecked()))await p.locator('#buildPlane').check();await s();},
  // ADR new-primitives-polyhedra-text §5.12: the new sheets, the Text draft and a scene with every new shape.
  'sheet-advanced-shapes':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#addBtn').click();await p.locator('#advancedBtn').click();await s();},
@@ -218,6 +221,9 @@ const scenes={
   // are held (see open()), so release them and wait for the hide before the undo capture.
   await p.locator('#undo').click();await idle(p);await p.evaluate(()=>window.__pixelRelease());await p.waitForFunction(()=>document.querySelector('#liveMeasure')?.hidden!==false,null,{timeout:5000});await p.evaluate(()=>window.__pixelRehold());await s('undo');
   await p.locator('#redo').click();await idle(p);await s('redo');},
+ // ADR-0001 F3 §5.4: Rotate mode on the plate, its three world-axis rings round the selection centre (no drag; the readout
+ // and snapped turns are covered by tests/rotate-handles-ui.mjs).
+ 'rotate-rings':async(p,s)=>{await loadTemplate(p,'plate');await H.tap(p,'select',[[0,0,6]]);await p.evaluate(()=>window.__cad.touch.setMode('rotate'));await idle(p);await s();},
 };
 // ADR unified-desktop-layout (Architect ruling 5): AVALON_PIXEL_MASK_BASE=<pre-change baseline> additionally checks
 // every capture against that baseline with only the help line approved to change: every pixel outside the help line's

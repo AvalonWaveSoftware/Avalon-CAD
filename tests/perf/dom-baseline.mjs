@@ -43,14 +43,25 @@ export function stripComments(src,{line=true,tok=null}={}){let out='',i=0;const 
    fail(i,'regex literal (or a / the scanner misread as one)');}
   out+=c;i++;if(!/\s/.test(c))prev=/[\w$]/.test(c)?(/[\w$]$/.test(prev)?prev+c:c).slice(-8):c;}
  return out;}
-export function extractStrings(){const set=new Set();
- for(const f of STRING_SOURCES()){const raw=fs.readFileSync(path.join(REPO,f),'utf8');
+// batch-3.0 (Architect ruling 2026-10-25 10:40 CT; narrowed in batch-3.0b after QA S6). The one exception to "every
+// literal is a candidate string": a literal written directly as the argument of .startsWith( or .endsWith( (e.g.
+// shell-ui.mjs why.startsWith('Hollow is not offered')) is a test in code. It is left out ONLY when another extracted
+// string actually starts with it (startsWith) or ends with it (endsWith), i.e. it is a fragment of a full message that
+// is itself gated. Otherwise it is read like any literal (e.g. 'blob:'; an unmatched fragment still fails the gate).
+// Rule tests: tests/approved-dom-areas.mjs §6 (extractFrom on synthetic sources) and the tree check after them.
+export const PREFIX_TEST=/\.(startsWith|endsWith)\(\s*$/;
+const candidate=s=>s.length>1&&!/[=(){};<>\[\]`$\\]/.test(s)&&!/^\.{0,2}\/|\.(m?js|cjs|wasm|py)$/.test(s)&&/[A-Za-z]/.test(s)&&/[ .!?…:·]|^[A-Z][a-z]+$/.test(s);
+export function extractFrom(sources){const set=new Set(),tests=[];
+ for(const [f,raw] of sources){
   // ADR-0001 approved-dom-areas (b): // and /* */ comments are not UI text. JS sources (.mjs/.cjs) lose both, CSS loses
   // /* */; Python and HTML are read as before (// is floor division in Python).
   let src;try{src=/\.(mjs|cjs|js)$/.test(f)?stripComments(raw):f.endsWith('.css')?stripComments(raw,{line:false}):raw;}catch(e){throw Error(`${f}: ${e.message}`);}
   if(f.endsWith('.html')){for(const m of src.matchAll(/>([^<>]*[A-Za-z][^<>]*)</g))set.add(m[1].trim());for(const m of src.matchAll(/(?:title|aria-label|placeholder)="([^"]+)"/g))set.add(m[1]);continue;}
-  for(const m of src.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)){const s=(m[1]??m[2]??m[3]);if(s.length>1&&!/[=(){};<>\[\]`$\\]/.test(s)&&!/^\.{0,2}\/|\.(m?js|cjs|wasm|py)$/.test(s)&&/[A-Za-z]/.test(s)&&/[ .!?…:·]|^[A-Z][a-z]+$/.test(s))set.add(s);}}
+  for(const m of src.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)){const s=(m[1]??m[2]??m[3]),t=src.slice(Math.max(0,m.index-16),m.index).match(PREFIX_TEST);
+   if(t)tests.push([s,t[1]]);else if(candidate(s))set.add(s);}}
+ for(const [s,kind] of tests)if(candidate(s)&&![...set].some(x=>x!==s&&x[kind](s)))set.add(s);
  return [...set].filter(Boolean).sort();}
+export function extractStrings(){return extractFrom(STRING_SOURCES().map(f=>[f,fs.readFileSync(path.join(REPO,f),'utf8')]));}
 // ADR new-primitives-polyhedra-text §5.12: the string table may differ from the baseline only by the additions listed
 // in tests/perf/strings-additions.json (each one approved with the feature); a baseline string may never be removed
 // or edited, and any other new string still fails.

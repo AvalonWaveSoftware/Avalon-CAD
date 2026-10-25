@@ -2,7 +2,7 @@
 // labels are today's UI text. tooltip (F1b, read by tooltips.mjs) is the label unless the entry names the accessible
 // name the control already carries in index.html (no new text).
 // shortcut (F1a): the key combos that run the command, or null. Only commands that work today have one (round-2
-// ruling 2: the table grows with the features); later workstreams add their rows (R Rotate, I Mirror, T Measure,
+// ruling 2: the table grows with the features); later workstreams add their rows (R Rotate: F3, here; I Mirror, T Measure,
 // Cmd/Ctrl+C/V, Cmd/Ctrl+G, Shift+G). Combo syntax: [Mod+][Shift+]Key, where Mod is Cmd or Ctrl on every platform
 // (no platform-specific default) and Key is an upper-case letter, a digit, a symbol or a KeyboardEvent.key name.
 // UI-safe (no engine imports).
@@ -13,7 +13,8 @@ const DEFS=[
  ['undo','Undo',null,['Mod+Z']],['redo','Redo',null,['Mod+Shift+Z','Mod+Y']],['add','Add',null,['A','Mod+Shift+A']],['edit','Edit'],
  ['clear','Clear','Deselect everything',['Shift+Delete','Shift+Backspace']],['fit','Fit model',null,['0','Home','Mod+0']],['wire','Wireframe',null,['W']],['help','Help',null,['?']],
  ...[['3d','3D'],['top','TOP'],['front','FRONT'],['right','RIGHT']].map(([v,l])=>[`view:${v}`,l]),
- ...[['Select','V'],['Move','M'],['Stretch','S'],['Round','F']].map(([l,k])=>[`mode:${l.toLowerCase()}`,l,null,[k]]),
+ ...[['Select','V'],['Move','M'],['Rotate','R'],['Stretch','S'],['Round','F']].map(([l,k])=>[`mode:${l.toLowerCase()}`,l,null,[k]]),
+ ['group','Group selected',null,['Mod+G']],['ungroup','Ungroup',null,['Mod+Shift+G']],
  ['delete','Delete',null,['Delete','Backspace']],['duplicate','Duplicate',null,['Mod+D']],['escape','Close panel',null,['Escape']]];
 export const COMMAND_IDS=DEFS.map(d=>d[0]);
 // The Electron menu accelerators (desktop/main.cjs), as registry combos. The native menu runs these itself, so the

@@ -28,7 +28,7 @@ const fixedSidecar=on=>({name:'fixed-sidecar',setup(b){b.onLoad({filter:/[\\/]we
  else if(on){const ref="new URL('worker.js'";if(!src.includes(ref))throw Error('worker.mjs: sidecar URL not found');src=src.replace(ref,"new URL('worker-sidecar.js'");}
  return {contents:src,loader:'js'};});}});
 for(const [on,out] of [[false,'app/assets/worker.js'],[true,'app/assets/worker-sidecar.js']])
- await build({entryPoints:['web/worker.mjs'],outfile:out,bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixedSidecar(on)],external:['node:*','module','fs','path','crypto']});
+ await build({entryPoints:['web/worker.mjs'],outfile:out,bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixedSidecar(on)],define:{__AVALON_SIDECAR_BUNDLE__:String(on)},external:['node:*','module','fs','path','crypto']});
 // ADR-0001 F2a option A: the 3MF pool worker, started by the page like worker.js (counts toward the worker budget).
 await build({entryPoints:['web/export-pool-worker.mjs'],outfile:'app/assets/export-pool.js',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,external:['node:*','module','fs','path','crypto']});
 for(const [src,dst] of [['THIRD_PARTY_NOTICES.txt','app/assets/THIRD_PARTY_NOTICES.txt'],['web/index.html','app/assets/index.html'],['web/style.css','app/assets/style.css']])fs.copyFileSync(src,dst);

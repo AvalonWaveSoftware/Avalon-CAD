@@ -39,3 +39,6 @@ tests/.engine-parity-wasm-*/
 # mesh-core.wasm stays tracked, so a checkout builds without the Rust toolchain.
 app/assets/*
 !app/assets/mesh-core.wasm
+
+# occt-sidecar-warmup: local warm-up diagnostics (cs/fp timing dumps), never committed
+tests/perf/.warm-diag/
