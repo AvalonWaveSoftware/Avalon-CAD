@@ -35,4 +35,26 @@ async function writeModel(file, bytes) {
   } finally { await fs.unlink(temporary).catch(() => {}); }
 }
 
-module.exports = {MAX_BYTES, allowedExtensions, exportPayload, readModel, writeModel};
+// ADR-0001 (C): Undo-history spill files. One directory per app under the OS temp dir, emptied at startup (single
+// instance) and on quit; ids are the renderer's content hashes, restricted to [a-z0-9.]{1,64}.
+const SPILL_ID = /^[a-z0-9.]{1,64}$/;
+const SPILL_MAX = 64 * 1024 * 1024;
+function spillStore(dir) {
+  const file = id => { if (typeof id !== 'string' || !SPILL_ID.test(id) || id.includes('..')) throw Error('Invalid spill id.'); return path.join(dir, id + '.bin'); };
+  return {
+    dir,
+    async put(id, bytes) {
+      if (!ArrayBuffer.isView(bytes) || bytes.byteLength > SPILL_MAX) throw Error('Invalid spill data.');
+      await fs.mkdir(dir, {recursive: true});
+      const target = file(id), temporary = target + '.' + randomUUID() + '.tmp';
+      try { await fs.writeFile(temporary, Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength), {flag: 'wx'}); await fs.rename(temporary, target); }
+      finally { await fs.unlink(temporary).catch(() => {}); }
+    },
+    async get(id) { try { return new Uint8Array(await fs.readFile(file(id))); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } },
+    async del(id) { await fs.unlink(file(id)).catch(e => { if (e.code !== 'ENOENT') throw e; }); },
+    async clear() { await fs.rm(dir, {recursive: true, force: true}); },
+    clearSync() { require('node:fs').rmSync(dir, {recursive: true, force: true}); }
+  };
+}
+
+module.exports = {MAX_BYTES, allowedExtensions, exportPayload, readModel, writeModel, spillStore};

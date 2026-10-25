@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 // ADR unified-desktop-layout: one look on every platform.
 //   node tests/platform-parity.mjs --staged   staged-output check only (fast, no browser; part of test:desktop)
 //   node tests/platform-parity.mjs            + browser layout check (ruling 5) and the help-line overlap sweep
@@ -16,7 +17,7 @@
 //    through its slide-up (paused at 0..100 %); at phone width it keeps the full-width rise.
 import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import os from 'node:os';import {createRequire} from 'node:module';
 import {stageDesktop} from '../desktop/stage.mjs';import {diffPixels} from './perf/png.mjs';
-const ROOT=path.resolve(path.dirname(new URL(import.meta.url).pathname),'..'),ASSETS=path.join(ROOT,'app/assets');
+const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),ASSETS=path.join(ROOT,'app/assets');
 const files=d=>fs.readdirSync(d,{recursive:true}).filter(f=>fs.statSync(path.join(d,f)).isFile()).sort();
 // 1. staged output
 const mac=path.join(stageDesktop(ROOT),'web'),rpm=fs.mkdtempSync(path.join(os.tmpdir(),'avalon-rpm-'))+'/web';fs.cpSync(ASSETS,rpm,{recursive:true});

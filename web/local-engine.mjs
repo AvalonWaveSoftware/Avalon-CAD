@@ -2,11 +2,12 @@ import {makeObject,meshData,validateProject} from './kernel.mjs';
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
 import {objectTopology,objectTopologyEntry,memoTopology} from './cad-solid.mjs';
 import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE,BUNDLE_SPLIT,INDEXED_DISPLAY} from './perf-flags.mjs';
-import {jsJobs} from './js-engine.mjs';
+import {jsJobs,validateObjects} from './js-engine.mjs';
 import {engineCache} from './engine-cache.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
 import {isThread,threadTopology} from './threads.mjs';
 import {resolutionTolerance} from './facets.mjs';
+import {lazyMeshPreview} from './lazy-mesh.mjs';
 
 // Only interop and buffer ownership live here. js-engine.mjs (WS7) or Python owns model/job assembly;
 // Rust owns preview mesh preparation and binary STL generation.
@@ -54,5 +55,9 @@ export async function initLocalEngine(K,options={}){
   const source=options.pythonSource||await(async()=>{const r=await fetch(new URL('python/model_jobs.py',options.baseURL));if(!r.ok)throw Error('The bundled Python jobs could not load.');return r.text();})();
   python.runPython(source);const job=python.globals.get('process_job'),getInfo=python.globals.get('runtime_info');info=getInfo();getInfo.destroy();process=job;destroy=()=>job.destroy();
  }
- return {python,rust,info,process:data=>{acknowledged=TOPOLOGY_SERVICE&&Array.isArray(data?.topologyAck)?new Set(data.topologyAck):null;active=cachedJob(data);if(active)cache.begin();try{return process(data);}finally{if(active)cache.end();active=false;acknowledged=null;}},engineCache:cache,destroy};
+ // F1: a lone imported mesh previews without a Manifold (web/lazy-mesh.mjs); same validation and part topology.
+ const lazy=data=>{if(data?.type!=='preview'||options.noLazyMesh||!Array.isArray(data.project?.objects))return null;const model=lazyMeshPreview(data.project,{validate:p=>{if(p.format!=='tristancad'||![2,3].includes(p.version))throw Error('This is not a supported AvalonCad project.');validateObjects(p.objects);validateLayers(p);},
+  topology:o=>{if(!TOPOLOGY_SERVICE)return {topology:structuredClone(objectTopology(o))};const {hash,topology}=objectTopologyEntry(o);return !hash||!acknowledged?.has(hash)?{topologyHash:hash,topology}:{topologyHash:hash};}});
+  return model&&bridge.response(bridge.finish_result(model,'preview',true),data.id,'preview');};
+ return {python,rust,info,process:data=>{acknowledged=TOPOLOGY_SERVICE&&Array.isArray(data?.topologyAck)?new Set(data.topologyAck):null;try{const r=lazy(data);if(r)return r;}catch(e){return bridge.error_response(data.id,String(e));}active=cachedJob(data);if(active)cache.begin();try{return process(data);}finally{if(active)cache.end();active=false;acknowledged=null;}},engineCache:cache,destroy};
 }

@@ -154,6 +154,18 @@
    "runtime": true,
    "source": "web/main.mjs:170",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
+  },
+  {
+   "text": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
+   "approval": "Android safety stages (pending Master Chief)",
+   "runtime": true,
+   "source": "web/main.mjs:249"
+  },
+  {
+   "text": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
+   "approval": "Android safety stages (pending Master Chief)",
+   "runtime": true,
+   "source": "web/main.mjs:249"
   }
  ],
  "removals": [

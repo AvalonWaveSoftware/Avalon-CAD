@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 // WS14 (OCCT_SIDECAR) parity: an engine whose OCCT runs in a separate worker thread (same runJob/solidRemote code as the
 // browser) must give exactly the results of the in-process engine: previews, displays, parts, topology (hash and
 // body), checks, STL exports and errors, byte for byte. Fixtures plus seeded edit sequences that add, resize and remove
@@ -7,7 +8,7 @@ import assert from 'node:assert/strict';import fs from 'node:fs';import {createH
 import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';
 import {object,defaults,blank,advancedDefaults,glyphDefaults} from '../web/templates.mjs';import {loadGlyphs} from '../web/glyph-geometry.mjs';import {migrateProject} from '../web/migrate.mjs';
 import {sidecarClient} from './occt-sidecar-client.mjs';
-const refDir=new URL('./.occt-sidecar-ref/',import.meta.url).pathname;fs.rmSync(refDir,{recursive:true,force:true});fs.cpSync('web',refDir+'web',{recursive:true});
+const refDir=fileURLToPath(new URL('./.occt-sidecar-ref/',import.meta.url));fs.rmSync(refDir,{recursive:true,force:true});fs.cpSync('web',refDir+'web',{recursive:true});
 process.on('exit',()=>fs.rmSync(refDir,{recursive:true,force:true}));
 const rust={binary:fs.readFileSync('app/assets/mesh-core.wasm')};
 const refKernel=await import(refDir+'web/kernel.mjs'),refEngine=await import(refDir+'web/local-engine.mjs');

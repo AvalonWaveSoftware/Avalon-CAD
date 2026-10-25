@@ -7,7 +7,7 @@ const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const path = require('node:path');
 const {Readable} = require('stream');
-const {exportPayload, readModel, writeModel} = require('./files.cjs');
+const {exportPayload, readModel, writeModel, spillStore} = require('./files.cjs');
 // Scheme, host and app name must stay stable: localStorage projects are keyed by origin
 // and stored under userData ("Avalon CAD"), so changing either orphans saved projects.
 const SCHEME = 'app', HOST = 'avalon-cad';
@@ -201,6 +201,19 @@ else {
         await writeModel(selected.filePath, payload.bytes);
         return {canceled: false, name: path.basename(selected.filePath)};
       } finally { dialogBusy = false; }
+    });
+    // ADR-0001 (C): Undo-history spill files (temp dir, swept now and removed on quit).
+    const spill = spillStore(path.join(app.getPath('temp'), 'AvalonCAD-history'));
+    spill.clearSync();
+    app.on('will-quit', () => { try { spill.clearSync(); } catch {} });
+    ipcMain.handle('avalon-spill', async (event, value) => {
+      if (!trusted(event)) throw Error('spill_untrusted');
+      const op = value && value.op;
+      if (op === 'put') return spill.put(value.id, value.bytes);
+      if (op === 'get') return spill.get(value.id);
+      if (op === 'del') return spill.del(value.id);
+      if (op === 'clear') return spill.clear();
+      throw Error('spill_op');
     });
     ipcMain.handle('avalon:open', async event => {
       if (!trusted(event)) throw Error('File request is not from Avalon CAD.');

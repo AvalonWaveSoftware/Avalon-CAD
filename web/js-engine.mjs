@@ -11,7 +11,7 @@ const field=(obj,name,fallback)=>{const v=obj?.[name];return v==null?fallback:v;
 // Python's math.isfinite raised a TypeError for a non-numeric coordinate; here it is an invalid coordinate (the UI's
 // validateProject rejects such projects before any job, so no caller reaches this case).
 const isFinite=v=>(typeof v==='number'||typeof v==='boolean')&&Number.isFinite(+v);
-function validateObjects(objects){
+export function validateObjects(objects){
  if(objects.length>100)throw Error('Maximum 100 objects per project.');
  const ids=new Set();
  for(const obj of objects){

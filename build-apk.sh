@@ -18,7 +18,19 @@ CHUNKS=$(grep -oE 'import\("\./chunk-[A-Za-z0-9_-]+\.js"\)' "app/assets/main.js"
 for f in $CHUNKS; do [ -f "app/assets/$f" ] || { echo "Missing lazy chunk app/assets/$f" >&2; exit 1; }; done
 "$BT/aapt2" compile --dir app/res -o build/resources.zip
 "$BT/aapt2" link -o build/base-resources.apk --manifest app/AndroidManifest.xml -I "$PLATFORM" build/resources.zip
-java com.sun.tools.javac.Main -source 8 -target 8 -classpath "$PLATFORM" -d build/classes app/src/com/tristan/cad/MainActivity.java
+# Opt-in test build only; release compilation never sees the crash-hook method.
+AVALON_TEST_BUILD="${AVALON_TEST_BUILD:-0}"
+[[ "$AVALON_TEST_BUILD" = 0 || "$AVALON_TEST_BUILD" = 1 ]] || exit 1
+rm -rf build/classes
+mkdir -p build/classes build/java
+python3 - "$AVALON_TEST_BUILD" <<'PYHOOK'
+import pathlib,re,sys
+source=pathlib.Path('app/src/com/tristan/cad/MainActivity.java').read_text()
+if sys.argv[1] != '1':
+ source=re.sub(r'        // BEGIN TEST_RENDERER_CRASH_HOOK.*?        // END TEST_RENDERER_CRASH_HOOK', '', source, flags=re.S)
+pathlib.Path('build/java/MainActivity.java').write_text(source)
+PYHOOK
+java com.sun.tools.javac.Main -source 8 -target 8 -classpath "$PLATFORM" -d build/classes build/java/MainActivity.java
 python3 - <<'PY'
 import zipfile,pathlib
 with zipfile.ZipFile('build/classes.jar','w') as z:
@@ -54,7 +66,9 @@ fi
 "$BT/apksigner" sign --ks tools/signing.p12 --ks-pass env:AVALONCAD_KEYSTORE_PASS --out build/signed.apk build/aligned.apk
 "$BT/apksigner" verify --verbose build/signed.apk
 "$BT/zipalign" -c -v 4 build/signed.apk | tail -1
-python3 tests/apk-package.py build/signed.apk
+PACKAGE_CHECK_ARGS=()
+if [ "$AVALON_TEST_BUILD" = 1 ]; then PACKAGE_CHECK_ARGS+=(--test-build); fi
+python3 tests/apk-package.py build/signed.apk "${PACKAGE_CHECK_ARGS[@]}"
 python3 - <<'PY'
 import os
 from pathlib import Path

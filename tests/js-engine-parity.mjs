@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 // WS7 parity: the JS job engine (web/js-engine.mjs) against the Python oracle (engine/python/model_jobs.py through
 // Pyodide, options.oracle) on the same kernel: every result must be identical, typed arrays byte for byte, and every
 // error message verbatim. Fixtures x all job kinds, error cases, and seeded random projects and booleans.
@@ -5,7 +6,7 @@ import assert from 'node:assert/strict';
 import {BUNDLE_SPLIT} from '../web/perf-flags.mjs';import fs from 'node:fs';import {loadPyodide} from 'pyodide';
 import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';import {object,defaults,blank,advancedDefaults,glyphDefaults} from '../web/templates.mjs';import {loadGlyphs} from '../web/glyph-geometry.mjs';await loadGlyphs();
 import {migrateProject} from '../web/migrate.mjs';import {JS_ENGINE} from '../web/perf-flags.mjs';
-const K=await initKernel(),opts={loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}};
+const K=await initKernel(),opts={loadPyodide,pythonURL:fileURLToPath(new URL('../node_modules/pyodide/',import.meta.url)),pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}};
 const js=await initLocalEngine(K,opts),py=await initLocalEngine(K,{...opts,oracle:true});
 assert.equal(js.python===null,JS_ENGINE);assert.ok(py.python);assert.deepEqual(js.info,py.info);
 let id=0,jobs=0,errors=0;

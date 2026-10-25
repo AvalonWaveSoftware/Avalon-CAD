@@ -4,7 +4,7 @@
 // share unchanged subtrees; restoring never aliases a mutable member. Also times one Undo step with a 20k-triangle
 // import (ADR: 24 ms -> <= 2 ms estimate; gated on the ADR section 4 budget <= 3 ms).
 import assert from 'node:assert/strict';
-import {snapshot} from '../web/history.mjs';
+import {snapshot,numberHash,hashOf,isShared,INTERN_MIN} from '../web/history.mjs';
 import {validateProject} from '../web/kernel-ui.mjs';
 import {object,blank} from '../web/templates.mjs';
 const frozen=x=>{if(x===null||typeof x!=='object')return true;if(!Object.isFrozen(x))return false;return Object.values(x).every(frozen);};
@@ -53,3 +53,13 @@ for(let session=0;session<50;session++){seed=session+1;
  const nan=JSON.parse(JSON.stringify(s));nan.objects[0].params.mesh.vertices[4]=20000;assert.throws(()=>validateProject(snapshot(nan),true),/Invalid imported mesh/);
  assert.deepEqual(validateProject(s,true),validateProject(JSON.parse(JSON.stringify(s))));
  console.log('History: validateProject(snapshot, true) rejects invalid meshes, shares frozen mesh arrays, returns mutable copies');}
+// ADR-0001 android-large-mesh-memory: a large number array is copied and hashed in one pass (copyHashed). The snapshot
+// equals JSON.parse(JSON.stringify(...)) (-0 as 0, non-finite as null), the hash equals numberHash of the copy, equal
+// arrays are interned to one, and an array with a non-number falls back to the general path, unshared.
+{const n=INTERN_MIN+5,odd=[0,-0,NaN,Infinity,-Infinity,1e300,-1.5e-300,.1];
+ for(const a of [Array.from({length:n},(_,i)=>odd[i%8]+(i%8>4?i:0)),Array.from({length:n},(_,i)=>i*3%n)]){
+  const s=snapshot({m:a});assert.equal(JSON.stringify(s),JSON.stringify(JSON.parse(JSON.stringify({m:a}))));
+  assert.ok(Object.isFrozen(s.m)&&isShared(s.m));assert.equal(hashOf(s.m),numberHash(s.m));assert.equal(snapshot({m:a.slice()}).m,s.m);}
+ const mixed=Array.from({length:n},(_,i)=>i===n-1?'x':i),s=snapshot({m:mixed});
+ assert.equal(JSON.stringify(s),JSON.stringify({m:mixed}));assert.ok(!isShared(s.m)&&Object.isFrozen(s.m));
+ console.log('History: large number arrays copied and hashed in one pass (same values and hash as numberHash), interned; mixed arrays fall back');}
