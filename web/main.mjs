@@ -22,7 +22,7 @@ import {threadPanel,bindThreads} from './threads-ui.mjs';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {validateProject,cloneSharing,readSTL,QUALITY,assertSimplePolygon} from './kernel-ui.mjs';
 import {object,blank,plate,tray,defaults,advancedDefaults,glyphDefaults,names,uid} from './templates.mjs';
-import {dimensions} from './operations.mjs';
+import {dimensions,mirrorObject} from './operations.mjs';
 import {UNITS,loadUnit,setUnit,getUnit,unitLabel,fmtLen,readLen,fieldLen,byUnit,stepOptions,snapSketch,unitMessage} from './units.mjs';
 import {GLYPH_CHARS,GLYPH_METRICS} from './glyph-metrics.mjs';
 const $=id=>document.getElementById(id),escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -206,7 +206,7 @@ function separateObject(o){
  const p=structuredClone(project),layerMap=new Map();
  if(o.type==='prefab'){const used=[...new Set(o.params.children.map(layerOf))];if(p.layers.length+used.length>100)return toast('Separating would exceed 100 layers.',true);for(const old of used){const id='layer-'+uid(),name=(o.name+' · '+(o.params.layers.find(l=>l.id===old)?.name||'Components')).slice(0,60);p.layers.push({id,name});layerMap.set(old,id);}}
  const assign=(child,id)=>{child.layerId=id;if(child.type==='joined')for(const c of child.params.children)assign(c,id);};
- const children=freshComponents(o.params.children).map(c=>{const v=new THREE.Vector3(...c.position).applyEuler(new THREE.Euler(...o.rotation.map(THREE.MathUtils.degToRad),'ZYX')).add(new THREE.Vector3(...o.position)),q=new THREE.Quaternion().setFromEuler(new THREE.Euler(...o.rotation.map(THREE.MathUtils.degToRad),'ZYX')).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...c.rotation.map(THREE.MathUtils.degToRad),'ZYX'))),e=new THREE.Euler().setFromQuaternion(q,'ZYX');const copy={...c,mode:c.sourceMode||c.mode,position:v.toArray(),rotation:[e.x,e.y,e.z].map(THREE.MathUtils.radToDeg)};assign(copy,o.type==='prefab'?layerMap.get(layerOf(c)):layerOf(o));delete copy.sourceMode;delete copy.positionReference;delete copy.placement;return copy;});
+ const children=freshComponents(o.params.children).map(c=>{if(o.mirrored)c=mirrorObject(c,'YZ',[0,0,0]);const v=new THREE.Vector3(...c.position).applyEuler(new THREE.Euler(...o.rotation.map(THREE.MathUtils.degToRad),'ZYX')).add(new THREE.Vector3(...o.position)),q=new THREE.Quaternion().setFromEuler(new THREE.Euler(...o.rotation.map(THREE.MathUtils.degToRad),'ZYX')).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...c.rotation.map(THREE.MathUtils.degToRad),'ZYX'))),e=new THREE.Euler().setFromQuaternion(q,'ZYX');const copy={...c,mode:c.sourceMode||c.mode,position:v.toArray(),rotation:[e.x,e.y,e.z].map(THREE.MathUtils.radToDeg)};assign(copy,o.type==='prefab'?layerMap.get(layerOf(c)):layerOf(o));delete copy.sourceMode;delete copy.positionReference;delete copy.placement;return copy;});
  p.objects=p.objects.filter(x=>x.id!==o.id);p.objects.push(...children);if(o.type==='prefab')p.activeLayer=layerOf(children[0]);try{validateProject(p);replaceProject(()=>{project=p;selected=children[0]?.id;});closeSheet();}catch(e){toast(e.message,true);}
 }
 $('editBtn').onclick=editMenu;$('quickEdit').onclick=editMenu;$('deselectBtn').onclick=()=>touch?.deselect();$('mergeBtn').onclick=()=>touch?.mergeMenu(selection());

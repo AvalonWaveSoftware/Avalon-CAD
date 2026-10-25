@@ -4,6 +4,9 @@
  "box": "#desktopHelp",
  "overlay": null,
  "scenes": {
+  "*": [
+   "#mirrorMode"
+  ],
   "edit-glyph": [
    "#sheet"
   ],
@@ -416,6 +419,19 @@
    "selector": "#sheetContent>div.field",
    "kind": "added",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT (the separate quality block)"
+  },
+  {
+   "scene": "*",
+   "selector": "#mirrorMode",
+   "kind": "unreserved",
+   "approval": "Architect ruling 2026-10-25 07:58 CT (scoped approved area for a stage's own new control): F4 mirror mode button going live; scoped to #mirrorMode only, phone and desktop (strings pending Master Chief)"
+  },
+  {
+   "scene": "*",
+   "selector": "#mirrorMode",
+   "kind": "title",
+   "expected": "Mirror",
+   "approval": "Architect ruling 2026-10-25 07:58 CT (scoped approved area for a stage's own new control): F4 mirror mode button going live; scoped to #mirrorMode only, phone and desktop (strings pending Master Chief)"
   }
  ]
 }

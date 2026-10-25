@@ -50,7 +50,8 @@
     "test:round-chamfer-stl": "node tests/round-chamfer-stl.mjs",
     "test:lazy-mesh": "node tests/lazy-mesh.mjs",
     "test:leak-loads": "node tests/perf/leak-loads.mjs --check",
-    "test:renderer-recovery": "node tests/renderer-recovery.mjs"
+    "test:renderer-recovery": "node tests/renderer-recovery.mjs",
+    "test:mirror": "node tests/mirror-mode.mjs && node tests/mirror-ui.mjs && node tests/mirror-parity.mjs && node tests/mirror-stl.mjs"
   },
   "keywords": [],
   "author": "",

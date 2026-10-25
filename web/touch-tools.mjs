@@ -4,12 +4,14 @@ import {layerOf} from './layers.mjs';import {edgesGeometry} from './edges.mjs';
 import {startAtOrigin,applyFloorAdjustments} from './placement.mjs';
 import {isThread,containsThreads} from './threads.mjs';
 import {installMergeTools} from './merge-tools.mjs';
-import {axes,matrix,direction,dimensions,stretch,faceAxis,centerPoints,worldCenter,withRoundover,conjoined,connectingBridges,alignCenters,alignFaceCenters} from './operations.mjs';
+import {mirrorObject,axes,matrix,direction,dimensions,stretch,faceAxis,centerPoints,worldCenter,withRoundover,conjoined,connectingBridges,alignCenters,alignFaceCenters} from './operations.mjs';
 import {object,uid,names} from './templates.mjs';
+import {freshComponents} from './prefabs.mjs';
 import {validateProject} from './kernel-ui.mjs';
 import {getUnit,unitLabel,fmtLen,readLen,byUnit,unitMessage} from './units.mjs';
 export function installTouch(S){
  const {canvas,scene,camera,controls}=S, $=id=>document.getElementById(id);
+ let mirrorCopy=true;
  let edgeKind='round',edgeText=null,mode='select',axis='XY',snap=true,step=.1,face=null,selection='shape',edgeSelection=[],multi=new Set(),gesture=null,committing=false,commitSnapshot=null,replay=false,firstPointer=null,lastTap=null,ray=new T.Raycaster(),baseMeshes=[],markers=[],handles=[],paint=new T.Group(),lastPaint=0;
  scene.add(paint);
  const o=()=>S.current(),project=()=>S.project(),parts=()=>S.parts(),point=(a)=>new T.Vector3(...a),project2=v=>{const rect=canvas.getBoundingClientRect(),p=v.clone().project(camera);return new T.Vector2((p.x+1)*rect.width/2+rect.left,(1-p.y)*rect.height/2+rect.top);};
@@ -19,9 +21,19 @@ export function installTouch(S){
  function topology(id){return part(id)?.userData.topology;}
  function modeButtons(){$('touchModes').querySelectorAll('button[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));}
  function setMode(value,keepFace=false){if(gesture||committing)return;mode=value;lastTap=null;if(!keepFace){face=null;selection='shape';}if(mode!=='round')edgeSelection=[];if(mode!=='select')clearMulti();modeButtons();update();draw();}
- function update(){const obj=o();$('axisTools').hidden=mode!=='move';$('snapStatus').textContent=snap?'Snap on':'Snap off';$('snapStatus').classList.toggle('active',snap);$('touchHint').textContent={select:'Tap a face · double-tap for the whole shape · tap an edge to round',move:'Drag the object or X/Y/Z handles · centers snap',stretch:'Tap a face to pull · double-tap for the whole shape',round:chamfer()?.hint||'Edge taps: 1 edge · 2 face perimeter · 3 all edges · drag to round'}[mode];if(mode==='select')$('touchHint').textContent+=' · long-press or Ctrl/Shift-tap to multi-select';$('touchAction').hidden=!obj;$('touchAction').innerHTML=mode==='select'&&multi.size>1?`<span>${multi.size} objects selected</span><button id="multiMerge">Merge</button>`:mode==='round'?`<span>${edgeSelection.length?(edgeSelection.length===topology(obj?.id)?.edges.length?'All ':'')+edgeSelection.length+' edge'+(edgeSelection.length===1?'':'s'):'Choose an edge'}</span><button id="roundAll">Face perimeter</button><button id="roundShape">All edges</button><button id="roundSet">${chamfer()?.set||'Radius'}</button>`:mode==='stretch'?`<span>${face?axes[face.axis]+' face selected':'Choose a face'}</span><button id="stretchSize">Set size</button>`:mode==='move'&&obj?`<span>${axes.map((a,i)=>a+' '+fmtLen((obj.placement||obj.position)[i],1)).join(' · ')}</span><button id="alignNow">Align centers</button>`:`<span>${selection==='face'?'Face selected':'Whole shape selected'}</span><button id="selectMove">Move</button><button id="selectStretch">Stretch</button><button id="selectRound">Round</button>`;
+ function update(){const obj=o();$('axisTools').hidden=mode!=='move';$('snapStatus').textContent=snap?'Snap on':'Snap off';$('snapStatus').classList.toggle('active',snap);$('touchHint').textContent={select:'Tap a face · double-tap for the whole shape · tap an edge to round',move:'Drag the object or X/Y/Z handles · centers snap',stretch:'Tap a face to pull · double-tap for the whole shape',mirror:'Choose a mirror plane through the object center',round:chamfer()?.hint||'Edge taps: 1 edge · 2 face perimeter · 3 all edges · drag to round'}[mode];if(mode==='select')$('touchHint').textContent+=' · long-press or Ctrl/Shift-tap to multi-select';$('touchAction').hidden=!obj;$('touchAction').innerHTML=mode==='select'&&multi.size>1?`<span>${multi.size} objects selected</span><button id="multiMerge">Merge</button>`:mode==='mirror'?`<button data-mirror="YZ">YZ</button><button data-mirror="XZ">XZ</button><button data-mirror="XY">XY</button><button id="mirrorCopy" aria-pressed="${mirrorCopy}" class="${mirrorCopy?'active':''}">Copy</button>`:mode==='round'?`<span>${edgeSelection.length?(edgeSelection.length===topology(obj?.id)?.edges.length?'All ':'')+edgeSelection.length+' edge'+(edgeSelection.length===1?'':'s'):'Choose an edge'}</span><button id="roundAll">Face perimeter</button><button id="roundShape">All edges</button><button id="roundSet">${chamfer()?.set||'Radius'}</button>`:mode==='stretch'?`<span>${face?axes[face.axis]+' face selected':'Choose a face'}</span><button id="stretchSize">Set size</button>`:mode==='move'&&obj?`<span>${axes.map((a,i)=>a+' '+fmtLen((obj.placement||obj.position)[i],1)).join(' · ')}</span><button id="alignNow">Align centers</button>`:`<span>${selection==='face'?'Face selected':'Whole shape selected'}</span><button id="selectMove">Move</button><button id="selectStretch">Stretch</button><button id="selectRound">Round</button>`;
  if(mode==='round'&&obj&&!topology(obj.id))$('touchHint').textContent='Mesh edges cannot use CAD roundovers; round the original parametric parts first';else if(mode==='round'&&obj&&topology(obj.id)?.edges.length===0)$('touchHint').textContent='This shape has no sharp edges to round';
+ if($('mirrorCopy')){$('mirrorCopy').onclick=()=>{mirrorCopy=!mirrorCopy;update();};$('touchAction').querySelectorAll('[data-mirror]').forEach(b=>b.onclick=()=>applyMirror(b.dataset.mirror));}
  if($('multiMerge'))$('multiMerge').onclick=()=>merges.mergeMenu([...multi]);if($('roundAll'))$('roundAll').onclick=()=>allFaceEdges();if($('roundShape'))$('roundShape').onclick=()=>{lastTap=null;allShapeEdges();};if($('roundSet'))$('roundSet').onclick=radiusMenu;if($('stretchSize'))$('stretchSize').onclick=sizeMenu;if($('alignNow'))$('alignNow').onclick=snapMenu;if($('selectMove'))$('selectMove').onclick=()=>setMode('move');if($('selectStretch'))$('selectStretch').onclick=()=>setMode('stretch',selection==='face');if($('selectRound'))$('selectRound').onclick=()=>setMode('round');
+ }
+ async function applyMirror(plane){
+  if(committing||gesture||!o())return;if(mirrorCopy&&project().objects.length>=100)return S.toast('Maximum 100 objects.',true);
+  const before=JSON.stringify(project()),snapshot=S.snapshot?.()??before,selected=S.selected();
+  committing=true;commitSnapshot=before;
+  try{const next=mirrorObject(o(),plane);if(mirrorCopy){next.id=uid();if(next.params.children)next.params.children=freshComponents(next.params.children);project().objects.push(next);}else project().objects[project().objects.findIndex(x=>x.id===selected)]=next;
+   validateProject(project());applyFloorAdjustments(project(),await S.request('check',{project:structuredClone(project()),tolerance:.15}));S.record(snapshot);S.select(next.id);S.refresh();
+  }catch(e){Object.assign(project(),JSON.parse(before));S.select(selected);S.refresh();S.toast(e.message,true);}
+  finally{committing=false;commitSnapshot=null;S.autosave();update();draw();}
  }
  function geometry(t){const g=new T.BufferGeometry();g.setAttribute('position',new T.BufferAttribute(t.vertices,3));g.setIndex(new T.BufferAttribute(t.triangles,1));return g;}
  function onModel(){if(face?.id!==S.selected()){face=null;selection='shape';edgeSelection=[];}else if(face&&face.index>=0&&!topology(face.id)?.groups.some(g=>g.face===face.index)){face=null;selection='shape';edgeSelection=[];}for(const m of baseMeshes){m.geometry.dispose();m.material.dispose();}baseMeshes=[];
@@ -51,7 +63,7 @@ export function installTouch(S){
  function baseHit(e,id){setRay(e);return ray.intersectObjects(baseMeshes.filter(m=>m.userData.id===id),false)[0]||null;}
  function faceFromHit(hit,obj){const bh=baseHit({clientX:hit.sx,clientY:hit.sy},obj.id),t=topology(obj.id);let index=-1,normal;
   if(bh&&t){const g=t.groups.find(g=>bh.faceIndex*3>=g.start&&bh.faceIndex*3<g.start+g.count);index=g?.face??-1;normal=bh.face.normal.clone();}
-  else normal=hit.face.normal.clone().applyQuaternion(new T.Quaternion().setFromEuler(new T.Euler(...obj.rotation.map(T.MathUtils.degToRad),'ZYX')).invert());
+  else{normal=hit.face.normal.clone().applyQuaternion(new T.Quaternion().setFromEuler(new T.Euler(...obj.rotation.map(T.MathUtils.degToRad),'ZYX')).invert());if(obj.mirrored)normal.x=-normal.x;}
   const a=faceAxis(obj,normal.toArray());return {id:obj.id,index,triangle:hit.faceIndex,...a,normal:normal.toArray()};
  }
  function pickEdge(e,obj,hit){const t=topology(obj.id);if(!t)return null;let candidates=t.edges;
@@ -65,8 +77,8 @@ export function installTouch(S){
  function chamfer(){return edgeKind==='chamfer'&&edgeText;}
  function radius(obj,indices){return Math.max(0,...(obj.fillets||[]).filter(f=>(f.kind==='chamfer')===(edgeKind==='chamfer')&&f.edges.some(e=>indices.includes(e))).map(f=>f.radius));}
  function faceNearEdge(obj,edge){
-  const t=topology(obj.id),view=camera.position.clone().sub(point(worldCenter(obj))),rotation=new T.Euler(...obj.rotation.map(T.MathUtils.degToRad),'ZYX');
-  const f=t?.faces.filter(f=>f.edges.includes(edge)).sort((a,b)=>point(b.normal).applyEuler(rotation).dot(view)-point(a.normal).applyEuler(rotation).dot(view))[0];
+  const t=topology(obj.id),view=camera.position.clone().sub(point(worldCenter(obj))),rotation=new T.Euler(...obj.rotation.map(T.MathUtils.degToRad),'ZYX'),world=n=>point(n).multiply(point([obj.mirrored?-1:1,1,1])).applyEuler(rotation);
+  const f=t?.faces.filter(f=>f.edges.includes(edge)).sort((a,b)=>world(b.normal).dot(view)-world(a.normal).dot(view))[0];
   return f?{id:obj.id,index:f.index,...faceAxis(obj,f.normal),normal:f.normal}:null;
  }
  function allFaceEdges(){
@@ -155,6 +167,7 @@ export function installTouch(S){
  let syncing=false,booleanDisabled=[];
  function booleanBusy(value){committing=value;document.getElementById('app').classList.toggle('checking',value);$('sheet').classList.toggle('checking',value);if(value){booleanDisabled=[...$('sheet').querySelectorAll('button,input,select')].filter(el=>el.id!=='confirmMerge').map(el=>[el,el.disabled]);booleanDisabled.forEach(([el])=>el.disabled=true);}else{booleanDisabled.forEach(([el,disabled])=>{if(el.isConnected)el.disabled=disabled;});booleanDisabled=[];}}
  const merges=installMergeTools(S,{setIds:setMulti,busy:booleanBusy});
+ const mirrorButton=$('mirrorMode');mirrorButton.classList.remove('pending');mirrorButton.removeAttribute('aria-hidden');mirrorButton.removeAttribute('tabindex');mirrorButton.dataset.mode='mirror';
  const roundButton=$('touchModes').querySelector('[data-mode=round]');roundButton.textContent='Edge ▾';roundButton.setAttribute('aria-haspopup','menu');roundButton.setAttribute('aria-expanded','false');
   // Edge ▾ (Master Chief rulings 1 and 18:35 CT): the label never changes; every tap (and the F key) opens the dropdown
   // with Round and Chamfer; picking one starts that tool (edge mode, shown as Edge ▾ active); outside tap or Esc

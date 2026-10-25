@@ -46,7 +46,7 @@ export function engineCache(K,{budget=150*1048576,prepare=null}={}){
     owned.add(s);
     e={s,lo,hi,styles:styles?[...styles].slice(before):[],bytes:0,used:job,placed:new Map()};local.set(key,e);stats.localBuilds++;}
    maxId=e.hi;
-   const at=JSON.stringify([o.scale??null,o.rotation,o.position]);let p=e.placed.get(at);
+   const at=JSON.stringify([o.scale??null,o.rotation,o.position,o.mirrored===true]);let p=e.placed.get(at);
    if(!p){const s=adopt(placeObjectSolid(o,e.s,true));p={s,used:job};e.placed.set(at,p);}else p.used=job;
    // Never query the local solid itself: evaluating it bakes its lazy transforms and changes the last ulp of every later
    // placement. Its size is estimated from the placed copy (evaluating that one is harmless; the union evaluates it anyway).
