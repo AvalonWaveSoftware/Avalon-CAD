@@ -62,7 +62,7 @@ type FxMap<K, V> = HashMap<K, V, BuildHasherDefault<Fx>>;
 unsafe fn prepare_corners(
     vp: *const f32, nv: usize, tp: *const u32, nt: usize,
     flags: *const u8, nf: usize, groups: *const u32, ng: usize,
-    mut emit: impl FnMut(usize, &[f32], [f32; 3], usize),
+    mut emit: impl FnMut(usize, &[f32], [f32; 3], usize, usize),
 ) -> i32 {
     if vp.is_null() || tp.is_null() { return 1; }
     let v=slice::from_raw_parts(vp,nv);let t=slice::from_raw_parts(tp,nt);
@@ -70,11 +70,6 @@ unsafe fn prepare_corners(
         || (ng!=0 && (groups.is_null() || ng!=nt/3)) { return 2; }
     let flat=if nf>0 {slice::from_raw_parts(flags,nf)}else{&[]};
     let smoothing=if ng>0 {slice::from_raw_parts(groups,ng)}else{&[]};
-    let mut faces=Vec::with_capacity(nt/3);
-    for f in t.chunks_exact(3) {
-        let a=point(v,f[0]);let b=point(v,f[1]);let c=point(v,f[2]);
-        faces.push(unit(cross(sub(c,b),sub(a,b))));
-    }
     // Weld only identical positions from the same source surface instance.
     // Boolean seams and nearby thin faces must not borrow each other's normals.
     // The weld key of a corner is (position bits with -0 as 0, smoothing group); ids are numbered in corner order on first
@@ -95,7 +90,14 @@ unsafe fn prepare_corners(
         let next=table.len();let id=*table.entry(((group as u64)<<32)|pos_id[vi] as u64).or_insert(next);
         memo_group[vi]=group;memo_id[vi]=id;ids.push(id);
     }
-    let count=table.len();drop(table);drop(positions);
+    // android-large-mesh-memory (ADR-0001): the weld tables are freed before the face normals are built, so the two
+    // never coexist; the normals are the same values in the same order as before (byte-identical output).
+    let count=table.len();drop(table);drop(positions);drop(pos_id);drop(memo_group);drop(memo_id);
+    let mut faces=Vec::with_capacity(nt/3);
+    for f in t.chunks_exact(3) {
+        let a=point(v,f[0]);let b=point(v,f[1]);let c=point(v,f[2]);
+        faces.push(unit(cross(sub(c,b),sub(a,b))));
+    }
     let mut offsets=vec![0usize;count+1];
     for &id in &ids {offsets[id+1]+=1;}
     for i in 0..count {offsets[i+1]+=offsets[i];}
@@ -119,7 +121,7 @@ unsafe fn prepare_corners(
                 }
                 unit(sum)
             };
-            emit(f*3+corner,&v[p..p+3],[nn[0] as f32,nn[1] as f32,nn[2] as f32],id);
+            emit(f*3+corner,&v[p..p+3],[nn[0] as f32,nn[1] as f32,nn[2] as f32],id,count);
         }
     }
     0
@@ -135,30 +137,39 @@ pub unsafe extern "C" fn prepare_mesh(
     if positions.is_null() || normals.is_null() { return 1; }
     let out=slice::from_raw_parts_mut(positions,nt*3);
     let normal_out=slice::from_raw_parts_mut(normals,nt*3);
-    prepare_corners(vp,nv,tp,nt,flags,nf,groups,ng,|corner,p,n,_|{
+    prepare_corners(vp,nv,tp,nt,flags,nf,groups,ng,|corner,p,n,_,_|{
         let at=corner*3;out[at..at+3].copy_from_slice(p);normal_out[at..at+3].copy_from_slice(&n);
     })
 }
 
 /// WS10: the same corners as `prepare_mesh`, indexed. Corners whose position and normal bits are both identical share
 /// one vertex (only within one weld id, i.e. same position key and smoothing group), numbered in first-corner order.
-/// `positions`/`normals` need room for `nt*3` floats, `index` for `nt` entries; `count` receives the vertex
-/// count. Expanding `index` gives `prepare_mesh` exactly.
+/// `index` needs room for `nt` entries. android-large-mesh-memory (ADR-0001): the vertex arrays are sized exactly
+/// (Rust-owned, grown from the weld-id count) instead of `nt*3` floats each from the caller; on success
+/// `result` = [positions ptr, normals ptr, vertex count, positions capacity, normals capacity] (capacities in floats); the
+/// caller copies `count*3` floats from each and frees each with `free_floats(ptr, capacity)`. Expanding `index` gives `prepare_mesh` exactly.
 #[no_mangle]
 pub unsafe extern "C" fn prepare_indexed(
     vp: *const f32, nv: usize, tp: *const u32, nt: usize,
     flags: *const u8, nf: usize, groups: *const u32, ng: usize,
-    positions: *mut f32, normals: *mut f32, index: *mut u32, count: *mut u32,
+    index: *mut u32, result: *mut usize,
 ) -> i32 {
-    if count.is_null() { return 1; }
-    *count=0;
+    if result.is_null() { return 1; }
+    let result=slice::from_raw_parts_mut(result,5);result.fill(0);
     if nt == 0 { return 0; }
-    if positions.is_null() || normals.is_null() || index.is_null() { return 1; }
-    let out=slice::from_raw_parts_mut(positions,nt*3);let normal_out=slice::from_raw_parts_mut(normals,nt*3);
+    if index.is_null() { return 1; }
     let index_out=slice::from_raw_parts_mut(index,nt);
-    let mut heads:Vec<u32>=Vec::new();let mut chain:Vec<u32>=Vec::with_capacity(nt/2);let mut n_out=0usize;
-    let code=prepare_corners(vp,nv,tp,nt,flags,nf,groups,ng,|corner,p,n,id|{
-        if id>=heads.len() {heads.resize(id+1,u32::MAX);}
+    // ADR-0001 06:50 (prepare_indexed regression): the 6892eb7-shaped hot path. The outputs, heads and chain are allocated
+    // once (zeroed, sized to the weld-id count) at the first corner and written by index; nothing grows inside the
+    // per-corner loop except on the cold path where one weld id has several normals beyond that count.
+    let (mut out,mut normal_out)=(Vec::<f32>::new(),Vec::<f32>::new());
+    let mut heads:Vec<u32>=Vec::new();let mut chain:Vec<u32>=Vec::new();let mut n_out=0usize;
+    #[cold] #[inline(never)]
+    fn grow(out:&mut Vec<f32>,normal_out:&mut Vec<f32>,chain:&mut Vec<u32>){
+        let n=(chain.len()*2).max(16);out.resize(n*3,0.0);normal_out.resize(n*3,0.0);chain.resize(n,0);
+    }
+    let code=prepare_corners(vp,nv,tp,nt,flags,nf,groups,ng,|corner,p,n,id,count|{
+        if heads.is_empty() {heads=vec![u32::MAX;count];chain=vec![0u32;count];out=vec![0.0f32;count*3];normal_out=vec![0.0f32;count*3];}
         let same=|a:&[f32],b:&[f32]|a.iter().zip(b).all(|(x,y)|x.to_bits()==y.to_bits());
         let mut at=heads[id];
         while at!=u32::MAX {
@@ -167,14 +178,26 @@ pub unsafe extern "C" fn prepare_indexed(
             at=chain[at as usize];
         }
         if at==u32::MAX {
+            if n_out==chain.len() {grow(&mut out,&mut normal_out,&mut chain);}
             at=n_out as u32;let i=n_out*3;
             out[i..i+3].copy_from_slice(p);normal_out[i..i+3].copy_from_slice(&n);
-            chain.push(heads[id]);heads[id]=at;n_out+=1;
+            chain[n_out]=heads[id];heads[id]=at;n_out+=1;
         }
         index_out[corner]=at;
     });
-    if code==0 {*count=n_out as u32;}
-    code
+    drop(heads);drop(chain);
+    if code!=0 {return code;}
+    let count=n_out;
+    let (mut out,mut normal_out)=(std::mem::ManuallyDrop::new(out),std::mem::ManuallyDrop::new(normal_out));
+    result[0]=out.as_mut_ptr() as usize;result[1]=normal_out.as_mut_ptr() as usize;result[2]=count;
+    result[3]=out.capacity();result[4]=normal_out.capacity();
+    0
+}
+
+/// Frees a float array that `prepare_indexed` handed out (`capacity` in floats, as returned).
+#[no_mangle]
+pub unsafe extern "C" fn free_floats(ptr: *mut f32, capacity: usize) {
+    if !ptr.is_null() && capacity > 0 { drop(Vec::from_raw_parts(ptr, 0, capacity)); }
 }
 
 #[no_mangle]
@@ -239,9 +262,11 @@ mod tests {
         for groups in [&[][..],&[1,1,2][..]] {
             let mut positions=vec![0.;t.len()*3];let mut normals=positions.clone();
             assert_eq!(unsafe{prepare_mesh(v.as_ptr(),v.len(),t.as_ptr(),t.len(),std::ptr::null(),0,groups.as_ptr(),groups.len(),positions.as_mut_ptr(),normals.as_mut_ptr())},0);
-            let (mut p,mut n,mut i,mut c)=(vec![0f32;t.len()*3],vec![0f32;t.len()*3],vec![0u32;t.len()],0u32);
-            assert_eq!(unsafe{prepare_indexed(v.as_ptr(),v.len(),t.as_ptr(),t.len(),std::ptr::null(),0,groups.as_ptr(),groups.len(),p.as_mut_ptr(),n.as_mut_ptr(),i.as_mut_ptr(),&mut c)},0);
-            assert!((c as usize)<t.len());
+            let (mut i,mut r)=(vec![0u32;t.len()],[0usize;5]);
+            assert_eq!(unsafe{prepare_indexed(v.as_ptr(),v.len(),t.as_ptr(),t.len(),std::ptr::null(),0,groups.as_ptr(),groups.len(),i.as_mut_ptr(),r.as_mut_ptr())},0);
+            let c=r[2];assert!(c<t.len()&&c>0&&r[3]>=c*3&&r[4]>=c*3);
+            let (p,n)=unsafe{(slice::from_raw_parts(r[0] as *const f32,c*3).to_vec(),slice::from_raw_parts(r[1] as *const f32,c*3).to_vec())};
+            unsafe{free_floats(r[0] as *mut f32,r[3]);free_floats(r[1] as *mut f32,r[4]);}
             for k in 0..t.len() {let x=i[k] as usize;for j in 0..3 {
                 assert_eq!(p[x*3+j].to_bits(),positions[k*3+j].to_bits());assert_eq!(n[x*3+j].to_bits(),normals[k*3+j].to_bits());
 }}

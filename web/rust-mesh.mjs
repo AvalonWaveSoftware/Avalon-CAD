@@ -29,12 +29,15 @@ export async function initRustMesh({binary,url,streaming}={}){
    });
   },
   // WS10: indexed display mesh. Expanding index over positions/normals gives prepare() exactly.
+  // android-large-mesh-memory (ADR-0001): Rust sizes the vertex arrays exactly and hands them over (result =
+  // [positions, normals, count, positions capacity, normals capacity]); they are copied out and freed with free_floats.
   prepareIndexed(vertices,triangles,flat=new Uint8Array(),groups=new Uint32Array()){
    validate(vertices,triangles);if(!triangles.length)return {positions:new Float32Array(),normals:new Float32Array(),index:new Uint32Array()};
-   return withBuffers((allocate,input)=>{const n=triangles.length,vp=input(vertices),tp=input(triangles),fp=input(flat),gp=input(groups),pp=allocate(n*12),np=allocate(n*12),ip=allocate(n*4),cp=allocate(4);
-    if(core.prepare_indexed(vp,vertices.length,tp,n,fp,flat.length,gp,groups.length,pp,np,ip,cp))throw Error('The model contains invalid mesh geometry.');
-    const count=new Uint32Array(core.memory.buffer,cp,1)[0];
-    return {positions:new Float32Array(core.memory.buffer,pp,count*3).slice(),normals:new Float32Array(core.memory.buffer,np,count*3).slice(),index:new Uint32Array(core.memory.buffer,ip,n).slice()};
+   return withBuffers((allocate,input)=>{const n=triangles.length,vp=input(vertices),tp=input(triangles),fp=input(flat),gp=input(groups),ip=allocate(n*4),rp=allocate(20);
+    const code=core.prepare_indexed(vp,vertices.length,tp,n,fp,flat.length,gp,groups.length,ip,rp),[pp,np,count,pc,nc]=new Uint32Array(core.memory.buffer,rp,5);
+    try{if(code)throw Error('The model contains invalid mesh geometry.');
+     return {positions:new Float32Array(core.memory.buffer,pp,count*3).slice(),normals:new Float32Array(core.memory.buffer,np,count*3).slice(),index:new Uint32Array(core.memory.buffer,ip,n).slice()};}
+    finally{core.free_floats(pp,pc);core.free_floats(np,nc);}
    });
   },
   writeSTL(vertices,triangles,ground=true){
