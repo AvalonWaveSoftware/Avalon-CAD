@@ -1,5 +1,6 @@
 import {fileURLToPath} from 'node:url';
-// ADR-0001 §8 + Architect ruling F6-4: the 3.0 worker budget is +15 KB gzip (15,360 B) for worker.js and
+// ADR-0001 §8 + Architect ruling F6-4: the 3.0 worker budget is +20 KB gzip (20,480 B; was 15,360 B,
+// Master Chief ruling 2026-10-25 12:43 CT (relayed by Grok Bot): raised to +20 KB gz (20,480 B); exact OCCT hollows kept) for worker.js and
 // worker-sidecar.js COMBINED, measured from their pre-3.0 sizes (tools/worker-budget.json, base e4f2104 = 2.7.2, the
 // commit W0 was cut from). Both bundles are built here in memory exactly as the shipping build does: worker.js with
 // OCCT_SIDECAR=false (Android), worker-sidecar.js with OCCT_SIDECAR=true and its nested-sidecar URL pointing at itself

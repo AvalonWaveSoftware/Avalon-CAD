@@ -1,7 +1,7 @@
 {
- "note": "ADR-0001 §8 + Architect ruling F6-4: the 3.0 worker budget (+15 KB gz) covers worker.js and worker-sidecar.js combined, measured from these pre-3.0 sizes. Base e4f2104 (2.7.2, where W0 was cut). Sizes from tests/worker-budget.mjs --measure (esbuild as build-web.mjs, OCCT_SIDECAR false / true, node zlib gzip level 9; gzip(1) -9 gives a few hundred bytes less, e.g. worker.js 163,817). Raw worker-sidecar.js 502,661 B matches the occt-sidecar-desktop-web build at e4f2104.",
+ "note": "ADR-0001 §8 + Architect ruling F6-4: the 3.0 worker budget (+20 KB gz = 20,480 B; was +15 KB / 15,360 B until the Master Chief ruling 2026-10-25 12:43 CT (relayed by Grok Bot): raised to +20 KB gz (20,480 B), exact OCCT hollows kept) covers worker.js and worker-sidecar.js combined, measured from these pre-3.0 sizes. Base e4f2104 (2.7.2, where W0 was cut). Sizes from tests/worker-budget.mjs --measure (esbuild as build-web.mjs, OCCT_SIDECAR false / true, node zlib gzip level 9; gzip(1) -9 gives a few hundred bytes less, e.g. worker.js 163,817). Raw worker-sidecar.js 502,661 B matches the occt-sidecar-desktop-web build at e4f2104.",
  "base": "e4f2104",
- "budget": 15360,
+ "budget": 20480,
  "worker.js": {"raw": 502629, "gz": 164261},
  "worker-sidecar.js": {"raw": 502661, "gz": 164278}
 }
