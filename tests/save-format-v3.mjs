@@ -17,7 +17,7 @@ const grouped={...plate(),groups:[{id:'g1',name:'G'}]};grouped.objects[0].groupI
 const box=(extra={})=>({id:'b'+Math.random().toString(36).slice(2,8),type:'box',name:'Box',mode:'solid',enabled:true,layerId:'layer-1',params:{width:20,depth:20,height:10},position:[0,0,0],rotation:[0,0,0],...extra});
 const glyph=k=>({id:'gl',type:'glyph',name:'A',mode:'solid',enabled:true,layerId:'layer-1',params:{char:'A',size:20,height:3,[k]:0.5},position:[0,0,0],rotation:[0,0,0]});
 const wrap=o=>({format:'tristancad',version:2,name:'t',objects:[o],layers:[{id:'layer-1',name:'Layer 1'}],activeLayer:'layer-1'});
-const v3objs=[box({mirrored:true}),box({shell:{thickness:2}}),box({fillets:[{kind:'chamfer',radius:1,edges:[0]}]}),...['bevel','bevelProfile','plate','plateMargin','engrave'].map(glyph),
+const v3objs=[box({mirrored:true}),box({shell:{thickness:2}}),box({fillets:[{kind:'chamfer',radius:1,edges:[0]}]}),...['plate','plateMargin','engrave'].map(glyph),
  {...box(),type:'joined',params:{operation:'add',children:[box(),box({mirrored:true})]}},{...box(),type:'prefab',params:{children:[box({shell:{thickness:1}})]}}];
 for(const o of v3objs){const p=wrap(o);assert.equal(requiredVersion(p),3,JSON.stringify(o));const w=forWrite(p);assert.equal(w.version,3);assert.deepEqual(Object.keys(w),Object.keys(p),'key order kept');assert.equal(p.version,2,'input untouched');}
 assert.equal(requiredVersion(wrap(box({mirrored:false,fillets:[{radius:1,edges:[0]}]}))),2,'mirrored:false and plain rounds stay v2');

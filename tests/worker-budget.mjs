@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 // ADR-0001 §8 + Architect ruling F6-4: the 3.0 worker budget is +15 KB gzip (15,360 B) for worker.js and
 // worker-sidecar.js COMBINED, measured from their pre-3.0 sizes (tools/worker-budget.json, base e4f2104 = 2.7.2, the
 // commit W0 was cut from). Both bundles are built here in memory exactly as the shipping build does: worker.js with
@@ -16,9 +17,9 @@ export async function workerSizes(root){
   const r=await build({absWorkingDir:root,entryPoints:[path.join(root,'web/worker.mjs')],write:false,outfile:path.join(root,'out',name),bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixed(on)],external:['node:*','module','fs','path','crypto'],logLevel:'silent'});
   const bytes=r.outputFiles[0].contents;out[name]={raw:bytes.length,gz:gzipSync(bytes,{level:9}).length};}
  return out;}
-if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname){
+if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  if(process.argv[2]==='--measure'){console.log(JSON.stringify(await workerSizes(path.resolve(process.argv[3]))));process.exit(0);}
- const here=path.resolve(new URL('..',import.meta.url).pathname),ref=JSON.parse(fs.readFileSync(path.join(here,'tools/worker-budget.json'),'utf8')),now=await workerSizes(here);
+ const here=path.resolve(fileURLToPath(new URL('..',import.meta.url))),ref=JSON.parse(fs.readFileSync(path.join(here,'tools/worker-budget.json'),'utf8')),now=await workerSizes(here);
  // The OCCT_SIDECAR=false bundle is the shipped worker.js: same bytes as the build output when it exists.
  const shipped=path.join(here,'app/assets/worker.js');if(fs.existsSync(shipped)&&fs.statSync(shipped).mtimeMs>Math.max(...fs.readdirSync(path.join(here,'web')).map(f=>fs.statSync(path.join(here,'web',f)).mtimeMs)))assert.equal(fs.statSync(shipped).size,now['worker.js'].raw,'measured worker.js = app/assets/worker.js');
  const d=Object.fromEntries(['worker.js','worker-sidecar.js'].map(n=>[n,now[n].gz-ref[n].gz])),total=d['worker.js']+d['worker-sidecar.js'];

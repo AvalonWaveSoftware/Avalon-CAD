@@ -146,13 +146,13 @@
   {
    "text": "Bottom-center placement · millimeters",
    "runtime": true,
-   "source": "web/main.mjs:174",
+   "source": "web/main.mjs:176",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   },
   {
    "text": "Object center position · millimeters",
    "runtime": true,
-   "source": "web/main.mjs:174",
+   "source": "web/main.mjs:176",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   },
   "Plate",
@@ -162,7 +162,7 @@
   {
    "text": "Overall size 17.59 × 24.99 × 7.00 mm (X × Y × Z).",
    "runtime": true,
-   "source": "web/main.mjs:165",
+   "source": "web/main.mjs:166",
    "approval": "F7 batch (pending Master Chief)"
   },
   "Engrave needs a plate thicker than 0.039 in.",
@@ -170,13 +170,13 @@
    "text": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:269"
+   "source": "web/main.mjs:270"
   },
   {
    "text": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:269"
+   "source": "web/main.mjs:270"
   },
   "Export a printable 3MF",
   "Build & save .3MF",
@@ -192,27 +192,42 @@
   {
    "text": "File format",
    "runtime": true,
-   "source": "web/main.mjs:252",
+   "source": "web/main.mjs:253",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "STL · binary · most compatible",
    "runtime": true,
-   "source": "web/main.mjs:252",
+   "source": "web/main.mjs:253",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "3MF · compressed · smaller file",
    "runtime": true,
-   "source": "web/main.mjs:252",
+   "source": "web/main.mjs:253",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "exportFormat",
    "runtime": true,
-   "source": "web/main.mjs:252",
+   "source": "web/main.mjs:253",
    "approval": "export-3mf: id of the File format select, used by its <label for>; not shown text. export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
-  }
+  },
+  "Measure",
+  "Point to point",
+  "Face distance and angle",
+  "Edge length / circle diameter",
+  "Object minimum distance",
+  "Tap a measurement target. Tap two targets for a distance.",
+  "Close measure",
+  "Choose a measurement target.",
+  "Diameter",
+  "Length",
+  "Angle",
+  "This measurement needs CAD faces or edges.",
+  "Measure the whole object for finished edges.",
+  "T Measure",
+  {"text": "Measure (T)", "runtime": true, "source": "web/tooltips.mjs:19", "approval": "F1e measure tooltip = label + ' (' + shortcut + ')' (pending Master Chief)"}
  ],
  "removals": [
   {

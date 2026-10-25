@@ -12,7 +12,8 @@
 #                     install with `waydroid app install`, push through the Waydroid data path, logcat through the shell.
 #   --adb             force the adb path (adb connect to the Waydroid IP), as before.
 #   --sample FILE     project to push (default samples/sphere-524k.tcad).
-#   --apk FILE        APK to install (default AvalonCad-export-3mf-3ad225b-debugtest.apk).
+#   --apk FILE        APK to install (default AvalonCad-2.7.2-test.apk, the test-key build from ./build-apk.sh --test-key;
+#                     also the APK env var).
 #   --package ID      Android app ID to install/launch/measure (default com.avalonwavesoftware.cad.test, the test-key
 #                     build ID; also the PKG env var). Pass the old ID for APKs built before the app-ID change.
 #   --setup-only      install, push, start logcat, launch once; one Enter when QA finishes all taps; then summarize.
@@ -22,7 +23,7 @@
 #                     the installed base.apk sha256 differs from the host APK.
 # Overrides (for testing): ACTIVITY (launch class, default com.avalonwavesoftware.cad.MainActivity), ADB, WAYDROID (default /usr/bin/waydroid), SUDO, WAYDROID_DATA (default ~/.local/share/waydroid/data).
 set -euo pipefail
-PKG=${PKG:-com.avalonwavesoftware.cad.test} APK=AvalonCad-export-3mf-3ad225b-debugtest.apk SAMPLE=samples/sphere-524k.tcad MODE=
+PKG=${PKG:-com.avalonwavesoftware.cad.test} APK=${APK:-AvalonCad-2.7.2-test.apk} SAMPLE=samples/sphere-524k.tcad MODE=
 SETUP_ONLY=
 NONINTERACTIVE=
 NO_INSTALL=

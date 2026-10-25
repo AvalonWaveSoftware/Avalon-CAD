@@ -4,6 +4,9 @@
  "box": "#desktopHelp",
  "overlay": null,
  "scenes": {
+  "*": [
+   "#measureBtn"
+  ],
   "edit-glyph": [
    "#sheet",
    "#sheetContent"
@@ -443,6 +446,32 @@
    "selector": "#sheetContent>div.field",
    "kind": "added",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT (the separate quality block)"
+  },
+  {
+   "scene": "*",
+   "selector": "#measureBtn",
+   "kind": "unreserved",
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings pending Master Chief)"
+  },
+  {
+   "scene": "*",
+   "selector": "#measureBtn",
+   "kind": "aria-label",
+   "expected": "Measure",
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings pending Master Chief)"
+  },
+  {
+   "scene": "*",
+   "selector": "#measureBtn",
+   "kind": "title",
+   "expected": "Measure (T)",
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings pending Master Chief)"
+  },
+  {
+   "scene": "*",
+   "selector": "#measureBtn>svg[aria-hidden=\"true\"]",
+   "kind": "added",
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings pending Master Chief)"
   }
  ]
 }

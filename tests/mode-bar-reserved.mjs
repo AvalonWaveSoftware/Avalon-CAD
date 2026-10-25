@@ -16,7 +16,7 @@ try{for(const [name,o] of Object.entries(SIZES)){const ctx=await env.browser.new
  const fit=await page.evaluate(()=>{const b=document.querySelector('[data-mode=round]'),r=document.createRange(),cs=getComputedStyle(b);r.selectNodeContents(b);return {label:b.textContent,text:r.getBoundingClientRect().width,inner:b.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight),lines:r.getClientRects().length,textH:r.getBoundingClientRect().height,lineH:parseFloat(cs.lineHeight)||parseFloat(cs.fontSize)*1.4,overflow:b.scrollWidth>b.clientWidth||b.scrollHeight>b.clientHeight,h:b.getBoundingClientRect().height};});
  assert.equal(fit.label,'Edge ▾',name+': Edge ▾ label');assert.ok(fit.lines===1&&fit.textH<=fit.lineH+0.5&&fit.text<=fit.inner&&!fit.overflow&&Math.abs(fit.h-37)<=0.5,name+': Edge ▾ fits its reserved box on one line '+JSON.stringify(fit));
  if(name==='phone-360x800')assert.ok(fit.inner-fit.text>=0,'360 px: Edge ▾ has no wrap and no clipping');
- const st=await page.evaluate(()=>['#rotateMode','#mirrorMode','#measureBtn'].map(s=>{const e=document.querySelector(s),c=getComputedStyle(e);return [c.visibility,e.tabIndex,e.getAttribute('aria-hidden'),!!e.dataset.mode,typeof e.onclick==='function'];}));
+ const st=await page.evaluate(()=>['#rotateMode','#mirrorMode'].map(s=>{const e=document.querySelector(s),c=getComputedStyle(e);return [c.visibility,e.tabIndex,e.getAttribute('aria-hidden'),!!e.dataset.mode,typeof e.onclick==='function'];}));
  for(const s of st)assert.deepEqual(s,['hidden',-1,'true',false,false],name+': reserved button hidden, unfocusable, inert');
  // A tap on a reserved slot changes nothing: the mode stays Select.
  const r=EXPECTED[name].rotateMode;await page.mouse.click(r[0]+r[2]/2,r[1]+r[3]/2);

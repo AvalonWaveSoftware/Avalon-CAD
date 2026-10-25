@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {initKernel} from '../web/kernel.mjs';
+import {initLocalEngine} from '../web/local-engine.mjs';
+import {measureExact,objectTopology,disposeSolidCache} from '../web/cad-solid.mjs';
+import {object,blank} from '../web/templates.mjs';
+import {createCommands} from '../web/commands.mjs';
+import {gzipSync} from 'node:zlib';
+const K=await initKernel();
+const E=await initLocalEngine(K,{rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
+const box=object('box',{w:30,d:20,h:10}),other=object('box',{w:30,d:20,h:10},[40,0,0]);
+let n=0;const near=(v,w)=>{assert.ok(Math.abs(v-w)<1e-6,`${v} ≠ ${w}`);n++;};
+const t=objectTopology(box),edge=t.edges.find(e=>{const p=e.points;return Math.abs(Math.hypot(p[3]-p[0],p[4]-p[1],p[5]-p[2])-30)<1e-6;});
+near(measureExact({mode:'edge',a:{object:box,index:edge.index}}).distance,30);
+const faces=t.faces.filter(f=>Math.abs(f.normal[1])>.99);
+near(measureExact({mode:'face',a:{object:box,index:faces[0].index},b:{object:box,index:faces[1].index}}).distance,20);
+near(measureExact({mode:'object',a:{object:box},b:{object:other}}).distance,10);
+const cylinder=object('cylinder',{diameter:18,h:20});
+const ct=objectTopology(cylinder);let circle;
+for(const e of ct.edges){const r=measureExact({mode:'edge',a:{object:cylinder,index:e.index}});if(r.diameter){circle=r;break;}}
+assert.ok(circle,'circle diameter available');n++;near(circle.diameter,18);near(circle.distance,Math.PI*18);
+const rotated=structuredClone(other);rotated.rotation=[0,0,90];rotated.position=[0,40,0];near(measureExact({mode:'object',a:{object:box},b:{object:rotated}}).distance,15);
+const perpendicular=t.faces.find(f=>Math.abs(f.normal[0])>.99);near(measureExact({mode:'face',a:{object:box,index:faces[0].index},b:{object:box,index:perpendicular.index}}).angle,90);
+const p=blank();p.objects=[box,other];const run=d=>{const r=E.process({id:1,...d});assert.ok(!r.error,r.error);return r;};
+const before=JSON.stringify(p),stl=Buffer.from(run({type:'export',project:p,tolerance:.15}).buffer);
+const times=[];for(let i=0;i<6;i++){const start=performance.now();near(run({type:'measure',mode:'object',a:{object:box},b:{object:other}}).distance,10);if(i)times.push(performance.now()-start);}
+assert.equal(JSON.stringify(p),before);assert.deepEqual(Buffer.from(run({type:'export',project:p,tolerance:.15}).buffer),stl);n+=2;
+const commands=createCommands({measure:{run:()=>true}});assert.equal(commands.byKey('T'),'measure');assert.equal(commands.run('measure'),true);n+=2;
+const chunk=fs.readdirSync('app/assets').find(f=>/^chunk-measure-tool-/.test(f));assert.ok(chunk);n++;const size=gzipSync(fs.readFileSync('app/assets/'+chunk),{level:9}).length;assert.ok(size<=6144);n++;
+assert.ok(times.sort((a,b)=>a-b)[2]<=50,'B-rep warm median must be ≤50 ms');n++;
+console.log(`PASS measure: ${n} assertions; warm B-rep median ${times.sort((a,b)=>a-b)[2].toFixed(3)} ms; lazy chunk ${size} B gz; STL identity ${stl.length} B`);
+disposeSolidCache();E.destroy();

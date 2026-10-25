@@ -10,7 +10,7 @@ export const PROJECT_VERSION=3;
 // Save format v3 (ADR-0001 §2.2): v3 is a superset of v2. The writer stamps version 3 only when some object, at any depth
 // (prefab and joined children included), uses a v3 field; every other project is written as version 2, byte-identical to
 // 2.7.x JSON. Groups alone stay v2 (Q13). The fields' validators land with their F-workstreams.
-const GLYPH_FINISH=['bevel','bevelProfile','plate','plateMargin','engrave'];
+const GLYPH_FINISH=['plate','plateMargin','engrave'];
 const needsV3=o=>!!o&&(o.mirrored===true||o.shell!=null||(Array.isArray(o.fillets)&&o.fillets.some(f=>f?.kind==='chamfer'))||(o.type==='glyph'&&GLYPH_FINISH.some(k=>o.params?.[k]!=null))||(o.params?.children||[]).some(needsV3));
 export function requiredVersion(p){return (p?.objects||[]).some(needsV3)?3:2;}
 // The object to serialise: the same object when its version is already right (so v2 output is byte-identical), else a
