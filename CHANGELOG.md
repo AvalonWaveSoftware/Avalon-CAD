@@ -12,6 +12,9 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
   (`any-hover:hover` and `any-pointer:fine`), not only on the Mac. It sits 18 px right of the Objects toggle, centred
   on it, and moves beside the Objects panel when the panel is open instead of disappearing. It hides at any window size
   where it would overlap a viewport control. Phones and tablets (touch only) are unchanged and never show it.
+- Desktop and web: the OCCT sidecar warms up once (a small torus and the letter 'B') in the first idle period after
+  startup, as the in-process engine already did, so the first shape you add or the first letter you place does not pay
+  OCCT's cold start. It only runs while the sidecar is idle and never changes a result. Android is unchanged.
 
 ### Fixed
 - Desktop app (Mac and Linux): sheets open instantly again, without the 180 ms slide-up animation, as in 2.7.2

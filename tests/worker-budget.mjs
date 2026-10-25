@@ -14,7 +14,7 @@ export async function workerSizes(root){
   else if(on){const ref="new URL('worker.js'";if(src.includes(ref))src=src.replace(ref,"new URL('worker-sidecar.js'");}
   return {contents:src,loader:'js'};});}});
  const out={};for(const [on,name] of [[false,'worker.js'],[true,'worker-sidecar.js']]){
-  const r=await build({absWorkingDir:root,entryPoints:[path.join(root,'web/worker.mjs')],write:false,outfile:path.join(root,'out',name),bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixed(on)],external:['node:*','module','fs','path','crypto'],logLevel:'silent'});
+  const r=await build({absWorkingDir:root,entryPoints:[path.join(root,'web/worker.mjs')],write:false,outfile:path.join(root,'out',name),bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixed(on)],define:{__AVALON_SIDECAR_BUNDLE__:String(on)},external:['node:*','module','fs','path','crypto'],logLevel:'silent'});
   const bytes=r.outputFiles[0].contents;out[name]={raw:bytes.length,gz:gzipSync(bytes,{level:9}).length};}
  return out;}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){

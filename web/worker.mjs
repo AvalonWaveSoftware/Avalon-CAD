@@ -6,7 +6,7 @@ import {solidRemote,runJob,packError} from './occt-remote.mjs';
 import {needsSolid} from './solid-gate.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
 import {shipTopologies} from './topology-pack.mjs';
-import {prepareGlyphs,glyphOutlines,glyphsReady} from './glyph-geometry.mjs';
+import {prepareGlyphs,glyphOutlines,glyphsReady,loadGlyphs} from './glyph-geometry.mjs';
 import {deferShells,takeDeferredShells,computeShells} from './shell-mesh.mjs';
 import {hollowError,SHELL_TIMEOUT_MS} from './shell-rules.mjs';
 // ADR-0001 occt-sidecar-warmup: the sidecar warm-up exists only in the sidecar bundle (worker-sidecar.js; build-web.mjs
@@ -52,7 +52,9 @@ function warmIdle(){if(!warmAsked||OCCT_SIDECAR||warmed.torus&&warmed.glyph)retu
   try{if(!warmed.torus){warmed.torus=true;warmShape({type:'torus',params:{diameter:3,tube:1}});return setTimeout(step,0);}
    if(!warmed.glyph&&glyphsReady()){warmed.glyph=true;warmShape({type:'glyph',params:{char:'B',size:2,depth:1,font:'roboto-bold@1'}});}}catch{}},0),()=>{});}
 self.onmessage=({data})=>{
- if(data?.type==='warmShapes'){warmAsked=true;warmIdle();return;}
+ // occt-sidecar-warmup: in the sidecar build the same request (desktop/web: first idle after startup) warms the
+ // sidecar's OCCT instead, once (see occtSidecar).
+ if(data?.type==='warmShapes'){warmAsked=true;if((typeof __AVALON_SIDECAR_BUNDLE__==='undefined'||__AVALON_SIDECAR_BUNDLE__)&&OCCT_SIDECAR)startSidecar().postMessage({warm:true});else warmIdle();return;}
  // The Letters, numbers & symbols picker asks for the outlines once; this loads them (no engine or OCCT needed).
  if(data?.type==='glyphOutlines'){glyphOutlines().then(outlines=>{self.postMessage({id:data.id,outlines});warmIdle();},e=>self.postMessage({id:data.id,error:e.message||String(e)}));return;}
  if(OCCT_SIDECAR){if(data?.type==='warm'){startSidecar();return;}if(needsSolid(data))startSidecar();}
@@ -101,5 +103,14 @@ function occtSidecar(){
    if(r.kind==='mesh'){const m=solidMeshFresh(r.o,r.tolerance,r.display);answer={m};self.postMessage({id,answer},[m.vertices.buffer,m.triangles.buffer]);return;}
    answer={t:objectTopology(r.o)};}catch(e){answer={error:packError(e)};}
   self.postMessage({id,answer});};
+ // ADR-0001 occt-sidecar-warmup: the Amendment A2.5 idle warm-up (torus, then glyph 'B' once the outlines are loaded),
+ // run once here, where OCCT lives in the sidecar build. Asked by the geometry worker on the UI's warmShapes (the first
+ // idle period after startup on desktop/web; never inside engine start, WS9). Each step runs only while no request is
+ // in progress, outside the caches (warmShape), so answers are unchanged; failures are ignored.
+ if((typeof __AVALON_SIDECAR_BUNDLE__==='undefined'||__AVALON_SIDECAR_BUNDLE__)&&OCCT_SIDECAR){const answer=self.onmessage;let busy=0,asked=false;
+  const idle=fn=>setTimeout(function step(){if(busy)return setTimeout(step,50);try{fn();}catch{}},0);
+  const warm=()=>{if(asked)return;asked=true;ready.then(()=>idle(()=>{warmShape({type:'torus',params:{diameter:3,tube:1}});
+   loadGlyphs().then(()=>idle(()=>warmShape({type:'glyph',params:{char:'B',size:2,depth:1,font:'roboto-bold@1'}})),()=>{});}),()=>{});};
+  self.onmessage=e=>{if(e.data?.warm)return warm();busy++;return answer(e).finally(()=>busy--);};}
 }
 if(OCCT_SIDECAR&&self.name==='occt')occtSidecar();else geometryWorker();
