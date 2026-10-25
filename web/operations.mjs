@@ -57,7 +57,7 @@ export function conjoined(objects,id,bounds){const center=bounds?bounds.min.map(
 export function selectedPieces(project,ids){return ids.map(id=>project.objects.find(o=>o.id===id)).filter(o=>o?.enabled);}
 export function mergeResult(objects,id,bounds,cutouts=[],fillOverlaps=false){
  assertSameLayer(objects,cutouts);
- const child=(o,mode)=>({...structuredClone(o),sourceMode:o.mode,mode});
+ const child=(o,mode)=>{const c={...structuredClone(o),sourceMode:o.mode,mode};delete c.groupId;return c;};// F5: groupId is top-level only
  const result=conjoined([...objects.map(o=>child(o,'solid')),...cutouts.map(o=>child(o,'cut'))],id,bounds);result.params.operation='add';
  if(fillOverlaps)result.params.fillOverlaps=true;
  const excluded=objects.flatMap(o=>o.excludedCutouts||[]);

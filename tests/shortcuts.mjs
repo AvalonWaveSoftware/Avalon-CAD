@@ -16,11 +16,11 @@ const c=createCommands(),table=Object.fromEntries(c.list.filter(x=>x.shortcut).m
 // Ruling 1: tooltip/aria text = existing label (shortcut), in the help table's key spelling.
 assert.deepEqual(Object.fromEntries(c.list.filter(x=>x.shortcut).map(x=>[x.id,tooltipText(x)])),{new:'New project (Cmd/Ctrl+N)',open:'Open project / prefab / STL… (Cmd/Ctrl+O)',save:'Save project on this computer (Cmd/Ctrl+S)',backup:'Export editable project… (Cmd/Ctrl+Shift+S)',export:'Export (Cmd/Ctrl+E)',
  undo:'Undo (Cmd/Ctrl+Z)',redo:'Redo (Cmd/Ctrl+Shift+Z)',add:'Add (A)',clear:'Deselect everything (Shift+Delete)',fit:'Fit model (0)',wire:'Wireframe (W)',help:'Help (?)',measure:'Measure (T)','mode:select':'Select (V)','mode:move':'Move (M)',
- 'mode:stretch':'Stretch (S)','mode:round':'Round (F)',delete:'Delete (Delete)',duplicate:'Duplicate (Cmd/Ctrl+D)',escape:'Close panel (Esc)'});
+ 'mode:stretch':'Stretch (S)','mode:round':'Round (F)',group:'Group selected (Cmd/Ctrl+G)',ungroup:'Ungroup (Cmd/Ctrl+Shift+G)',delete:'Delete (Delete)',duplicate:'Duplicate (Cmd/Ctrl+D)',escape:'Close panel (Esc)'});
 assert.deepEqual(table,{new:['Mod+N'],open:['Mod+O'],save:['Mod+S'],backup:['Mod+Shift+S'],export:['Mod+E'],undo:['Mod+Z'],redo:['Mod+Shift+Z','Mod+Y'],add:['A','Mod+Shift+A'],
- clear:['Shift+Delete','Shift+Backspace'],fit:['0','Home','Mod+0'],wire:['W'],help:['?'],measure:['T'],'mode:select':['V'],'mode:move':['M'],'mode:stretch':['S'],'mode:round':['F'],delete:['Delete','Backspace'],duplicate:['Mod+D'],escape:['Escape']});
+ clear:['Shift+Delete','Shift+Backspace'],fit:['0','Home','Mod+0'],wire:['W'],help:['?'],measure:['T'],'mode:select':['V'],'mode:move':['M'],'mode:stretch':['S'],'mode:round':['F'],group:['Mod+G'],ungroup:['Mod+Shift+G'],delete:['Delete','Backspace'],duplicate:['Mod+D'],escape:['Escape']});
 const all=c.list.flatMap(x=>x.shortcut||[]);assert.equal(new Set(all).size,all.length,'no combo bound twice');for(const s of all)assert.equal(c.byKey(s)&&c.get(c.byKey(s)).shortcut.includes(s),true);
-for(const id of ['mode:rotate','mode:mirror','copy','paste','group','ungroup'])assert.ok(!COMMAND_IDS.includes(id),id+' arrives with its feature');
+for(const id of ['mode:rotate','mode:mirror','copy','paste'])assert.ok(!COMMAND_IDS.includes(id),id+' arrives with its feature');
 // --- Electron menu accelerators (desktop/main.cjs) == ELECTRON_MENU, and each is a registry shortcut of the same command.
 const cjs=fs.readFileSync('desktop/main.cjs','utf8'),menu={false:{},true:{}};
 for(const m of cjs.matchAll(/accelerator: (?:isMac \? '([^']+)' : '([^']+)'|'([^']+)'), click: invoke\('([^']+)'\)/g)){const norm=a=>a.replace(/^CmdOrCtrl\+|^Ctrl\+/,'Mod+');
@@ -38,6 +38,7 @@ const APPROVED='V Select · M Move · R Rotate · S Stretch · F Edge (Round/Cha
 const rows=shortcutRows(id=>!!c.get(id)?.shortcut);let at=-1;for(const r of rows){const i=APPROVED.indexOf(r,at+1);assert.ok(i>at,'approved, in order: '+r);at=i;}
 assert.equal(rows.length,20);assert.deepEqual(shortcutRows(()=>false),[]);
 const PARAGRAPH=rows.join(' · ')+'. Shortcuts also work with a hardware keyboard on Android. They never fire while you type in a field.';
+if(process.argv.includes('--unit')){console.log('PASS: shortcuts unit checks: combo, registry including F5, menu, dispatcher gates and help rows.');process.exit(0);}
 // --- browser
 const H=await import('../tools/readme-shots/harness.mjs');const env=await H.start();const out=[];
 try{for(const desktop of [false,true]){const page=await H.open(env,{desktop}),name=desktop?'desktop':'phone';let n=0;

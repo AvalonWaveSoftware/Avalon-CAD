@@ -14,6 +14,7 @@ const DEFS=[
  ['clear','Clear','Deselect everything',['Shift+Delete','Shift+Backspace']],['fit','Fit model',null,['0','Home','Mod+0']],['wire','Wireframe',null,['W']],['help','Help',null,['?']],
  ...[['3d','3D'],['top','TOP'],['front','FRONT'],['right','RIGHT']].map(([v,l])=>[`view:${v}`,l]),
  ...[['Select','V'],['Move','M'],['Stretch','S'],['Round','F']].map(([l,k])=>[`mode:${l.toLowerCase()}`,l,null,[k]]),
+ ['group','Group selected',null,['Mod+G']],['ungroup','Ungroup',null,['Mod+Shift+G']],
  ['delete','Delete',null,['Delete','Backspace']],['duplicate','Duplicate',null,['Mod+D']],['escape','Close panel',null,['Escape']]];
 export const COMMAND_IDS=DEFS.map(d=>d[0]);
 // The Electron menu accelerators (desktop/main.cjs), as registry combos. The native menu runs these itself, so the

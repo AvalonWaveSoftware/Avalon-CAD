@@ -1,3 +1,4 @@
+import {copySelection,pasteSelection,pruneGroups,rootGroup,selectionBounds,translateMembers,expandGroups,validateGroups} from './groups.mjs';
 import * as THREE from 'three';
 import {layerOf,layerName} from './layers.mjs';
 import {installLayerTools} from './layers-ui.mjs';
@@ -90,7 +91,7 @@ function current(){return project.objects.find(o=>o.id===selected);}
 // selection(): every selected id, primary (selected) last. Multi-selection lives in touch-tools.
 function selection(){const ids=touch?.multi()||[];return ids.length?ids:selected&&current()?[selected]:[];}
 function updateMergeBtn(){$('mergeBtn').hidden=selection().length<2;}
-function select(id,{additive=false}={}){if(additive&&id&&touch)return touch.toggleMulti(id);selected=id;const o=current();if(o&&project.activeLayer!==layerOf(o)){project.activeLayer=layerOf(o);autosave();}refreshLabels();drawSelection();touch?.selectionChanged();objectsPanel?.selectionChanged();updateMergeBtn();}
+function select(id,{additive=false,member=false}={}){if(additive&&id&&touch)return touch.toggleMulti(id);selected=id;const o=current();if(o&&project.activeLayer!==layerOf(o)){project.activeLayer=layerOf(o);autosave();}refreshLabels();drawSelection();touch?.selectionChanged(member);refreshLabels();objectsPanel?.selectionChanged();showBounds();updateMergeBtn();}
 function refreshLabels(){const on=project.buildPlaneEnabled===true;$('buildPlane').checked=on;$('buildPlaneStatus').textContent=on?'On · stops at Z=0':'Off · negative Z allowed';buildPlane.visible=on;invalidate();const o=current();$('projectName').textContent=project.name;$('objectCount').textContent=project.objects.length;$('layersBtn').textContent=layerName(project)+' ▾';$('layersBtn').setAttribute('aria-label','Layers · '+layerName(project));const part=pickMeshes.find(m=>m.userData.id===selected);const count=selection().length;$('selectionLabel').textContent=count>1?count+' objects selected':o?o.name+(o.mode==='cut'?' · cutout':'')+(part?' · '+faceSummary(part):''):'No object selected';$('quickEdit').disabled=!o;$('editBtn').disabled=!o;$('undo').disabled=!history.length;$('redo').disabled=!future.length;$('empty').hidden=project.objects.some(o=>o.enabled&&o.mode==='solid');updateMergeBtn();objectsPanel?.render();}
 const READY=['Ready · millimeters','Ready · inches'];
 async function refresh(fit=false){refreshLabels();autosave();const id=++previewId;status('Building solid…');try{const data=await request('preview',{project:cloneSharing(project),tolerance:0.15},OCCT_SIDECAR?d=>{if(id===previewId)showInterim(d);}:undefined);if(id!==previewId||data.canceled)return;applyModel(data);status(data.triangles.length?`${(data.triangles.length/3).toLocaleString()} preview triangles`:byUnit(...READY));if(fit)fitCamera();}catch(e){if(id!==previewId)return;status('Model needs attention');toast(e.message,true);}}
@@ -177,7 +178,7 @@ const dimsTitle=()=>byUnit('Dimensions · millimeters','Dimensions · inches'),p
 // Everything outside the sheet that shows a length: status line, model size, axis tag, drag steps, grid. In mm at
 // startup nothing is touched, so the default look is exactly today's.
 let boundsSize=null;
-function showBounds(){$('bounds').textContent=boundsSize?boundsSize.map(v=>fmtLen(v)).join(' × ')+byUnit(' mm',' in'):'';}
+function showBounds(){const b=selection().length>1?selectionBounds(model?.parts||[],selection()):null,size=b?b.max.map((v,i)=>v-b.min[i]):boundsSize;$('bounds').textContent=size?size.map(v=>fmtLen(v)).join(' × ')+byUnit(' mm',' in'):'';}
 function showUnits(){measureTool?.unitsChanged();if(READY.includes($('busy').textContent))status(byUnit(...READY));showBounds();
  document.querySelector('.axis>span').textContent=unitLabel();
  const ds=$('dragStep'),at=ds.selectedIndex;[...ds.options].forEach((op,i)=>{op.value=stepOptions().drag[i];op.textContent=byUnit(['Free','0.1 mm','1 mm'],['Free','0.01 in','0.1 in'])[i];});ds.selectedIndex=at;ds.dispatchEvent(new Event('change'));
@@ -195,6 +196,9 @@ function editMenu(newObject=null){if(!newObject?.params||!newObject?.id)newObjec
   const at=[0,1,2].map(i=>lens.read('pos'+i));draft.position=at;draft.rotation=[0,1,2].map(i=>Number($('rot'+i).value));
   const p=structuredClone(project);if(creating){if(p.objects.length>=100)throw Error('Maximum 100 objects.');p.objects.push(draft);}else p.objects[p.objects.findIndex(x=>x.id===o.id)]=draft;p.activeLayer=draft.layerId;validateProject(p);lockPanel(true);
   if(draft.positionReference==='base'){draft=(await request('place',{object:draft,position:at,floor:p.buildPlaneEnabled===true})).object;p.objects[p.objects.findIndex(x=>x.id===draft.id)]=draft;}
+  if(!creating&&selection().length>1)translateMembers(p,project.objects.filter(x=>x.id!==o.id&&selection().includes(x.id)),draft.position.map((v,i)=>v-o.position[i]));
+  if(draft.shell&&!(p.buildPlaneEnabled||creating||isThread(draft)||draft.type==='prefab'||draft.resolution?.mode==='faces'||draft.fillets?.some(f=>f.radius>0)))applyFloorAdjustments(p,await ask('check',{project:p,tolerance:.15}));
+
   if(p.buildPlaneEnabled||creating||isThread(draft)||draft.type==='prefab'||draft.resolution?.mode==='faces'||draft.fillets?.some(f=>f.radius>0))applyFloorAdjustments(p,await request('check',{project:p,tolerance:.15}));
   lockPanel(false);replaceProject(()=>{project=p;selected=draft.id;});closeSheet();toast(creating?'Object added.':resetRounds||resetFinishRounds?'Shape updated. Roundovers were cleared because the face layout changed.':'Dimensions and face resolution updated.');
  }catch(e){error.textContent=unitMessage(e.message);}finally{lockPanel(false);}};
@@ -228,10 +232,10 @@ function saveProject(){const id=project.savedId||uid();project.savedId=id;saved[
 function guardReplace(fn){fn=(replace=>()=>{sheet3MF?.dispose3MFPool();return replace();})(fn);if(!project.objects.length)return fn();openSheet('Start another project?',`<p class="subtle">Your current model is in Undo history. Save an editable backup before replacing it if you want to keep it long term.</p><div class="row"><button id="keepCurrent">Keep current</button><button id="replaceCurrent" class="primary">Continue</button></div>`);$('keepCurrent').onclick=projectMenu;$('replaceCurrent').onclick=fn;}
 $('projectMenu').onclick=projectMenu;
 // Edit → Duplicate / Delete, shared with the Cmd/Ctrl+D and Delete shortcuts (F1a).
-function duplicateDraft(o){if(project.objects.length>=100)return toast('Maximum 100 objects.',true);const copy=structuredClone(o);copy.id=uid();copy.name=o.name+' copy';startAtOrigin(copy);if(copy.params.children)copy.params.children=freshComponents(copy.params.children);editMenu(copy);}
-function deleteObject(o){change(()=>{project.objects=project.objects.filter(x=>x.id!==o.id);selected=null;});closeSheet();}
+function duplicateDraft(o){if(selection().length>1){try{let ids;change(()=>{ids=pasteSelection(project,copySelection(project,selection()),uid);});touch.setMulti(ids);closeSheet();}catch(e){toast(e.message,true);}return;}if(project.objects.length>=100)return toast('Maximum 100 objects.',true);const copy=structuredClone(o);copy.id=uid();delete copy.groupId;copy.name=o.name+' copy';startAtOrigin(copy);if(copy.params.children)copy.params.children=freshComponents(copy.params.children);editMenu(copy);}
+function deleteObject(o){deleteSelected();}
 // Delete key (Architect UI round 1, ruling 3): every selected object goes in one undo step; a multi-selection is then cleared like Clear.
-function deleteSelected(){const ids=new Set(selection()),many=!!touch.multi().length;if(!ids.size)return;change(()=>{project.objects=project.objects.filter(x=>!ids.has(x.id));selected=null;});if(many)touch.deselect();closeSheet();}
+function deleteSelected(){const ids=new Set(selection()),many=!!touch.multi().length;if(!ids.size)return;change(()=>{project.objects=project.objects.filter(x=>!ids.has(x.id));pruneGroups(project);selected=null;});if(many)touch.deselect();closeSheet();}
 function safeName(){return (project.name||'model').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,64)||'model';}
 // Returns save timings for the [Avalon export] debug line: pickerMs is the user's time in the save dialog / SAF picker
 // (excluded from totalMs); writeMs the native write after it. Android resolves once MainActivity reports the SAF write.
@@ -264,9 +268,9 @@ async function help(){const {HELP_TITLE,helpHTML}=await import('./help-sheet.mjs
 $('helpBtn').onclick=help;
 window.handleBack=()=>{if(touch?.isCommitting()||panelBusy)return true;if(touch?.closeEdgeMenu())return true;// F6: Android Back closes the Edge ▾ dropdown (no mode change)
  if(!$('sheet').hidden){closeSheet();return true;}if(objectsPanel?.isOpen()){objectsPanel.toggle(false);return true;}return false;};
-touch=installTouch({canvas,scene,camera,controls,project:()=>project,current,selected:()=>selected,parts:()=>pickMeshes,select,refresh,request,change,autosave,dragVisual:()=>disposeGroup(overlay),record:before=>{pushHistory(before,selection());autosave();refreshLabels();},snapshot:snap,toast,openSheet,closeSheet,escape});
+touch=installTouch({groupCommand,canvas,scene,camera,controls,project:()=>project,current,selected:()=>selected,parts:()=>pickMeshes,select,refresh,request,change,autosave,dragVisual:()=>disposeGroup(overlay),record:before=>{pushHistory(before,selection());autosave();refreshLabels();},snapshot:snap,toast,openSheet,closeSheet,escape});
 prefabs=installPrefabs({project:()=>project,current,selection,parts:()=>pickMeshes,commit:(p,id)=>replaceProject(()=>{project=p;selected=id;}),editDraft:editMenu,place:o=>touch.placeNew(o),request,openSheet,closeSheet,escape,toast,saveFile,importDialog,lock:lockPanel});
-objectsPanel=installObjectsPanel({project:()=>project,selected:()=>selected,selection,select,toggleMulti:id=>touch.toggleMulti(id),deselect:()=>touch.deselect(),change,escape,editMenu:()=>editMenu(),addMenu,mergeMenu:ids=>touch.mergeMenu(ids),createPrefab:()=>prefabs.form({source:'selection'})});
+objectsPanel=installObjectsPanel({renameGroup:id=>import('./groups-ui.mjs').then(m=>m.renameGroup(groupUI(),id,openSheet,escape)),project:()=>project,selected:()=>selected,selection,select,toggleMulti:id=>touch.toggleMulti(id),deselect:()=>touch.deselect(),change,escape,editMenu:()=>editMenu(),addMenu,mergeMenu:ids=>touch.mergeMenu(ids),createPrefab:()=>prefabs.form({source:'selection'})});
 if(recovered)pendingWarnings.push(blankRecovery?'Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.':'Avalon CAD hit a problem and restarted. Your last autosave was reopened.');
 {const messages=pendingWarnings.splice(0);if(messages.length)toast(messages.join(' '),messages.length>1);}
 const layers=installLayerTools({project:()=>project,change,current,select,openSheet,closeSheet,escape,clear:()=>touch.deselect()});
@@ -279,6 +283,13 @@ const busy=()=>panelBusy||touch.isDragging()||touch.isCommitting(),press=id=>({r
 const measureButton=$('measureBtn');measureButton.classList.remove('pending');measureButton.removeAttribute('aria-hidden');measureButton.removeAttribute('tabindex');delete measureButton.dataset.pending;measureButton.setAttribute('aria-label','Measure');measureButton.innerHTML='<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v10H3zM7 7v5m5-5v3m5-3v5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 // A failed chunk load is not cached: the next tap retries the import instead of leaving the button dead.
 measureButton.onclick=async()=>{if(busy())return;try{measureLoading??=import('./measure-tool.mjs').then(m=>measureTool=m.installMeasure({T:{Group:THREE.Group,Mesh:THREE.Mesh,SphereGeometry:THREE.SphereGeometry,MeshBasicMaterial:THREE.MeshBasicMaterial,Line:THREE.Line,BufferGeometry:THREE.BufferGeometry,Vector3:THREE.Vector3,LineBasicMaterial:THREE.LineBasicMaterial},fmtLen,unitLabel,touch,scene,request,invalidate,canvas}),e=>{measureLoading=null;throw e;});await measureLoading;measureTool.toggle();}catch(e){toast(e.message,true);}};
+let objectClipboard=null;
+const groupUI=()=>({expandGroups,validateGroups,rootGroup,project:()=>project,selection,selected:()=>selected,change,select,uid,closeSheet,toast});
+function groupCommand(key){return import('./groups-ui.mjs').then(m=>{try{m.groupActions(groupUI())[key]();}catch(e){toast(e.message,true);}});}
+function copyObjects(){objectClipboard=copySelection(project,selection());}
+function pasteObjects(){if(!objectClipboard)return;try{let ids;change(()=>{ids=pasteSelection(project,objectClipboard,uid);});touch.setMulti(ids);}catch(e){toast(e.message,true);}}
+document.addEventListener('copy',e=>{if(busy()||typing()||!selection().length)return;copyObjects();e.clipboardData?.setData('text/plain',JSON.stringify({format:'avaloncad-selection',...objectClipboard}));e.preventDefault();});
+document.addEventListener('paste',e=>{if(busy()||typing())return;const text=e.clipboardData?.getData('text/plain');if(text){try{const c=JSON.parse(text);if(c.format!=='avaloncad-selection')return;const p={...project,objects:c.objects,groups:c.groups};validateProject(p);objectClipboard=copySelection(p,c.objects.map(o=>o.id));}catch{return;}}if(objectClipboard){pasteObjects();e.preventDefault();}});
 const commands=createCommands({
  new:{run:()=>{projectMenu();document.querySelector('[data-template="blank"]').click();}},open:{run:importDialog},save:{run:()=>{saveProject();closeSheet();}},
  backup:{run:()=>saveFile(JSON.stringify(forWrite(project),null,2),safeName()+'.tcad','application/json')},
@@ -287,6 +298,7 @@ const commands=createCommands({
  // Modes run through their mode-bar button, so F follows whatever the Round button does (F6 turns it into the Edge ▾
  // dropdown opener; F then opens it with no change here, or F6 passes its own mode:round handler).
  ...Object.fromEntries(['select','move','stretch','round'].map(m=>[`mode:${m}`,{run:()=>document.querySelector(`[data-mode="${m}"]`).click()}])),
+ group:{run:()=>groupCommand('group'),enabled:()=>selection().length>1},ungroup:{run:()=>groupCommand('ungroup'),enabled:()=>!!rootGroup(project,current()?.groupId)},
  delete:{run:deleteSelected,enabled:()=>!!selection().length},duplicate:{run:()=>duplicateDraft(current()),enabled:()=>!!current()},
  escape:{run:()=>{if(measureTool?.close())return;if(!$('sheet').hidden)closeSheet();else touch.deselect();}}});
 // ADR-0001 F1a: one keyboard dispatcher for web, Electron and Android hardware keyboards. Nothing fires while a field

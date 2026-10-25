@@ -1,3 +1,4 @@
+import {validateGroups} from './groups.mjs';
 // WS9 (ADR v2): the UI-safe part of the kernel (validation, QUALITY, polygon checks, STL import). main.mjs and the UI
 // modules import only this file, so replicad/OCCT glue (kernel.mjs, cad-solid.mjs) stays out of main.js. Moved verbatim.
 import {curvedTypes} from './facets.mjs';
@@ -21,6 +22,7 @@ export function validateProject(p, shareFrozen=false) {
   if (!p || p.format!=='tristancad' || (p.version!==2&&p.version!==3) || !Array.isArray(p.objects) || p.objects.length>100) throw Error('This is not a supported AvalonCad project (maximum 100 objects).');
   const out=shareFrozen?cloneSharing(p):structuredClone(p);
   normalizeLayers(out);
+  validateGroups(out);
   if(out.buildPlaneEnabled!==undefined&&typeof out.buildPlaneEnabled!=='boolean')throw Error('Invalid build-plane setting.');
   out.name=String(out.name||'Untitled').slice(0,80);
   const types=['box','rounded','cylinder','cone','sphere','tube','threadrod','threadtube','polygon','mesh','joined','wedge','pyramid','prefab','torus','triprism','tetrahedron','octahedron','decahedron','dodecahedron','icosahedron','glyph'];
