@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+# Toolchain (QA issue 3): rust-toolchain.toml at the repo root (tracked; this script runs from the repo root, so rustup
+# picks it up) pins channel, profile and the wasm32 target. Use, in order: an in-repo tools/rust-toolchain (optional,
+# git-excluded), else rustup's cargo ($CARGO_HOME/bin or ~/.cargo/bin), which honours the pin. A plain system cargo
+# (e.g. /usr/bin/cargo 1.85.1 on the box) ignores the pin and is refused below.
 if [ -x tools/rust-toolchain/cargo/bin/cargo ]; then
  export RUSTUP_HOME="$PWD/tools/rust-toolchain/rustup"
  export CARGO_HOME="$PWD/tools/rust-toolchain/cargo"
  export PATH="$CARGO_HOME/bin:$PATH"
+elif [ -x "${CARGO_HOME:-$HOME/.cargo}/bin/rustup" ]; then
+ export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 fi
 # Reproducible build (QA M6 / mirror R1): the same source must give the same mesh-core.wasm bytes in every worktree.
-# 1. Pinned toolchain only: refuse any rustc other than rust-toolchain.toml's channel (a system /usr/bin/rustc 1.85 is
-#    on PATH on the box and would silently produce different code).
+# 1. Pinned toolchain only: refuse any rustc other than rust-toolchain.toml's channel.
 want=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
-have=$(rustc --version | cut -d' ' -f2)
-[ "$have" = "$want" ] || { echo "rustc $have is not the pinned $want (rust-toolchain.toml); install it in tools/rust-toolchain" >&2; exit 1; }
+install_msg="Install the pinned Rust toolchain, then rerun ./build-rust.sh:
+  rustup toolchain install $want --profile minimal --target wasm32-unknown-unknown
+(no rustup yet: https://rustup.rs, then the command above; a distro/system rustc cannot be used)"
+command -v rustc >/dev/null || { echo "rustc not found. $install_msg" >&2; exit 1; }
+have=$(rustc --version 2>/dev/null | cut -d' ' -f2) || have=none
+[ "$have" = "$want" ] || { echo "rustc ${have:-none} is not the pinned $want (rust-toolchain.toml). $install_msg" >&2; exit 1; }
+rustc --print sysroot >/dev/null && [ -d "$(rustc --print sysroot)/lib/rustlib/wasm32-unknown-unknown" ] || { echo "Rust $want lacks the wasm32-unknown-unknown target. Run: rustup target add wasm32-unknown-unknown --toolchain $want" >&2; exit 1; }
 # 2. Paths: panic Location strings embed the absolute path of the vendored crates
 #    (/workspace/avalon-cad/<worktree>/engine/rust/vendor/...), so every worktree produced different bytes. Remap the
 #    checkout root (and CARGO_HOME) to fixed prefixes. CARGO_ENCODED_RUSTFLAGS (0x1f-separated) survives spaces in paths.
