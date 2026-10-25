@@ -13,29 +13,33 @@
 #   --adb             force the adb path (adb connect to the Waydroid IP), as before.
 #   --sample FILE     project to push (default samples/sphere-524k.tcad).
 #   --apk FILE        APK to install (default AvalonCad-export-3mf-3ad225b-debugtest.apk).
+#   --package ID      Android app ID to install/launch/measure (default com.avalonwavesoftware.cad.test, the test-key
+#                     build ID; also the PKG env var). Pass the old ID for APKs built before the app-ID change.
 #   --setup-only      install, push, start logcat, launch once; one Enter when QA finishes all taps; then summarize.
 #   --non-interactive skip read prompts (auto-continue). For stub/stand-in testing; not a substitute for real taps.
 #   --no-install      never uninstall/install; keep app data. Fails if the package is missing.
 #   --force-install   always uninstall+install (wipes app data). Default is safer: install only when missing or
 #                     the installed base.apk sha256 differs from the host APK.
-# Overrides (for testing): ADB, WAYDROID (default /usr/bin/waydroid), SUDO, WAYDROID_DATA (default ~/.local/share/waydroid/data).
+# Overrides (for testing): ACTIVITY (launch class, default com.avalonwavesoftware.cad.MainActivity), ADB, WAYDROID (default /usr/bin/waydroid), SUDO, WAYDROID_DATA (default ~/.local/share/waydroid/data).
 set -euo pipefail
-PKG=com.tristan.cad APK=AvalonCad-export-3mf-3ad225b-debugtest.apk SAMPLE=samples/sphere-524k.tcad MODE=
+PKG=${PKG:-com.avalonwavesoftware.cad.test} APK=AvalonCad-export-3mf-3ad225b-debugtest.apk SAMPLE=samples/sphere-524k.tcad MODE=
 SETUP_ONLY=
 NONINTERACTIVE=
 NO_INSTALL=
 FORCE_INSTALL=
 while [ $# -gt 0 ]; do case "$1" in
   --waydroid-shell) MODE=shell;; --adb) MODE=adb;;
-  --sample) SAMPLE=$2; shift;; --apk) APK=$2; shift;;
+  --sample) SAMPLE=$2; shift;; --apk) APK=$2; shift;; --package) PKG=$2; shift;;
   --setup-only) SETUP_ONLY=1;; --non-interactive) NONINTERACTIVE=1;;
   --no-install) NO_INSTALL=1;; --force-install) FORCE_INSTALL=1;;
-  -h|--help) sed -n '2,24p' "$0"; exit 0;;
+  -h|--help) sed -n '2,26p' "$0"; exit 0;;
   *) echo "unknown option: $1" >&2; exit 2;; esac; shift; done
 if [ -n "$NO_INSTALL" ] && [ -n "$FORCE_INSTALL" ]; then
   echo "use only one of --no-install and --force-install" >&2; exit 2
 fi
 ADB=${ADB:-adb}
+# The activity class keeps its source package when a test build renames the app ID, so it is named in full.
+ACTIVITY=${ACTIVITY:-com.avalonwavesoftware.cad.MainActivity}
 # Prefer the absolute path sudoers typically allows (NOPASSWD: /usr/bin/waydroid).
 WAYDROID=${WAYDROID:-/usr/bin/waydroid}
 SUDO=${SUDO:-sudo}
@@ -119,7 +123,7 @@ dev "getprop ro.product.cpu.abi; getprop ro.product.cpu.abilist; nproc"
 logcat_start
 trap logcat_stop EXIT
 # am start: monkey LAUNCHER exits 251 on Waydroid (SYS_KEYS / no physical keys).
-launch(){ dev "am force-stop $PKG"; dev "am start -n $PKG/.MainActivity >/dev/null"; }
+launch(){ dev "am force-stop $PKG"; dev "am start -n $PKG/$ACTIVITY >/dev/null"; }
 LOAD="If the model is not on screen: + (Add) > \"Import an STL, project or prefab\" > Downloads > $NAME > Continue; wait until the status reads Ready."
 if [ -n "$SETUP_ONLY" ]; then
   launch
