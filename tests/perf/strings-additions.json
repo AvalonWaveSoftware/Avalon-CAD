@@ -321,6 +321,18 @@
    "source": "web/shell-rules.mjs:13",
    "approval": "ADR-0001 F8 shell objects; ADR-0003; approved by Master Chief 2026-10-25 08:14 CT with a final period added; runtime message hollowError(t) = \"Can't hollow this shape at ${t} mm. Try a smaller wall or remove rounds.\" (example t=2)"
   },
+  {
+   "text": "Wall thickness must be at least 0.016 in and less than half the smallest dimension.",
+   "runtime": true,
+   "source": "web/units.mjs:33",
+   "approval": "batch-3.0 inch-mode proposal (current unit) for the approved F8 wall message: approved by Master Chief (current unit in inch mode), relayed by Grok Bot 2026-10-25 11:29 CT"
+  },
+  {
+   "text": "Can't hollow this shape at 0.079 in. Try a smaller wall or remove rounds.",
+   "runtime": true,
+   "source": "web/units.mjs:37",
+   "approval": "batch-3.0 inch-mode proposal (current unit) for the approved F8 hollow message (example t=2 mm): approved by Master Chief (current unit in inch mode), relayed by Grok Bot 2026-10-25 11:29 CT"
+  },
   "Closed hollow · no open faces",
   "Invalid hollow setting.",
   "Tap faces to leave open"

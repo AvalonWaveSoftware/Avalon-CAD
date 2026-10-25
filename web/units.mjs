@@ -30,7 +30,12 @@ const INCH_MESSAGES={'Dimension must be 0.05–10000 mm.':'Dimension must be 0.0
  'Extrusion height must be 0.05–10000 mm.':'Extrusion height must be 0.002–393.7 in.','Connecting bar diameter must be 0.5–10000 mm.':'Connecting bar diameter must be 0.02–393.7 in.',
  // ADR-0001 F7 ruling 1 (wired by F7, the second of F7 / inch-units to merge): the Engrave plate limit, 1 mm = 0.039 in.
  'Engrave needs a plate thicker than 1 mm.':'Engrave needs a plate thicker than 0.039 in.'};
-export const unitMessage=m=>unit==='in'&&INCH_MESSAGES[m]||m;
+// F8 shell in inches (current unit; wording approved by Master Chief 2026-10-25 11:29 CT). Self-contained: reverting this block and
+// the unitMessage call in shell-ui.mjs restores the mm-only shell messages.
+INCH_MESSAGES['Wall thickness must be at least 0.4 mm and less than half the smallest dimension.']='Wall thickness must be at least 0.016 in and less than half the smallest dimension.';
+const HOLLOW_MM=/^Can't hollow this shape at (\d+(?:\.\d+)?) mm\. Try a smaller wall or remove rounds\.$/;
+const shellInch=m=>HOLLOW_MM.test(m)?m.replace(HOLLOW_MM,(_,t)=>`Can't hollow this shape at ${(t/MM_PER_IN).toFixed(3)} in. Try a smaller wall or remove rounds.`):null;
+export const unitMessage=m=>unit==='in'&&(INCH_MESSAGES[m]||shellInch(m))||m;
 // stepOptions() → steps in mm (ruling 13): the edit-field step and the Move/Stretch drag steps (Free / 0.1 / 1 mm, or
 // Free / 0.01 / 0.1 in). The sketch snap (1 mm or 0.05 in) is snapSketch below; the grid cell (10 mm or 0.5 in) is main.mjs gridHelper.
 export function stepOptions(){return unit==='in'?{input:0.001,drag:[0,0.254,2.54]}:{input:0.1,drag:[0,0.1,1]};}
