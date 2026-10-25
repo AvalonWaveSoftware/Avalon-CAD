@@ -1,5 +1,5 @@
 import {primitiveFaces} from './polyhedra.mjs';
-import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid} from './glyph-geometry.mjs';
+import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid,hasGlyphFinish,glyphLayout,glyphHalfExtents} from './glyph-geometry.mjs';
 import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
@@ -20,9 +20,34 @@ let remote=null;
 export function setSolidRemote(r){remote=r;}
 export const solidRemoteMisses=()=>remote?remote.events():0;
 const dispose=o=>{try{o?.delete();}catch{}};
-export async function initSolid(options={}) {
- const {default:init}=await import('replicad-opencascadejs');const oc=await init(options);R.setOC(oc);setHeapSource(oc);gpropFace=projector=null;return {oc,R};
+// ADR-0001 F7 P3: OCCT is compiled once (wasmModule) and instantiated through Emscripten's instantiateWasm hook, so a
+// fresh instance (resetSolid, after an OCCT memory error) reuses the compiled code: no second compile, no new wasm code
+// space. If the module cannot be compiled up front, the default Emscripten path runs exactly as before.
+let wasmModule=null,solidOptions={},occtTrapped=false;
+async function compileOcct(options){
+ if(globalThis.process?.versions?.node&&!options.locateFile){const fs=await import('node:fs');return WebAssembly.compile(fs.readFileSync(new URL('replicad_single.wasm',import.meta.resolve('replicad-opencascadejs'))));}
+ if(!options.locateFile)return null;const url=options.locateFile('replicad_single.wasm','');
+ if(globalThis.process?.versions?.node){const fs=await import('node:fs');return WebAssembly.compile(fs.readFileSync(url));}
+ try{return await WebAssembly.compileStreaming(fetch(url,{credentials:'same-origin'}));}catch{const r=await fetch(url,{credentials:'same-origin'});return r.ok?WebAssembly.compile(await r.arrayBuffer()):null;}
 }
+export async function initSolid(options={}) {
+ solidOptions=options;const {default:init}=await import('replicad-opencascadejs');
+ if(!wasmModule)wasmModule=await compileOcct(options).catch(()=>null);
+ let oc;if(!wasmModule)oc=await init(options);
+ else{const module=wasmModule;let fail;const failed=new Promise((_,reject)=>fail=reject);
+  oc=await Promise.race([init({...options,instantiateWasm:(imports,done)=>{WebAssembly.instantiate(module,imports).then(i=>done(i,module),fail);return {};}}),failed]);}
+ R.setOC(oc);setHeapSource(oc);gpropFace=projector=null;occtTrapped=false;return {oc,R};
+}
+// P3: a wasm trap (RuntimeError: memory access out of bounds, unreachable, Aborted(OOM)...) inside OCCT leaves its heap
+// inconsistent (later calls fail with 'null function or function signature mismatch', or spin). The trap is recorded
+// and its error is passed on unchanged; before the next job the worker calls resetSolid(), which drops every B-rep of
+// the old heap (never touching it again) and instantiates OCCT afresh from the compiled module. JS-side caches
+// (meshes, topology) hold plain data computed before the trap and stay.
+const isTrap=e=>e instanceof WebAssembly.RuntimeError;
+export function noteOcctError(e){if(isTrap(e))occtTrapped=true;return e;}
+export const occtNeedsReset=()=>occtTrapped;
+export async function resetSolid(){cache.clear();brepBytes=0;await initSolid(solidOptions);}
+const guarded=fn=>(...a)=>{try{return fn(...a);}catch(e){throw noteOcctError(e);}};
 // WS1: replicad's cut()/fuse() leave the BRepAlgoAPI builder (with its whole boolean history) to a
 // FinalizationRegistry, so under continuous edits the OCCT heap grows until GC happens to run. The scoped
 // version issues the same OCCT calls (glue unset, Build, SimplifyResult(true,true,.001), Shape) and deletes the
@@ -54,7 +79,7 @@ function baseShape(o) {
   case 'sphere':s=R.makeSphere(p.diameter/2);break;
   // replicad 1.1.0 has no makeTorus; the OCCT builder is used directly (as makeSphere does) and deleted at once (WS1).
   case 'torus':{const maker=new (R.getOC()).BRepPrimAPI_MakeTorus((p.diameter-p.tube)/2,p.tube/2);try{s=new R.Solid(maker.Shape());}finally{maker.delete();}break;}
-  case 'glyph':s=glyphSolid(R,p);break;
+  case 'glyph':s=glyphShape(p);break;
   case 'polygon':{const area=p.points.reduce((s,a,i)=>{const b=p.points[(i+1)%p.points.length];return s+a[0]*b[1]-a[1]*b[0];},0);const pts=area<0?[...p.points].reverse():p.points;const f=R.makePolygon(pts.map(a=>[a[0],a[1],-p.h/2])),v=new R.Vector([0,0,p.h]);try{s=R.basicFaceExtrusion(f,v);}finally{dispose(f);dispose(v);}break;}
   case 'prefab':{for(const group of materialGroups(p.children)){let merged;for(const child of [...group.solids,...group.cuts]){const a=fullShape(child);if(!merged)merged=a;else{const old=merged;try{merged=child.mode==='cut'?cut(old,a):fuse(old,a);}finally{dispose(old);dispose(a);}}}const fs=merged.faces,empty=!fs.length;fs.forEach(dispose);if(empty){dispose(merged);continue;}if(!s)s=merged;else{const old=s;try{s=fuse(old,merged);}finally{dispose(old);dispose(merged);}}}if(!s)throw Error('The prefab contains no solid material.');break;}
   case 'joined':{
@@ -82,9 +107,20 @@ function edgeFinish(base,fillets,edges){const oc=R.getOC(),by=new Map(),own=[],k
  try{const cb=keep(new oc.BRepFilletAPI_MakeChamfer(base.wrapped));for(const [i,f] of pass(true))cb.Add(f.radius,edges[i].wrapped);let out=keep(cb.Shape());
   if(rounds.length){step=1;const fb=keep(new oc.BRepFilletAPI_MakeFillet(out,oc.ChFi3d_FilletShape.ChFi3d_Rational));
    for(const [i,f] of rounds){let e=edges[i].wrapped;const l=keep(cb.Modified(e));if(l.Size())e=keep(oc.TopoDS.Edge(l.First()));fb.Add(f.radius,e);}out=keep(fb.Shape());}
-  if(!keep(new oc.BRepCheck_Analyzer(out,true,false)).IsValid())throw 0;const r=R.cast(out);if(!R.isShape3D(r)){dispose(r);throw 0;}return r;}
- catch{throw Error(step?'That roundover is too large or conflicts with another edge. Reduce the radius.':'That chamfer is too large or conflicts with another edge. Reduce the distance.');}
+  return validSolid(out,keep);}
+ catch(e){noteOcctError(e);throw Error(step?'That roundover is too large or conflicts with another edge. Reduce the radius.':'That chamfer is too large or conflicts with another edge. Reduce the distance.');}
  finally{own.reverse().forEach(dispose);}}
+// The finished OCCT result must pass BRepCheck and be a 3D shape (F6 edge finish); throws 0 otherwise.
+function validSolid(out,keep){const oc=R.getOC();if(!keep(new oc.BRepCheck_Analyzer(out,true,false)).IsValid())throw 0;const r=R.cast(out);if(!R.isShape3D(r)){dispose(r);throw 0;}return r;}
+// ADR-0001 F7: the finished glyph (glyph-geometry.mjs glyphLayout): the prism and the plate. Without a finish this is
+// exactly the 2.x glyphSolid. Emboss: the glyph fused onto the plate; Engrave: the plate minus the glyph prism.
+function glyphShape(p){
+ if(!hasGlyphFinish(p))return glyphSolid(R,p);
+ const {f,plate,glyph}=glyphLayout(p);let s=glyphSolid(R,p,glyph[0],glyph[1]-glyph[0]);
+ const [hx,hy]=glyphHalfExtents(p.char,p.size),ox=hx+f.margin,oy=hy+f.margin,slab=R.makeBox([-ox,-oy,plate[0]],[ox,oy,plate[1]]),g=s;
+ try{s=f.engrave?cut(slab,g):fuse(slab,g);}finally{dispose(slab);dispose(g);}
+ return s;
+}
 function fullShape(o) {
  if(o.scale?.some(v=>Math.abs(v-1)>1e-8))throw Error('A scaled compound uses mesh editing. Round its component shapes before conjoining.');
  const s=baseShape(o),edges=s.edges;let r;
@@ -180,7 +216,7 @@ function glyphTopology(s,edges,o){return withScope(own=>{
   const dot=(ti[0]*to[0]+ti[1]*to[1])/(Math.hypot(...ti)*Math.hypot(...to));if(Math.abs(dot)<.9999)pickEdges.push({index:k,points:[...e.A,...e.B]});}
  return {vertices:new Float32Array(V),triangles:new Uint32Array(Tr),groups,faces:faceData,edges:pickEdges};
 });}
-function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulator){const t=glyphTopology(s,edges,o);if(t)return t;}return withScope(own=>{
+function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulator&&!hasGlyphFinish(o.params)){const t=glyphTopology(s,edges,o);if(t)return t;}return withScope(own=>{
  const faces=own.all(explore(s,'face')),edgeIds=new Map(edges.map((e,i)=>[e.hashCode,i]));
  const mesh=GLYPH_FAST&&o?.type==='torus'&&faces.length===1?torusTopologyMesh(o.params,faces[0].hashCode):s.mesh({tolerance:.08,angularTolerance:.12});
  const groups=mesh.faceGroups.map(g=>({...g,face:faces.findIndex(f=>f.hashCode===g.faceId)}));
@@ -208,11 +244,13 @@ const geometryKey=o=>JSON.stringify([o.type,o.params,o.fillets||[],o.resolution|
 // WS2: the B-rep LRU holds 64 entries and an estimated byte budget; topology lives in its own map (below), so a
 // preview whose topology is cached never touches the B-rep, and evicting a B-rep keeps its topology.
 const BREP_ENTRIES=64,BREP_BYTES=128*1048576,TOPOLOGY_BYTES=32*1048576;let brepBytes=0;
+const meshOnly=o=>o.type==='glyph'&&hasGlyphFinish(o.params);
 function cached(o) {
  const key=geometryKey(o);
  if(cache.has(key)){const v=cache.get(key);cache.delete(key);cache.set(key,v);return v;}
  const base=baseShape(o),edges=explore(base,'edge');let s,t,ok=false;
- try{t=topology(base,edges,o);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
+ // F7: finished glyphs (plate) have no topology (objectTopology answers null), so none is extracted.
+ try{t=meshOnly(o)?{faces:[],edges:[]}:topology(base,edges,o);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
  const surfaceFaces=explore(s,'face');t.faceCount=surfaceFaces.length;t.flatFaces=surfaceFaces.filter(f=>f.geomType==='PLANE').length;surfaceFaces.forEach(dispose);
  if(TOPOLOGY_SERVICE){const entry=OCCT_SCOPE?{s,base}:{s};entry.bytes=brepEstimate(t);brepBytes+=entry.bytes;cache.set(key,entry);storeTopology(key,t);
   while(cache.size>1&&(cache.size>BREP_ENTRIES||brepBytes>BREP_BYTES)){const first=cache.keys().next().value,old=cache.get(first);release(old);brepBytes-=old.bytes;cache.delete(first);}return entry;}
@@ -239,17 +277,18 @@ export const topologyCacheStats=()=>({brepEntries:cache.size,brepBytes,topologyE
 const MESH_BYTES=64*1048576,meshes=new Map();let meshBytes=0;
 const copyMesh=m=>({...m,vertices:m.vertices.slice(),triangles:m.triangles.slice(),...(m.displayGroups?{displayGroups:m.displayGroups.map(g=>({...g}))}:{})});
 export const filletMeshStats=()=>({entries:meshes.size,bytes:meshBytes});
-export function solidMesh(o,tolerance,display=false) {
- if(remote)return remote.solidMesh(o,tolerance,display,geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|'+(display?1:0));
+export const solidMesh=guarded(function solidMesh(o,tolerance,display=false){
+ const base=geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|',key=base+(display?1:0);
+ if(remote)return remote.solidMesh(o,tolerance,display,key);
  if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display);
- const key=geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|'+(display?1:0);let e=meshes.get(key);
+ let e=meshes.get(key);
  if(e){meshes.delete(key);meshes.set(key,e);return copyMesh(e.m);}
  const m=tessellate(o,tolerance,display),bytes=m.vertices.byteLength+m.triangles.byteLength+64*(m.displayGroups?.length||0)+256;
- if(bytes<=MESH_BYTES){meshes.set(key,{m:copyMesh(m),bytes});meshBytes+=bytes;for(const [k,v] of meshes){if(meshBytes<=MESH_BYTES)break;meshes.delete(k);meshBytes-=v.bytes;}}
+ if(bytes<=MESH_BYTES&&!occtTrapped){meshes.set(key,{m:copyMesh(m),bytes});meshBytes+=bytes;for(const [k,v] of meshes){if(meshBytes<=MESH_BYTES)break;meshes.delete(k);meshBytes-=v.bytes;}}
  return m;
-}
+});
 // WS14: the sidecar tessellates without its own mesh cache (the geometry worker caches the result).
-export function solidMeshFresh(o,tolerance,display=false){return tessellate(o,tolerance,display);}
+export const solidMeshFresh=guarded((o,tolerance,display=false)=>tessellate(o,tolerance,display));
 function tessellate(o,tolerance,display) {
  tolerance=resolutionTolerance(o,tolerance);
  const {s}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
@@ -257,7 +296,9 @@ function tessellate(o,tolerance,display) {
  if(display){const faces=s.faces,planes=new Set(faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode));faces.forEach(dispose);result.displayGroups=m.faceGroups.map(g=>({start:g.start,count:g.count,flat:planes.has(g.faceId)})).sort((a,b)=>a.start-b.start);}
  return result;
 }
-export function objectTopology(o) {if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;if(remote)return remote.topology(o,geometryKey(o));try{return shapeTopology(o);}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
+// F7: a finished glyph (plate) is one piece: no face or edge picking, like an imported mesh (its mesh is Manifold-built).
+function objectTopologyRaw(o) {if(o?.type==='glyph'&&hasGlyphFinish(o.params))return null;if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;if(remote)return remote.topology(o,geometryKey(o));try{return shapeTopology(o);}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
+export const objectTopology=guarded(objectTopologyRaw);
 function containsScale(o){return o.scale?.some(v=>Math.abs(v-1)>1e-8)||o.params?.children?.some(containsScale);}
 function containsMesh(o){return o.type==='mesh'||isThread(o)||o.params?.children?.some(containsMesh);}
 export function disposeSolidCache(){meshes.clear();meshBytes=0;for(const entry of cache.values())release(entry);cache.clear();brepBytes=0;topologies.clear();topologyTotal=0;}

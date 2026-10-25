@@ -67,5 +67,8 @@ for(let n=0;n<SEQUENCES;n++){const p=blank();const count=1+Math.floor(rnd()*4);f
  const r=structuredClone(p);r.objects[0].fillets=[{edges:[0],radius:2},{edges:[1,2],radius:1}];await check(r,.15,'same edges rounded, not chamfered');
  const bad=blank(),x=object('box',{w:4,d:4,h:4},[0,0,2]);x.fillets=[{edges:[0,1,2,3,4,5,6,7,8,9,10,11],radius:3,kind:'chamfer'}];bad.objects.push(x);
  for(const type of ['preview','export']){const job={id:++id,type,project:bad,tolerance:.15,ground:true},a=await client.run(A,job),b=B.process(structuredClone(job));assert.match(b.error,/That chamfer is too large/);same(a,b,'impossible chamfer '+type);errors++;jobs++;}}
+// ADR-0001 F7: plate-only glyphs (Emboss, Engrave) stay on Manifold: identical results with the sidecar on.
+{const p=blank(),G=(char,x,pos)=>object('glyph',{...glyphDefaults.glyph,char,...x},pos);p.objects.push(G('A',{plate:2,plateMargin:1.5},[0,0,4]),G('o',{depth:1,plate:2,plateMargin:1,engrave:true},[30,0,1]),G('T',{plate:1.5},[0,30,3]));p.version=3;
+ await check(p,.15,'glyph finish');}
 console.log(`OCCT sidecar parity: ${jobs} jobs identical to the in-process engine (previews, displays, parts, topology, checks, STL exports; ${errors} identical errors); ${interims} interim previews offered, all for pending fillet meshes; ${client.stats.requests} sidecar requests; ${faceIdOnly} topology bodies differed only in OCCT faceId hash codes`,JSON.stringify(client.remote.stats()));
 client.close();A.destroy();B.destroy();

@@ -56,4 +56,8 @@ for(let n=0;n<N;n++){const p=blank();p.layers.push({id:'layer-2',name:'Layer 2'}
  for(const type of ['preview','check','export'])for(const plane of [false,true])same({type,project:{...p,buildPlaneEnabled:plane},tolerance:.15,ground:plane},'chamfer '+type);
  same({type:'boolean',objects:[b,c],cutouts:[h],operation:'add',tolerance:.15},'chamfer boolean');same({type:'place',object:b,position:[5,6,7],floor:true},'chamfer place');
  const bad={...P([{...b,fillets:[{edges:[0,1],radius:40,kind:'chamfer'}]}]),version:3},r=same({type:'check',project:bad,tolerance:.15},'impossible chamfer');assert.match(r.error,/That chamfer is too large/);}
+// ADR-0001 F7: glyph finish (Emboss plate, Engrave) through every job kind.
+{const G=(char,x,pos)=>object('glyph',{...glyphDefaults.glyph,char,...x},pos),e=G('A',{plate:2,plateMargin:1.5},[0,0,4]),n=G('o',{depth:1,plate:2,plateMargin:1,engrave:true},[30,0,1]),f=G('T',{plate:1.5},[0,30,3]);
+ const p={...P([e,n,f]),version:3};for(const type of ['preview','check','export'])same({type,project:p,tolerance:.15,ground:true},'glyph finish '+type);
+ same({type:'boolean',objects:[e,f],cutouts:[],operation:'add',tolerance:.15},'glyph finish boolean');}
 console.log(`JS engine parity: ${jobs} jobs identical to the Python oracle (${errors} verbatim error messages)`);js.destroy();py.destroy();
