@@ -30,6 +30,7 @@ const $=id=>document.getElementById(id),escape=s=>String(s).replace(/[&<>"']/g,c
 // everywhere in this file) opens sheets without the 180 ms rise animation, as 2.7.2 did (desktop.css .desktop .sheet
 // {animation:none}). Web and Android keep it. Inline style, so every platform still ships byte-identical assets.
 if(window.AvalonDesktop)$('sheet').style.animation='none';
+let measureTool=null,measureLoading=null;
 let invalidate=()=>{},touch=null,prefabs=null,objectsPanel=null,smoothNewShapes=true,panelBusy=false,panelControls=[];
 try{smoothNewShapes=localStorage.getItem('tristancad.smoothNewShapes')!=='false';}catch(e){}
 let project={...blank(),buildPlaneEnabled:true},selected=null,history=[],future=[],dirty=false,model=null,previewId=0,sequence=0,wireframe=false,pickMeshes=[],overlay=new THREE.Group(),saved={},toastTimer,saveTimer;
@@ -93,7 +94,7 @@ function select(id,{additive=false}={}){if(additive&&id&&touch)return touch.togg
 function refreshLabels(){const on=project.buildPlaneEnabled===true;$('buildPlane').checked=on;$('buildPlaneStatus').textContent=on?'On · stops at Z=0':'Off · negative Z allowed';buildPlane.visible=on;invalidate();const o=current();$('projectName').textContent=project.name;$('objectCount').textContent=project.objects.length;$('layersBtn').textContent=layerName(project)+' ▾';$('layersBtn').setAttribute('aria-label','Layers · '+layerName(project));const part=pickMeshes.find(m=>m.userData.id===selected);const count=selection().length;$('selectionLabel').textContent=count>1?count+' objects selected':o?o.name+(o.mode==='cut'?' · cutout':'')+(part?' · '+faceSummary(part):''):'No object selected';$('quickEdit').disabled=!o;$('editBtn').disabled=!o;$('undo').disabled=!history.length;$('redo').disabled=!future.length;$('empty').hidden=project.objects.some(o=>o.enabled&&o.mode==='solid');updateMergeBtn();objectsPanel?.render();}
 const READY=['Ready · millimeters','Ready · inches'];
 async function refresh(fit=false){refreshLabels();autosave();const id=++previewId;status('Building solid…');try{const data=await request('preview',{project:cloneSharing(project),tolerance:0.15},OCCT_SIDECAR?d=>{if(id===previewId)showInterim(d);}:undefined);if(id!==previewId||data.canceled)return;applyModel(data);status(data.triangles.length?`${(data.triangles.length/3).toLocaleString()} preview triangles`:byUnit(...READY));if(fit)fitCamera();}catch(e){if(id!==previewId)return;status('Model needs attention');toast(e.message,true);}}
-function openSheet(title,html,eyebrow='AvalonCad'){ $('sheetTitle').textContent=title;$('sheetEyebrow').textContent=eyebrow;$('sheetContent').innerHTML=html;$('sheet').hidden=false;$('shade').hidden=false;$('sheetContent').scrollTop=0;}
+function openSheet(title,html,eyebrow='AvalonCad'){ measureTool?.close();$('sheetTitle').textContent=title;$('sheetEyebrow').textContent=eyebrow;$('sheetContent').innerHTML=html;$('sheet').hidden=false;$('shade').hidden=false;$('sheetContent').scrollTop=0;}
 function lockPanel(value){panelBusy=value;$('app').classList.toggle('checking',value);if(value){panelControls=[...$('sheet').querySelectorAll('button,input,select')].map(el=>[el,el.disabled]);panelControls.forEach(([el])=>el.disabled=true);}else{panelControls.forEach(([el,disabled])=>{if(el.isConnected)el.disabled=disabled;});panelControls=[];}}
 function closeSheet(){if(touch?.isCommitting()||panelBusy)return;$('sheet').hidden=true;$('shade').hidden=true;}
 $('closeSheet').onclick=closeSheet;$('shade').onclick=closeSheet;
@@ -175,7 +176,7 @@ const dimsTitle=()=>byUnit('Dimensions · millimeters','Dimensions · inches'),p
 // startup nothing is touched, so the default look is exactly today's.
 let boundsSize=null;
 function showBounds(){$('bounds').textContent=boundsSize?boundsSize.map(v=>fmtLen(v)).join(' × ')+byUnit(' mm',' in'):'';}
-function showUnits(){if(READY.includes($('busy').textContent))status(byUnit(...READY));showBounds();
+function showUnits(){measureTool?.unitsChanged();if(READY.includes($('busy').textContent))status(byUnit(...READY));showBounds();
  document.querySelector('.axis>span').textContent=unitLabel();
  const ds=$('dragStep'),at=ds.selectedIndex;[...ds.options].forEach((op,i)=>{op.value=stepOptions().drag[i];op.textContent=byUnit(['Free','0.1 mm','1 mm'],['Free','0.01 in','0.1 in'])[i];});ds.selectedIndex=at;ds.dispatchEvent(new Event('change'));
  grid.geometry.dispose();grid.geometry=gridHelper().geometry;invalidate();}
@@ -269,16 +270,21 @@ $('layersBtn').onclick=()=>{if(!touch.isDragging()&&!touch.isCommitting())layers
 // ADR-0001 command registry: F1a runs every command through it (shortcuts, the Electron menu bridge); F1b reads the
 // tooltips. Buttons are clicked so each command keeps its button's own guards.
 const busy=()=>panelBusy||touch.isDragging()||touch.isCommitting(),press=id=>({run:()=>$(id).click()});
+// F1e: the ruler lives in the reserved W0 slot #measureBtn (index.html, next to Wireframe). Unhidden here, before
+// installTooltips runs, so F1b writes its tooltip "Measure (T)" from the registry; the accessible name stays "Measure".
+const measureButton=$('measureBtn');measureButton.classList.remove('pending');measureButton.removeAttribute('aria-hidden');measureButton.removeAttribute('tabindex');delete measureButton.dataset.pending;measureButton.setAttribute('aria-label','Measure');measureButton.innerHTML='<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v10H3zM7 7v5m5-5v3m5-3v5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+// A failed chunk load is not cached: the next tap retries the import instead of leaving the button dead.
+measureButton.onclick=async()=>{if(busy())return;try{measureLoading??=import('./measure-tool.mjs').then(m=>measureTool=m.installMeasure({T:{Group:THREE.Group,Mesh:THREE.Mesh,SphereGeometry:THREE.SphereGeometry,MeshBasicMaterial:THREE.MeshBasicMaterial,Line:THREE.Line,BufferGeometry:THREE.BufferGeometry,Vector3:THREE.Vector3,LineBasicMaterial:THREE.LineBasicMaterial},fmtLen,unitLabel,touch,scene,request,invalidate,canvas}),e=>{measureLoading=null;throw e;});await measureLoading;measureTool.toggle();}catch(e){toast(e.message,true);}};
 const commands=createCommands({
  new:{run:()=>{projectMenu();document.querySelector('[data-template="blank"]').click();}},open:{run:importDialog},save:{run:()=>{saveProject();closeSheet();}},
  backup:{run:()=>saveFile(JSON.stringify(forWrite(project),null,2),safeName()+'.tcad','application/json')},
- export:press('exportBtn'),undo:press('undo'),redo:press('redo'),add:press('addBtn'),edit:press('editBtn'),clear:press('deselectBtn'),fit:press('fit'),wire:press('wire'),help:press('helpBtn'),
+ measure:press('measureBtn'),export:press('exportBtn'),undo:press('undo'),redo:press('redo'),add:press('addBtn'),edit:press('editBtn'),clear:press('deselectBtn'),fit:press('fit'),wire:press('wire'),help:press('helpBtn'),
  ...Object.fromEntries(['3d','top','front','right'].map(v=>[`view:${v}`,{run:()=>document.querySelector(`[data-view="${v==='3d'?'iso':v}"]`).click()}])),
  // Modes run through their mode-bar button, so F follows whatever the Round button does (F6 turns it into the Edge ▾
  // dropdown opener; F then opens it with no change here, or F6 passes its own mode:round handler).
  ...Object.fromEntries(['select','move','stretch','round'].map(m=>[`mode:${m}`,{run:()=>document.querySelector(`[data-mode="${m}"]`).click()}])),
  delete:{run:deleteSelected,enabled:()=>!!selection().length},duplicate:{run:()=>duplicateDraft(current()),enabled:()=>!!current()},
- escape:{run:()=>{if(!$('sheet').hidden)closeSheet();else touch.deselect();}}});
+ escape:{run:()=>{if(measureTool?.close())return;if(!$('sheet').hidden)closeSheet();else touch.deselect();}}});
 // ADR-0001 F1a: one keyboard dispatcher for web, Electron and Android hardware keyboards. Nothing fires while a field
 // has focus or during a drag/commit, except Esc; with a sheet open only Esc and the Cmd/Ctrl commands run (as the
 // Electron menu does). On desktop the native menu runs its own accelerators, so the page skips those combos.

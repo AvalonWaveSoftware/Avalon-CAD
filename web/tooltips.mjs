@@ -11,8 +11,8 @@ import {LONG_PRESS_MS} from './objects-panel.mjs';
 export const BUBBLE_MS=1500;
 const AREAS=':is(header,.toolbar,#touchModes,.selection,.dock)';
 // Fixed controls → registry ids (the mapping the Electron action() bridge uses); undo, redo, wire and fit share their id.
-const IDS={helpBtn:'help',addBtn:'add',editBtn:'edit',exportBtn:'export',deselectBtn:'clear',closeSheet:'escape',duplicateObject:'duplicate'};
-export const commandId=({id,dataset:d={}})=>IDS[id]||(/^(undo|redo|wire|fit)$/.test(id)?id:d.mode?`mode:${d.mode}`:d.view?`view:${d.view==='iso'?'3d':d.view}`:null);
+const IDS={helpBtn:'help',addBtn:'add',editBtn:'edit',exportBtn:'export',deselectBtn:'clear',closeSheet:'escape',duplicateObject:'duplicate',measureBtn:'measure'};
+export const commandId=({id,dataset:d={}})=>IDS[id]||(/^(undo|redo|wire|fit|measure)$/.test(id)?id:d.mode?`mode:${d.mode}`:d.view?`view:${d.view==='iso'?'3d':d.view}`:null);
 // keyText('Mod+Shift+Z') → 'Cmd/Ctrl+Shift+Z', the approved help-table spelling (same on every platform); Escape → Esc.
 export const keyText=k=>k.replace(/^Mod\+/,'Cmd/Ctrl+').replace(/^Escape$/,'Esc');
 // tooltipText(cmd, label) → "label (first shortcut)", or the plain label when the command has no shortcut.

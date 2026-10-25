@@ -6,6 +6,7 @@ use std::hash::{BuildHasherDefault, Hasher};
 use std::slice;
 mod threads;
 mod three_mf;
+mod measure;
 
 #[no_mangle]
 pub extern "C" fn engine_version() -> u32 { 4 }

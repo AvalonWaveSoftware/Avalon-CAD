@@ -1,7 +1,7 @@
 import {initKernel} from './kernel.mjs';
 import {initLocalEngine} from './local-engine.mjs';
 import {TOPOLOGY_SERVICE,PARALLEL_INIT,BUNDLE_SPLIT,OCCT_SIDECAR} from './perf-flags.mjs';
-import {initSolid,solidMeshFresh,objectTopology,warmShape} from './cad-solid.mjs';
+import {meshMeasurement,measureExact,initSolid,solidMeshFresh,objectTopology,warmShape} from './cad-solid.mjs';
 import {solidRemote,runJob,packError} from './occt-remote.mjs';
 import {needsSolid} from './solid-gate.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
@@ -53,10 +53,11 @@ async function drain(){if(running)return;running=true;
  try{while(queue.length){const data=queue.shift();try{
   const engine=await runtime;let result;
   // Letters: the outlines load (dynamic import) with the first job that contains a glyph, never at startup.
-  await prepareGlyphs(data);
+  await prepareGlyphs(data.type==='measure'?[data.a?.object,data.b?.object]:data);
   // WS14: a preview waiting for the sidecar is dropped as soon as a newer preview arrives.
   // ADR-0001 F2a option A fallback: encode a mesh that '3mf-mesh' returned, here, with the same parts and bytes as the pool.
   if(data.type==='encode3mf')result={id:data.id,buffer:engine.rust.write3MF(data.vertices,data.triangles,data.ground!==false)};
+  if(OCCT_SIDECAR&&data.type==='measure'&&!(data.mode==='object'&&[data.a?.object,data.b?.object].some(meshMeasurement))){const [answer]=await askSidecar([{kind:'measure',key:JSON.stringify(data),data}]);result=answer.error?{id:data.id,error:answer.error.message}:{id:data.id,...answer.result};}
   else if(OCCT_SIDECAR){const abort=data.type==='preview'?new Promise(r=>current={type:'preview',abort:r}):null;try{result=await runJob(engine,data,remote,{fetch:askSidecar,onInterim:r=>postInterim(data.id,r),abort});}finally{current=null;}if(result.canceled){self.postMessage({id:data.id,canceled:true});continue;}}
   else{if(BUNDLE_SPLIT&&needsSolid(data))await startSolid();result=engine.process(data);}
   result.engine=engine.info;
@@ -76,7 +77,8 @@ function occtSidecar(){
  const ready=initSolid({locateFile:()=>asset('cad-kernel.wasm')});
  self.onmessage=async({data:{id,request:r}})=>{let answer;try{await ready;}catch(e){self.postMessage({id,answer:{error:packError(e),init:true}});return;}
   try{
-   await prepareGlyphs(r.o);
+   await prepareGlyphs(r.o||[r.data?.a?.object,r.data?.b?.object]);
+   if(r.kind==='measure'){answer={result:measureExact(r.data)};self.postMessage({id,answer});return;}
    if(r.kind==='mesh'){const m=solidMeshFresh(r.o,r.tolerance,r.display);answer={m};self.postMessage({id,answer},[m.vertices.buffer,m.triangles.buffer]);return;}
    answer={t:objectTopology(r.o)};}catch(e){answer={error:packError(e)};}
   self.postMessage({id,answer});};

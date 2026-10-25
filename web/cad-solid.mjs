@@ -271,3 +271,23 @@ export function finishedShapeForTest(o){const base=baseShape(o),edges=explore(ba
 // caches, so the first real Add does not pay that cost. Returns ms. The worker calls it only when it is idle.
 export function warmShape(o){const t=performance.now(),base=baseShape(o),edges=explore(base,'edge');
  try{topology(base,edges,o);}finally{edges.forEach(dispose);try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}dispose(base);}return performance.now()-t;}
+
+// F1e: never modify cached shapes. Picks refer to the base topology used by touch-tools.
+export const meshMeasurement=o=>o?.type==='mesh'||isThread(o)||containsMesh(o)||o?.scale?.some(v=>v!==1);
+export function measureExact({mode,a,b}) {
+ const owned=[];
+ const pick=p=>{const o=p.object;if(!['edge','face','object'].includes(mode))throw Error('Choose a measurement target.');if(!o||o.type==='mesh'||isThread(o)||containsMesh(o))throw Error('This measurement needs CAD faces or edges.');
+  if(o.scale?.some(v=>v!==1))throw Error('This measurement needs CAD faces or edges.');
+  if(mode!=='object'&&o.fillets?.some(f=>f.radius>0))throw Error('Measure the whole object for finished edges.');
+  const c=cached(o);let s;
+  if(mode==='edge'||mode==='face'){const all=explore(c.base||c.s,mode==='edge'?'edge':'face');owned.push(...all);s=all[p.index];if(!s)throw Error('Choose a measurement target.');s=s.clone();}
+  else s=c.s.clone();
+  owned.push(s);for(let i=0;i<3;i++)if(o.rotation?.[i]){const axis=[0,0,0];axis[i]=1;s=s.rotate(o.rotation[i],[0,0,0],axis);owned.push(s);}s=s.translate(o.position||[0,0,0]);owned.push(s);return s;};
+ try{const x=pick(a);if(mode==='edge'){const length=R.measureLength(x);let diameter;
+   if(x.geomType==='CIRCLE'){const curve=x.curve;try{const circle=curve.wrapped.Circle();try{diameter=2*circle.Radius();}finally{dispose(circle);}}finally{dispose(curve);}}
+   return {distance:length,...(diameter!==undefined?{diameter}:{})};}
+  const y=pick(b),result={distance:R.measureDistanceBetween(x,y)};
+  if(mode==='face'&&x.geomType==='PLANE'&&y.geomType==='PLANE'){const n=safeTuple(x.normalAt()),m=safeTuple(y.normalAt()),dot=n.reduce((v,c,i)=>v+c*m[i],0);result.angle=Math.acos(Math.min(1,Math.abs(dot)))*180/Math.PI;}
+  return result;
+ }finally{for(const s of new Set(owned))dispose(s);}
+}
