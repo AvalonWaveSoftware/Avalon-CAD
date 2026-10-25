@@ -165,7 +165,31 @@
   "3MF model",
   ".3mf",
   "tristancad.exportFormat",
-  "Export…"
+  "Export…",
+  {
+   "text": "File format",
+   "runtime": true,
+   "source": "web/main.mjs:245",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "text": "STL · binary · most compatible",
+   "runtime": true,
+   "source": "web/main.mjs:245",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "text": "3MF · compressed · smaller file",
+   "runtime": true,
+   "source": "web/main.mjs:245",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "text": "exportFormat",
+   "runtime": true,
+   "source": "web/main.mjs:245",
+   "approval": "export-3mf: id of the File format select, used by its <label for>; not shown text. export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  }
  ],
  "removals": [
   {

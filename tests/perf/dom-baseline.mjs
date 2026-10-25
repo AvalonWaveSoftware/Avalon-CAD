@@ -86,6 +86,10 @@ export function sourceBuilds(text,src,repo=REPO){const m=src.match(/^([^:]+):(\d
  const lineOf=k=>code.slice(0,k).split('\n').length,win=units.filter(u=>Math.abs(lineOf(u.a)-L)<=SOURCE_WINDOW);
  const lits=win.filter(u=>u.parts.length===1).map(u=>u.parts[0].s);
  if(lits.includes(text))return {ok:true,how:'literal'};
+ // export-3mf (2026-10-24): the text of one HTML element inside a string/template literal (e.g. <label …>File format</label>
+ // or <option …>…</option> in an innerHTML template). It is shown exactly as written, but the extractor skips literals that
+ // hold markup, so these are listed as runtime entries and verified here.
+ if(win.some(u=>u.parts.some(q=>typeof q.s==='string'&&q.s.includes('>'+text+'<'))))return {ok:true,how:'element text in an HTML literal'};
  const ls=[...new Set(lits.filter(Boolean))],can=new Array(text.length+1).fill(false);can[0]=true;
  for(let k=0;k<text.length;k++)if(can[k])for(const l of ls)if(text.startsWith(l,k))can[k+l.length]=true;
  if(can[text.length])return {ok:true,how:'concatenation of literals'};

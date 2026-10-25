@@ -197,7 +197,9 @@ const HIDDEN_WHY='hidden entry, but the container is rendered (no ancestor is 0Ã
   else out.unmatched.push(rec(c,{why:hidFail?HIDDEN_WHY:entries.some(e=>e.kind==='replaced'&&sceneOk(e)&&r.old.matches(e.oldSelector))?'no paired new element (newSelector) added under the same parent':undefined}));}
  // added elements: an "added" entry, and the element's and all descendants' new boxes inside an approved area
  const acceptedAdded=new Set();
- for(const a of addedTop){const sub=[a.el,...a.el.querySelectorAll('*')],boxes=sub.map(x=>ns?.box?.[pathOf(x,B)]);
+ // export-3mf (2026-10-24, needs Architect ack): <option>/<optgroup> inside an added <select> have no layout box (0Ã—0 in
+ // every capture; the select draws them). They are covered by the select's own box, which must still lie inside an area.
+ for(const a of addedTop){const sub=[a.el,...a.el.querySelectorAll('*')].filter(x=>!(/^(OPTION|OPTGROUP)$/.test(x.tagName)&&x.closest('select')&&(a.el===x.closest('select')||a.el.contains(x.closest('select'))))),boxes=sub.map(x=>ns?.box?.[pathOf(x,B)]);
   const txt=a.el.textContent.trim(),fits=e=>e.kind==='added'&&sceneOk(e)&&a.el.matches(e.selector)&&(e.expected==null||e.expected===txt);
   const c={path:a.path,kind:'element added',old:null,now:label(a.el)+(txt?' "'+txt.slice(0,60)+'"':'')};
   const he=entries.find(e=>e.hidden&&fits(e)),hc=he&&subZeroB(a.el)?rootB(a.el):null;
