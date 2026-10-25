@@ -25,7 +25,7 @@ rm -rf build/classes
 mkdir -p build/classes build/java
 python3 - "$AVALON_TEST_BUILD" <<'PYHOOK'
 import pathlib,re,sys
-source=pathlib.Path('app/src/com/tristan/cad/MainActivity.java').read_text()
+source=pathlib.Path('app/src/com/avalonwavesoftware/cad/MainActivity.java').read_text()
 if sys.argv[1] != '1':
  source=re.sub(r'        // BEGIN TEST_RENDERER_CRASH_HOOK.*?        // END TEST_RENDERER_CRASH_HOOK', '', source, flags=re.S)
 pathlib.Path('build/java/MainActivity.java').write_text(source)

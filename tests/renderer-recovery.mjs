@@ -23,7 +23,7 @@ for(const desktop of [false,true]){
  U.close();checks++;
 }
 for(const android of [null,{recovered:()=>false,recoveryBlank:()=>true}]){const U=await H.boot({[AUTOSAVE]:raw},{android});assert.equal(U.w.__cad.project.name,p.name);assert.equal(U.$('toast').textContent,'');U.close();checks++;}
-const java=fs.readFileSync('app/src/com/tristan/cad/MainActivity.java','utf8'),build=fs.readFileSync('build-apk.sh','utf8');
+const java=fs.readFileSync('app/src/com/avalonwavesoftware/cad/MainActivity.java','utf8'),build=fs.readFileSync('build-apk.sh','utf8');
 const recovery=java.match(/onRenderProcessGone\([^]*?createWebView\(\);return true;/)?.[0];assert.ok(recovery);
 for(const token of ['elapsedRealtime()','now-lastRendererCrash<=60000','lastRendererCrash=now','closeStage()','outputName=null','outputMime=null','awaitingSave=false','exportError=false','root.removeView(view)','view.destroy()'])assert.ok(recovery.includes(token),token);
 assert.equal((java.match(/new WebView\(this\)/g)||[]).length,1);
