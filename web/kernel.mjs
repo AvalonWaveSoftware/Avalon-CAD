@@ -19,7 +19,7 @@ export async function initKernel(options={}) {
 // solid placed again gives the same solid as a fresh build.
 export function makeObject(K,o,tolerance=0.15,styles){return placeObjectSolid(o,makeLocalSolid(K,o,tolerance,styles));}
 export function placeObjectSolid(o,local,keepLocal=false){const keep=keepLocal?[]:[local];const own=x=>(keep.push(x),x);let s=local;
-  try{if(o.scale)s=own(s.scale(o.scale));s=own(s.rotate(o.rotation));s=own(s.translate(o.position));
+  try{if(o.mirrored)s=own(s.mirror([1,0,0]));if(o.scale)s=own(s.scale(o.scale));s=own(s.rotate(o.rotation));s=own(s.translate(o.position));
     const status=s.status();if(status!=='NoError')throw Error(o.name+': '+status+'. The mesh must be a closed solid.');
     keep.pop();return s;
   } finally {for(const x of keep)x.delete();}

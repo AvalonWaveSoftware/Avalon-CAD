@@ -18,9 +18,9 @@ if(process.argv[2]==='--emit'){
   if(edges.length<=24)cases.push([t+' round all',wrap([withRoundover(o,edges,.5)])]);}
  const out={};for(const [name,p] of cases){out[name+' json']=crypto.createHash('sha256').update(JSON.stringify(forWrite(p),null,2).replace(/\b[a-z0-9]{6,10}-[a-z0-9]+-[a-z0-9]{5}\b/g,'{uid}')).digest('hex');for(const tolerance of [.15,.03])out[name+' stl '+tolerance]=run({type:'export',project:p,tolerance,ground:true});}
  fs.writeSync(1,JSON.stringify(out));process.exit(0);}
-const here=new URL('..',import.meta.url).pathname.replace(/\/$/,''),base=process.argv[2]||'/tmp/f6/base';
+const here=decodeURIComponent(new URL('..',import.meta.url).pathname).replace(/\/$/,''),base=process.argv[2]||'/tmp/f6/base';
 if(!fs.existsSync(base+'/web/kernel.mjs')){console.log('round-chamfer-stl: no base tree at',base,'- skipped');process.exit(0);}
-const emit=root=>JSON.parse(execFileSync(process.execPath,[new URL(import.meta.url).pathname,'--emit',root],{maxBuffer:1<<26,cwd:root}).toString());
+const emit=root=>JSON.parse(execFileSync(process.execPath,[decodeURIComponent(new URL(import.meta.url).pathname),'--emit',root],{maxBuffer:1<<26,cwd:root}).toString());
 const a=emit(base),b=emit(here);assert.deepEqual(Object.keys(b),Object.keys(a));let same=0;
 for(const k of Object.keys(a)){assert.equal(b[k],a[k],'differs from base: '+k);same++;}
 const stl=Object.keys(a).filter(k=>k.includes(' stl ')),errors=stl.filter(k=>a[k].startsWith('error:'));
