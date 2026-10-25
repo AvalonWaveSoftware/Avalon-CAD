@@ -8,7 +8,7 @@
 // UI-safe (no engine imports).
 const DEFS=[
  ['new','New project',null,['Mod+N']],['open','Open project / prefab / STL…',null,['Mod+O']],['save','Save project on this computer',null,['Mod+S']],
- ['backup','Export editable project…',null,['Mod+Shift+S']],['export','Export',null,['Mod+E']],
+ ['backup','Export editable project…',null,['Mod+Shift+S']],['export','Export',null,['Mod+E']],['export3mf','Export 3MF…'],
  ['undo','Undo',null,['Mod+Z']],['redo','Redo',null,['Mod+Shift+Z','Mod+Y']],['add','Add',null,['A','Mod+Shift+A']],['edit','Edit'],
  ['clear','Clear','Deselect everything',['Shift+Delete','Shift+Backspace']],['fit','Fit model',null,['0','Home','Mod+0']],['wire','Wireframe',null,['W']],['help','Help',null,['?']],
  ...[['3d','3D'],['top','TOP'],['front','FRONT'],['right','RIGHT']].map(([v,l])=>[`view:${v}`,l]),
