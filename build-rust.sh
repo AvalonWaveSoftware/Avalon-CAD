@@ -26,7 +26,11 @@ rustc --print sysroot >/dev/null && [ -d "$(rustc --print sysroot)/lib/rustlib/w
 #    (/workspace/avalon-cad/<worktree>/engine/rust/vendor/...), so every worktree produced different bytes. Remap the
 #    checkout root (and CARGO_HOME) to fixed prefixes. CARGO_ENCODED_RUSTFLAGS (0x1f-separated) survives spaces in paths.
 # 3. Timestamps: rustc/wasm-opt embed none in wasm; SOURCE_DATE_EPOCH is pinned anyway. codegen-units=1, lto and
-#    strip are already fixed in Cargo.toml; wasm-opt is the pinned node_modules/binaryen (version checked below).
+#    strip are already fixed in Cargo.toml; wasm-opt is the pinned node_modules/binaryen (version checked here, before cargo, so a stale
+#    node_modules fails fast instead of after a full Rust build).
+[ -f node_modules/binaryen/bin/wasm-opt ] || { echo "binaryen missing: run npm ci (node_modules/binaryen)" >&2; exit 1; }
+bv=$(node -p "require('./node_modules/binaryen/package.json').version") pv=$(node -p "require('./package.json').devDependencies.binaryen.replace(/^[=^~]/,'')")
+[ "$bv" = "$pv" ] || { echo "node_modules/binaryen $bv is not the pinned $pv: run npm ci" >&2; exit 1; }
 export SOURCE_DATE_EPOCH=0
 export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$PWD=/avalon-cad"$'\x1f'"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
 unset RUSTFLAGS
@@ -36,9 +40,6 @@ mkdir -p app/assets
 # + measure trial, byte-identical output). binaryen is the pinned devDependency (node_modules/binaryen, `npm ci`), so the
 # step runs offline.
 raw=build/rust-target/wasm32-unknown-unknown/release/avalon_mesh.wasm opt=build/rust-target/mesh-core.opt.wasm
-[ -f node_modules/binaryen/bin/wasm-opt ] || { echo "binaryen missing: run npm ci (node_modules/binaryen)" >&2; exit 1; }
-bv=$(node -p "require('./node_modules/binaryen/package.json').version") pv=$(node -p "require('./package.json').devDependencies.binaryen.replace(/^[=^~]/,'')")
-[ "$bv" = "$pv" ] || { echo "node_modules/binaryen $bv is not the pinned $pv: run npm ci" >&2; exit 1; }
 node node_modules/binaryen/bin/wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals "$raw" -o "$opt"
 # ADR-0001 F2a ruling: mesh-core.wasm has a HARD 120 KB (120,000 B) ceiling; the headroom is reserved for F1d/F2b.
 size=$(wc -c < "$opt")
