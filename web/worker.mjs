@@ -21,7 +21,8 @@ const rustReady=PARALLEL_INIT?initRustMesh({url:asset('mesh-core.wasm'),streamin
 // WS9 (BUNDLE_SPLIT): OCCT is not in the startup path. It starts on the warm message from the UI (sent right after the
 // first frame) or at the first job that may need it, whichever comes first; see needsSolid.
 let solid=null;const startSolid=()=>solid??=initSolid({locateFile:()=>asset('cad-kernel.wasm')});
-const kernel=again=>initKernel({parallel:PARALLEL_INIT,locateFile:()=>asset('manifold.wasm'),solidOptions:BUNDLE_SPLIT||OCCT_SIDECAR?false:{locateFile:()=>asset('cad-kernel.wasm')}}).then(K=>initLocalEngine(K,{baseURL:self.location.href,rust:PARALLEL_INIT&&!again?{ready:rustReady}:{url:asset('mesh-core.wasm')}}));
+// mem-preview (2a): Manifold is instantiated here so its wasm memory (heap size) stays visible to idleReset().
+let heap=null;const kernel=again=>initKernel({parallel:PARALLEL_INIT,locateFile:()=>asset('manifold.wasm'),instantiateWasm(info,done){const u=asset('manifold.wasm');WebAssembly.instantiateStreaming(fetch(u),info).catch(()=>fetch(u).then(r=>r.arrayBuffer()).then(b=>WebAssembly.instantiate(b,info))).then(r=>{heap=Object.values(r.instance.exports).find(m=>m instanceof WebAssembly.Memory);done(r.instance,r.module);});return {};},solidOptions:BUNDLE_SPLIT||OCCT_SIDECAR?false:{locateFile:()=>asset('cad-kernel.wasm')}}).then(K=>initLocalEngine(K,{baseURL:self.location.href,rust:PARALLEL_INIT&&!again?{ready:rustReady}:{url:asset('mesh-core.wasm')}}));
 let runtime=kernel();
 rustReady?.catch(()=>{});
 // WS14 (OCCT_SIDECAR): the sidecar is this script again, as a nested module worker named 'occt' (it owns the only OCCT
@@ -83,6 +84,9 @@ const trapOf=r=>/RuntimeError|null function/.test(r.error)||occtNeedsReset();
 const opStack=d=>(d.project?.objects||[d.object]).map(o=>o&&[o.type,o.shell&&'hollow'+(o.shell.open?'-open':''),o.mirrored&&'mirrored',o.groupId&&'grouped'].filter(Boolean).join('/'));
 function note(d,r,t){recent.push([d.id,d.type,opStack(d),performance.now()-t|0,r.error]);if(recent.length>8)recent.shift();}
 function report(d,r,t){note(d,r,t);engineTrapped=!occtNeedsReset();reported=true;const e=trapped||lastTrap();trapped=null;return {job:d.type,error:r.error||String(e),occt:!engineTrapped,ops:opStack(d),recent:[...recent],stack:e?.stack};}
+// mem-preview (2a), Architect ruling 2026-10-25 23:02: Manifold's heap never shrinks. Once the worker has been idle for
+// 1 s with it above 300 MB, a fresh Manifold (and engine cache) replaces it; results are those of a fresh start.
+let idle;function idleReset(){clearTimeout(idle);idle=setTimeout(()=>{const b=heap?.buffer.byteLength;if(running||queue.length||!(b>3e8))return;runtime=kernel(true);self.postMessage({log:`manifold reset: heap ${b>>20} MB, idle`});},1e3);}
 async function drain(){if(running)return;running=true;
  try{while(queue.length){const data=queue.shift();try{
   const engine=await runtime;let result;
@@ -106,7 +110,7 @@ async function drain(){if(running)return;running=true;
   if(TOPOLOGY_SERVICE)transfers.push(...shipTopologies(result));
   self.postMessage(result,transfers);
  }catch(e){self.postMessage({id:data.id,error:'Local geometry processing could not start: '+(e.message||String(e))});}}}
- finally{running=false;}
+ finally{running=false;idleReset();}
 }
 }
 // WS14: the OCCT sidecar. Loads OCCT once and answers {mesh|topology} requests in arrival order with the same values
