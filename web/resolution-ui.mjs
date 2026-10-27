@@ -1,15 +1,16 @@
 import {curvedTypes} from './facets.mjs';
 import {isThread} from './threads.mjs';
 export function applySmoothPreset(o){if(curvedTypes.includes(o.type))o.resolution={mode:'tolerance',tolerance:.005};return o;}
-export function faceSummary(part){
+// Waydroid QA (b): the face count is the base shape's (hollow picks use base faces); a hollow part says so.
+export function faceSummary(part,o){
  if(!part)return 'Face counts appear after the shape is built.';
  const triangles=part.geometry?part.geometry.index.count/3:part.triangles.length/3,t=part.userData?.topology||part.topology;
  if(!t)return `${triangles.toLocaleString()} triangle faces`;
  const curved=t.faceCount-t.flatFaces;
- return `${t.faceCount.toLocaleString()} ${curved?'surface':'flat'} faces · ${triangles.toLocaleString()} mesh triangles`;
+ return `${t.faceCount.toLocaleString()} ${curved?'surface':'flat'} faces${o?.shell?' before hollow':''} · ${triangles.toLocaleString()} mesh triangles`;
 }
 export function resolutionPanel(o,part){
- const summary=`<div class="metrics" id="faceCountMetrics">${faceSummary(part)}<small>Counts for this shape before global cutouts. STL uses triangles to represent polygon and curved faces.</small></div>`;
+ const summary=`<div class="metrics" id="faceCountMetrics">${faceSummary(part,o)}<small>Counts for this shape before global cutouts. STL uses triangles to represent polygon and curved faces.</small></div>`;
  if(!curvedTypes.includes(o.type))return `<div class="sectionlabel">Number of faces</div>${summary}`;
  const mode=o.resolution?.mode||'auto',count=o.resolution?.count||(o.type==='rounded'?8:32),tol=o.resolution?.tolerance||.03,sphere=o.type==='sphere',rounded=o.type==='rounded';
  return `<div class="sectionlabel">Face resolution</div><div class="field"><label for="faceResolution">Surface mode</label><select id="faceResolution"><option value="auto" ${mode==='auto'?'selected':''}>Smooth · use STL export quality</option><option value="tolerance" ${mode==='tolerance'?'selected':''}>Smooth · custom face resolution</option>${isThread(o)||o.type==='torus'?'':`<option value="faces" ${mode==='faces'?'selected':''}>Faceted · set ${sphere?'number of faces':rounded?'corner segments':'number of sides'}</option>`}</select></div><div id="resolutionFaces" ${mode==='faces'?'':'hidden'}><div class="field"><label for="resolutionCount">${sphere?'Number of flat faces':rounded?'Segments per rounded corner':'Number of sides around the shape'}</label><input id="resolutionCount" type="number" step="1" inputmode="numeric" min="${sphere?4:rounded?1:3}" max="${rounded?128:512}" value="${count}"></div><div class="resolutionpresets">${(sphere?[4,6,8,12,20,32,64,128]:rounded?[1,2,4,8,16]:[3,4,6,8,12,24,64]).map(n=>`<button type="button" data-face-preset="${n}">${n}</button>`).join('')}</div><p class="inlinehelp" id="resolutionHint"></p></div><div id="resolutionSmooth" ${mode==='tolerance'?'':'hidden'}><div class="field"><label for="resolutionTolerance">Face resolution · maximum curve deviation (mm)</label><input id="resolutionTolerance" type="number" inputmode="decimal" step="0.005" min="0.005" max="2" value="${tol}"></div><p class="inlinehelp">Smaller values make curves smoother and increase triangle count. This setting applies to preview and STL export for this shape.</p></div>${summary}`;

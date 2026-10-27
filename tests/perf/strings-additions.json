@@ -335,7 +335,13 @@
   },
   "Closed hollow · no open faces",
   "Invalid hollow setting.",
-  "Tap faces to leave open"
+  "Tap faces to leave open",
+  {
+   "text": "6 flat faces before hollow · 24 mesh triangles",
+   "runtime": true,
+   "source": "web/resolution-ui.mjs:10",
+   "approval": "Waydroid QA 2026-10-25 (b), waydroid-fix-3.0 (pending Master Chief)"
+  }
  ],
  "removals": [
   {
