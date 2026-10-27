@@ -2,7 +2,7 @@
 // Android mode). QA's repeat sequence at Smooth shape (0.005 mm) with wasm memories capped at REPEAT_PAGES (default
 // 5760 pages = 360 MB, the device ceiling seen: traps at heapMB 363, idle resets at 364/403 MB): tube hollow → open top,
 // torus 30/8 at X40 hollow 2, group; torus selected: rotate + Undo, Mirror YZ in place, YZ Copy; rotate + Undo, YZ Copy
-// (of the copy); tube selected: rotate + Undo, YZ Copy. Every Mirror must apply on its FIRST attempt: no wasm trap (so no
+// (of the copy); tube selected: rotate + Undo, tube re-selected (Undo restores the torus selection), YZ Copy. Every Mirror must apply on its FIRST attempt: no wasm trap (so no
 // re-run) and no error toast. Exact jobs log each coincident copy left out. On mem-fix-3.0 rev1 the second torus copy
 // trapped and was refused, and the tube copy trapped before its re-run.
 //   node tests/mem-fix-repeat.mjs   (after npm run build:web)
@@ -30,17 +30,19 @@ const out=await page.evaluate(async()=>{const C=window.__cad,$=id=>document.getE
  const rotateUndo=async()=>{await ch(p=>{p.objects.find(o=>o.id===C.selected).rotation=[0,0,-90];});$('undo').click();await settle();};
  const steps=[];const mirror=async(name,copy)=>{if(C.touch.getState().mode!=='mirror')$('mirrorMode').click();await sleep(100);
   if(($('mirrorCopy').getAttribute('aria-pressed')==='true')!==copy)$('mirrorCopy').click();
-  const n=C.project.objects.length,h=C.historyLength,traps=C.debugLog.filter(l=>l.includes('wasm trap')).length;$('toast').hidden=true;
+  const n=C.project.objects.length,sel=C.project.objects.find(o=>o.id===C.selected)?.type,h=C.historyLength,traps=C.debugLog.filter(l=>l.includes('wasm trap')).length;$('toast').hidden=true;
   document.querySelector('[data-mirror="YZ"]').click();const t=performance.now();
   for(let i=0;i<3000;i++){await sleep(100);if(C.historyLength!==h||!$('toast').hidden&&$('toast').classList.contains('error'))break;}
-  steps.push({name,objects:C.project.objects.length,was:n,applied:C.historyLength!==h,traps:C.debugLog.filter(l=>l.includes('wasm trap')).length-traps,toast:$('toast').hidden?'':$('toast').textContent,s:((performance.now()-t)/1000).toFixed(1)});await settle();};
+  steps.push({name,sel,objects:C.project.objects.length,was:n,applied:C.historyLength!==h,traps:C.debugLog.filter(l=>l.includes('wasm trap')).length-traps,toast:$('toast').hidden?'':$('toast').textContent,s:((performance.now()-t)/1000).toFixed(1)});await settle();};
  await selectFirst(torus.id);await rotateUndo();await mirror('torus YZ in place',false);await mirror('torus YZ copy',true);
  await rotateUndo();await mirror('torus YZ copy 2',true);
- await selectFirst(tube.id);await rotateUndo();await mirror('tube YZ copy',true);
- return {steps,log:C.debugLog.filter(l=>/wasm trap|coincident|manifold (reset|cache)/.test(l)).map(l=>l.slice(25,300))};});
+ await selectFirst(tube.id);await rotateUndo();await selectFirst(tube.id);await mirror('tube YZ copy',true);
+ const types={};for(const o of C.project.objects)types[o.type]=(types[o.type]||0)+1;return {steps,types,log:C.debugLog.filter(l=>/wasm trap|coincident|manifold (reset|cache)/.test(l)).map(l=>l.slice(25,300))};});
 await browser.close();server.close();
 const bad=out.steps.filter(s=>!s.applied||s.traps||s.toast);
 assert.deepEqual(bad,[],`every Mirror applies on its first attempt (no trap, no re-run, no toast) under ${pages} pages: `+JSON.stringify(out));
 assert.deepEqual(out.steps.map(s=>s.objects-s.was),[0,1,1,1],'in place, then three copies added');
+assert.deepEqual(out.steps.map(s=>s.sel),['torus','torus','torus','tube'],'each Mirror acts on the intended object: '+JSON.stringify(out.steps));
+assert.deepEqual(out.types,{tube:2,torus:3},'end state: the tube was copied once, the torus mirrored in place and copied twice');
 assert.ok(out.log.some(l=>/coincident copy left out \(check\): torus /.test(l)),'the coincident torus copy is logged: '+out.log.join(' | '));
 console.log(`mem-fix-repeat: ${out.steps.map(s=>`${s.name} ${s.s} s`).join(', ')}; 0 traps under ${pages} pages; ${out.log.filter(l=>/coincident/.test(l)).length} coincident-copy line(s), ${out.log.filter(l=>/cache cleared/.test(l)).length} cache trim(s)`);
