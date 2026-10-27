@@ -1,14 +1,15 @@
 import {initKernel} from './kernel.mjs';
 import {initLocalEngine} from './local-engine.mjs';
 import {TOPOLOGY_SERVICE,PARALLEL_INIT,BUNDLE_SPLIT,OCCT_SIDECAR} from './perf-flags.mjs';
-import {meshMeasurement,measureExact,initSolid,solidMeshFresh,objectTopology,warmShape,occtNeedsReset,resetSolid} from './cad-solid.mjs';
+import {meshMeasurement,measureExact,initSolid,solidMeshFresh,objectTopology,warmShape,occtNeedsReset,resetSolid,lastTrap} from './cad-solid.mjs';
 import {solidRemote,runJob,packError} from './occt-remote.mjs';
 import {needsSolid} from './solid-gate.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
 import {shipTopologies} from './topology-pack.mjs';
 import {prepareGlyphs,glyphOutlines,glyphsReady,loadGlyphs} from './glyph-geometry.mjs';
-import {deferShells,takeDeferredShells,computeShells} from './shell-mesh.mjs';
+import {deferShells,takeDeferredShells,computeShells,takeHollowLog} from './shell-mesh.mjs';
 import {hollowError,SHELL_TIMEOUT_MS} from './shell-rules.mjs';
+const MEMORY_ERROR='The model exceeds available geometry memory.';
 // ADR-0001 occt-sidecar-warmup: the sidecar warm-up exists only in the sidecar bundle (worker-sidecar.js; build-web.mjs
 // defines __AVALON_SIDECAR_BUNDLE__ false for worker.js, true for worker-sidecar.js) and only with OCCT_SIDECAR on, so
 // worker.js (Android) compiles it away: its code is unchanged (only minified names differ). Unbundled (Node tests) it
@@ -21,7 +22,9 @@ const rustReady=PARALLEL_INIT?initRustMesh({url:asset('mesh-core.wasm'),streamin
 // WS9 (BUNDLE_SPLIT): OCCT is not in the startup path. It starts on the warm message from the UI (sent right after the
 // first frame) or at the first job that may need it, whichever comes first; see needsSolid.
 let solid=null;const startSolid=()=>solid??=initSolid({locateFile:()=>asset('cad-kernel.wasm')});
-const runtime=initKernel({parallel:PARALLEL_INIT,locateFile:()=>asset('manifold.wasm'),solidOptions:BUNDLE_SPLIT||OCCT_SIDECAR?false:{locateFile:()=>asset('cad-kernel.wasm')}}).then(K=>initLocalEngine(K,{baseURL:self.location.href,rust:PARALLEL_INIT?{ready:rustReady}:{url:new URL('mesh-core.wasm',self.location.href).href}}));
+// mem-preview (2a): Manifold is instantiated here so its wasm memory (heap size) stays visible to idleReset().
+let heap=null;const kernel=again=>initKernel({parallel:PARALLEL_INIT,locateFile:()=>asset('manifold.wasm'),instantiateWasm(info,done){const u=asset('manifold.wasm');WebAssembly.instantiateStreaming(fetch(u),info).catch(()=>fetch(u).then(r=>r.arrayBuffer()).then(b=>WebAssembly.instantiate(b,info))).then(r=>{heap=Object.values(r.instance.exports).find(m=>m instanceof WebAssembly.Memory);done(r.instance,r.module);});return {};},solidOptions:BUNDLE_SPLIT||OCCT_SIDECAR?false:{locateFile:()=>asset('cad-kernel.wasm')}}).then(K=>initLocalEngine(K,{baseURL:self.location.href,rust:PARALLEL_INIT&&!again?{ready:rustReady}:{url:asset('mesh-core.wasm')},heapBytes:()=>heap?.buffer.byteLength}));
+let runtime=kernel();
 rustReady?.catch(()=>{});
 // WS14 (OCCT_SIDECAR): the sidecar is this script again, as a nested module worker named 'occt' (it owns the only OCCT
 // heap). Requests are deduplicated while in flight; answers arrive in request order.
@@ -64,30 +67,57 @@ self.onmessage=({data})=>{
  if(data.type==='preview'){for(const old of queue.filter(x=>x.type==='preview'))self.postMessage({id:old.id,canceled:true});queue=queue.filter(x=>x.type!=='preview');if(current?.type==='preview')current.abort?.();}
  queue.push(data);drain();
 };
+// ADR-0001 F8 (Android, in-worker OCCT): a preview that deferred a hollow shows the unhollowed part first (display
+// only), then the hollows are built and the preview re-run, unless a newer preview arrived meanwhile (cancel on edit).
+// F7 P3 / Waydroid QA D1: OCCT is reset after a trap before any further call, also between the deferred hollows and the
+// re-run (before, the re-run went into the trapped heap); a trap outside OCCT (Manifold, Rust) re-creates the engine.
+async function localJob(data){let engine=await runtime,swallowed=null;if(BUNDLE_SPLIT&&needsSolid(data))await startSolid();
+ const fresh=async()=>{if(occtNeedsReset()&&!reported)swallowed=report(data,{},performance.now());if(occtNeedsReset()||engineTrapped){reported=false;if(solid||!BUNDLE_SPLIT)await resetSolid();}if(engineTrapped){engineTrapped=false;runtime=kernel(true);engine=await runtime;}},
+  run=()=>{try{return engine.process(data);}catch(e){if(!(e instanceof WebAssembly.RuntimeError))throw e;trapped=e;return {id:data.id,error:String(e)};}};
+ await fresh();deferShells(data.type==='preview');let result=run();
+ const shells=takeDeferredShells();if(shells.length){if(!result.error)postInterim(data.id,result);if(!await computeShells(shells,()=>queue.some(x=>x.type==='preview')))return null;await fresh();result=run();}
+ const h=takeHollowLog();if(h.length)result.hollows=h;if(swallowed)result.trap=swallowed;result.engine=engine.info;return result;}
+// Waydroid QA D1: worker-side trap log. The last jobs (type, op stack, ms, error) go with any trap to the main thread
+// (result.trap), which writes it to the console and its debug log. Waydroid QA (d): the hollows built go the same way
+// (result.hollows: engine occt|manifold, ms, OCCT phases), never to the UI.
+const recent=[];let engineTrapped=false,reported=false,trapped=null;
+const trapOf=r=>/RuntimeError|null function/.test(r.error)||occtNeedsReset();
+const opStack=d=>(d.project?.objects||[d.object]).map(o=>o&&[o.type,o.shell&&'hollow'+(o.shell.open?'-open':''),o.mirrored&&'mirrored',o.groupId&&'grouped'].filter(Boolean).join('/'));
+function note(d,r,t){recent.push([d.id,d.type,opStack(d),performance.now()-t|0,r.error]);if(recent.length>8)recent.shift();}
+function report(d,r,t){note(d,r,t);engineTrapped=!occtNeedsReset();reported=true;const e=trapped||lastTrap();trapped=null;return {job:d.type,error:r.error||String(e),occt:!engineTrapped,heapMB:heap?.buffer.byteLength>>20,ops:opStack(d),recent:[...recent],stack:e?.stack};}
+// mem-preview (2a), Architect ruling 2026-10-25 23:02: Manifold's heap never shrinks. Once the worker has been idle for
+// 1 s with it above 300 MB, a fresh Manifold (and engine cache) replaces it; results are those of a fresh start.
+let idle;function idleReset(){clearTimeout(idle);idle=setTimeout(()=>{const b=heap?.buffer.byteLength;if(running||queue.length||!(b>3e8))return;runtime=kernel(true);self.postMessage({log:`manifold reset: heap ${b>>20} MB, idle`});},1e3);}
 async function drain(){if(running)return;running=true;
  try{while(queue.length){const data=queue.shift();try{
-  const engine=await runtime;let result;
+  let engine=await runtime,result;
   // Letters: the outlines load (dynamic import) with the first job that contains a glyph, never at startup.
   await prepareGlyphs(data.type==='measure'?[data.a?.object,data.b?.object]:data);
-  if(!OCCT_SIDECAR)deferShells(data.type==='preview');
   // WS14: a preview waiting for the sidecar is dropped as soon as a newer preview arrives.
   // ADR-0001 F2a option A fallback: encode a mesh that '3mf-mesh' returned, here, with the same parts and bytes as the pool.
   if(data.type==='encode3mf')result={id:data.id,buffer:engine.rust.write3MF(data.vertices,data.triangles,data.ground!==false)};
   else if(OCCT_SIDECAR&&data.type==='measure'&&!(data.mode==='object'&&[data.a?.object,data.b?.object].some(meshMeasurement))){const [answer]=await askSidecar([{kind:'measure',key:JSON.stringify(data),data}]);result=answer.error?{id:data.id,error:answer.error.message}:{id:data.id,...answer.result};}
   else if(OCCT_SIDECAR){const abort=data.type==='preview'?new Promise(r=>current={type:'preview',abort:r}):null;try{result=await runJob(engine,data,remote,{fetch:askSidecar,onInterim:r=>postInterim(data.id,r),abort});}finally{current=null;}if(result.canceled){self.postMessage({id:data.id,canceled:true});continue;}}
   // ADR-0001 F7 P3: after an OCCT memory error (wasm trap) the next job first gets a fresh OCCT instance from the compiled module.
-  else{if(BUNDLE_SPLIT&&needsSolid(data))await startSolid();if(occtNeedsReset())await resetSolid();result=engine.process(data);}
-  result.engine=engine.info;
-  // ADR-0001 F8 (Android, in-worker OCCT): a preview that deferred a hollow shows the unhollowed part first (display
-  // only), then the hollows are built and the preview re-run, unless a newer preview arrived meanwhile (cancel on edit).
-  const shells=OCCT_SIDECAR?[]:takeDeferredShells();if(shells.length){if(!result.error)postInterim(data.id,result);if(!await computeShells(shells,()=>queue.some(x=>x.type==='preview'))){self.postMessage({id:data.id,canceled:true});continue;}result=engine.process(data);result.engine=engine.info;}
+  // Waydroid QA D3: this loop holds no engine while the job runs, so a trapped instance replaced for the re-run is
+  // garbage at once (it kept its 300+ MB heap alive during the re-run on the device). A re-run that traps again ends as
+  // the geometry-memory error (toast; the Mirror/Apply is not applied), never a raw RuntimeError or a silent no-op.
+  else{const t=performance.now();engine=null;result=await localJob(data);
+   // Waydroid QA D1: a wasm trap is logged (job, op stack, last jobs) and the job is run once more on fresh modules.
+   if(result&&trapOf(result)){const trap=report(data,result,t);result=await localJob(data);if(result){result.trap=trap;if(trapOf(result)){report(data,result,t);result.error=MEMORY_ERROR;}}}
+   if(!result){self.postMessage({id:data.id,canceled:true});continue;}
+   // mem-fix rev2: coincident copies left out of an exact job and cache trims are logged (console + debug log only).
+   if(result.coincident){self.postMessage({log:`coincident copy left out (${data.type}): ${result.coincident.join(', ')}`});delete result.coincident;}
+   if(result.trimmed){self.postMessage({log:`manifold cache cleared: heap ${result.trimmed} MB, before ${data.type}`});delete result.trimmed;}
+   note(data,result,t);}
+  result.engine??=engine?.info;
   const transfers=[];if(result.buffer)transfers.push(result.buffer);if(result.mesh3mf)transfers.push(result.mesh3mf.vertices.buffer,result.mesh3mf.triangles.buffer);
   for(const key of ['vertices','triangles','flatTriangles','smoothingGroups','displayPositions','displayNormals','displayIndex'])if(ArrayBuffer.isView(result[key]))transfers.push(result[key].buffer);
   for(const p of result.parts||[]){for(const key of ['vertices','triangles','flatTriangles','smoothingGroups'])if(p[key])transfers.push(p[key].buffer);if(!TOPOLOGY_SERVICE&&p.topology)transfers.push(p.topology.vertices.buffer,p.topology.triangles.buffer);}
   if(TOPOLOGY_SERVICE)transfers.push(...shipTopologies(result));
   self.postMessage(result,transfers);
  }catch(e){self.postMessage({id:data.id,error:'Local geometry processing could not start: '+(e.message||String(e))});}}}
- finally{running=false;}
+ finally{running=false;idleReset();}
 }
 }
 // WS14: the OCCT sidecar. Loads OCCT once and answers {mesh|topology} requests in arrival order with the same values

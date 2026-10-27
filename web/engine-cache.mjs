@@ -11,7 +11,7 @@
 import {ENGINE_CACHE_MERGE as MERGE,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {makeLocalSolid,placeObjectSolid,meshData} from './kernel.mjs';
 import {solidRemoteMisses} from './cad-solid.mjs';
-import {shellDeferrals} from './shell-mesh.mjs';
+import {shellDeferrals,shellPreview} from './shell-mesh.mjs';
 // dst[at+i]=src[i]+base (a plain copy when base is 0): one small monomorphic loop for every merged index buffer.
 const offsetInto=(dst,src,at,base)=>{if(!base){dst.set(src,at);return;}for(let i=0;i<src.length;i++)dst[at+i]=src[i]+base;};
 export function engineCache(K,{budget=150*1048576,prepare=null}={}){
@@ -36,7 +36,7 @@ export function engineCache(K,{budget=150*1048576,prepare=null}={}){
   owns:s=>owned.has(s),
   begin(){job++;maxId=-Infinity;seen=new Map();},
   makeObject(o,tolerance,styles){const styled=!!styles;
-   const content=JSON.stringify(o.shell?[o.type,o.params,o.fillets??null,o.resolution??null,tolerance,styled,o.shell]:[o.type,o.params,o.fillets??null,o.resolution??null,tolerance,styled]),n=seen.get(content)||0;seen.set(content,n+1);
+   const content=JSON.stringify(o.shell?[o.type,o.params,o.fillets??null,o.resolution??null,tolerance,styled,o.shell,shellPreview()]:[o.type,o.params,o.fillets??null,o.resolution??null,tolerance,styled]),n=seen.get(content)||0;seen.set(content,n+1);
    const key=content+'#'+n;let e=local.get(key);
    if(e&&!(e.lo>maxId)){releaseLocal(e);local.delete(key);e=null;}
    if(e){local.delete(key);local.set(key,e);e.used=job;if(styles)for(const [id,flat] of e.styles)styles.set(id,flat);stats.localHits++;}

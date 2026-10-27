@@ -4,6 +4,7 @@
 // shell(). Picked faces are base-shape faces (like fillet edges); after rounds they are followed through the fillet
 // history. Every result passes the ADR guard (BRepCheck valid, volume dropped, bounds kept) or the hollow error is
 // thrown, never the silently unshelled solid. 5 s hard limit (checked when OCCT returns; nothing can stop it sooner).
+import {noteOcctError,passTrap} from './occt-trap.mjs';
 import * as R from 'replicad';
 import {hollowError,hollowGuard} from './shell-rules.mjs';
 const HARD_MS=5000;
@@ -21,12 +22,12 @@ function oneSolid(oc,shape,own){const E=oc.TopAbs_ShapeEnum,x=own(new oc.TopExp_
 function closedSolid(oc,shape,own){const E=oc.TopAbs_ShapeEnum;if(shape.ShapeType()===E.TopAbs_SOLID)return shape;
  const x=own(new oc.TopExp_Explorer(shape,E.TopAbs_SHELL,E.TopAbs_SHAPE)),shells=[];for(;x.More();x.Next())shells.push(own(x.Current()));
  return shells.length!==1?null: own(own(new oc.ShapeFix_Solid()).SolidFromShell(oc.TopoDS.Shell(shells[0])));}
-export function hollowBrep(base,edges,o,{explore,cut}){
+export function hollowBrep(base,edges,o,{explore,cut,times={}}){
  const oc=R.getOC(),t=o.shell.thickness,list=[],own=x=>(list.push(x),x),t0=performance.now(),fail=()=>Error(hollowError(t));
  try{let solid=base,fb=null;
   const radii=new Map();for(const f of o.fillets||[])if(f.radius>0)for(const i of f.edges)if(edges[i])radii.set(i,f.radius);
   if(radii.size){fb=own(new oc.BRepFilletAPI_MakeFillet(base.wrapped,oc.ChFi3d_FilletShape.ChFi3d_Rational));edges.forEach((e,i)=>{if(radii.has(i))fb.Add(radii.get(i),e.wrapped);});
-   try{solid=oneSolid(oc,fb.Shape(),own);}catch{throw Error('That roundover is too large or conflicts with another edge. Reduce the radius.');}if(!solid)throw fail();}
+   try{solid=oneSolid(oc,fb.Shape(),own);}catch(e){passTrap(e);throw Error('That roundover is too large or conflicts with another edge. Reduce the radius.');}if(!solid)throw fail();}
   const before=measure(oc,solid,own),join=oc.GeomAbs_JoinType.GeomAbs_Arc,skin=oc.BRepOffset_Mode.BRepOffset_Skin;let result;
   if(!o.shell.open){const mk=own(new oc.BRepOffsetAPI_MakeOffsetShape());mk.PerformByJoin(solid.wrapped,-t,1e-3,skin,false,false,join,false,own(new oc.Message_ProgressRange()));
    if(!mk.IsDone()||mk.Shape().IsNull())throw fail();const c=closedSolid(oc,mk.Shape(),own);if(!c)throw fail();const inner=own(R.cast(c));result=own(cut(solid,inner));}
@@ -37,8 +38,9 @@ export function hollowBrep(base,edges,o,{explore,cut}){
    const faces=own(new oc.NCollection_List_TopoDS_Shape());for(const g of targets){const m=mine.find(x=>x.wrapped.IsSame(g));if(!m)throw fail();faces.Append(m.wrapped);}
    const mk=own(new oc.BRepOffsetAPI_MakeThickSolid());mk.MakeThickSolidByJoin(solid.wrapped,faces,-t,1e-3,skin,false,false,join,false,own(new oc.Message_ProgressRange()));
    if(!mk.IsDone()||mk.Shape().IsNull())throw fail();result=own(R.cast(mk.Shape()));}
-  const s=oneSolid(oc,result.wrapped,own);
+  const t1=performance.now();times.offset=t1-t0;const s=oneSolid(oc,result.wrapped,own);
   if(!s||!own(new oc.BRepCheck_Analyzer(s.wrapped,true,false)).IsValid()||!hollowGuard(before,measure(oc,s,own),t)||performance.now()-t0>HARD_MS)throw fail();
+  times.check=performance.now()-t1;
   list.splice(list.indexOf(s),1);return s;}
- catch(e){if(e instanceof Error&&(e.message===hollowError(t)||/^(Invalid hollow|That roundover)/.test(e.message)))throw e;throw fail();}
- finally{for(const x of list.reverse())if(x!==base)try{x.delete();}catch{}}}
+ catch(e){passTrap(e);if(e instanceof Error&&(e.message===hollowError(t)||/^(Invalid hollow|That roundover)/.test(e.message)))throw e;throw fail();}
+ finally{for(const x of list.reverse())if(x!==base)try{x.delete();}catch(e){noteOcctError(e);}}}
