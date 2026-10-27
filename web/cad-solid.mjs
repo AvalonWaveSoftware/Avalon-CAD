@@ -301,20 +301,23 @@ export const topologyCacheStats=()=>({brepEntries:cache.size,brepBytes,topologyE
 const MESH_BYTES=64*1048576,meshes=new Map();let meshBytes=0;
 const copyMesh=m=>({...m,vertices:m.vertices.slice(),triangles:m.triangles.slice(),...(m.displayGroups?{displayGroups:m.displayGroups.map(g=>({...g}))}:{})});
 export const filletMeshStats=()=>({entries:meshes.size,bytes:meshBytes});
-export const solidMesh=guarded(function solidMesh(o,tolerance,display=false){
- const base=geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|',key=base+(display?1:0);
+// mem-preview (2b), Architect ruling 2026-10-25 23:02: preview=true (a hollow in a preview job, in-worker OCCT) meshes the
+// exact B-rep at the coarser of the object's and the job's tolerance; check and export jobs keep the object's.
+export const solidMesh=guarded(function solidMesh(o,tolerance,display=false,preview=false){
+ const t=resolutionTolerance(o,tolerance),base=geometryKey(o)+'|'+(preview&&!remote?Math.max(t,tolerance):t)+'|',key=base+(display?1:0);
  if(remote)return remote.solidMesh(o,tolerance,display,key);
- if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display);
+ if(preview)tolerance=Math.max(t,tolerance);else tolerance=t;
+ if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display,true);
  let e=meshes.get(key);
  if(e){meshes.delete(key);meshes.set(key,e);return copyMesh(e.m);}
- const m=tessellate(o,tolerance,display),bytes=m.vertices.byteLength+m.triangles.byteLength+64*(m.displayGroups?.length||0)+256;
+ const m=tessellate(o,tolerance,display,true),bytes=m.vertices.byteLength+m.triangles.byteLength+64*(m.displayGroups?.length||0)+256;
  if(bytes<=MESH_BYTES&&!occtNeedsReset()){meshes.set(key,{m:copyMesh(m),bytes});meshBytes+=bytes;for(const [k,v] of meshes){if(meshBytes<=MESH_BYTES)break;meshes.delete(k);meshBytes-=v.bytes;}}
  return m;
 });
 // WS14: the sidecar tessellates without its own mesh cache (the geometry worker caches the result).
 export const solidMeshFresh=guarded((o,tolerance,display=false)=>tessellate(o,tolerance,display));
-function tessellate(o,tolerance,display) {
- tolerance=resolutionTolerance(o,tolerance);
+function tessellate(o,tolerance,display,resolved) {
+ if(!resolved)tolerance=resolutionTolerance(o,tolerance);
  const {s}=cached(o),lin=Math.max(.001,tolerance*.5),ang=Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10))),t=performance.now(),m=(o.type==='torus'&&o.shell&&toroidalMesh(s,lin,ang))||s.mesh({tolerance:lin,angularTolerance:ang});
  if(o.shell)hollowTimes.mesh=performance.now()-t;
  const result={vertices:new Float32Array(m.vertices),triangles:new Uint32Array(m.triangles)};

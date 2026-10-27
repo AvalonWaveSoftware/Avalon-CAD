@@ -10,7 +10,9 @@ import {hollowError,hollowGuard,shellStrategy} from './shell-rules.mjs';
 import {segments,ccwPoints} from './kernel-ui.mjs';
 import {resolutionTolerance,customFaces} from './facets.mjs';
 import {PLANAR_TYPES} from './polyhedra.mjs';
-let defer=false,pending=[],deferrals=0;
+let defer=false,pending=[],deferrals=0,preview=false;
+// mem-preview (2b): set by local-engine.mjs for each job; true in preview jobs (hollow previews at preview smoothness).
+export function previewShells(on){preview=on;}export const shellPreview=()=>preview;
 // Waydroid QA (d): one entry per hollow actually built (engine, ms, OCCT phases); worker.mjs logs them to the console
 // and the main thread's debug log ('hollow engine=occt|manifold …'), never to the UI.
 const built=[];export const takeHollowLog=()=>built.splice(0);
@@ -36,8 +38,8 @@ export function shellLocalSolid(K,o,requested,styles,makeLocalSolid){
    s=inner?own(outer.subtract(inner)):outer;
    if(s.status()!=='NoError'||!hollowGuard(measure(outer),measure(s),t))throw fail();built.push({engine:'manifold',type:o.type,ms:performance.now()-t0});}
   else{
-   if(defer&&!shellReady(o)){pending.push({o,tolerance:requested,display:!!styles});deferrals++;return makeLocalSolid(K,unshelled(o),requested,styles);}
-   const fresh=!shellReady(o),m=solidMesh(o,tolerance,!!styles),t1=performance.now();
+   if(defer&&!shellReady(o)){pending.push({o,tolerance:requested,display:!!styles,preview});deferrals++;return makeLocalSolid(K,unshelled(o),requested,styles);}
+   const fresh=!shellReady(o),m=solidMesh(o,preview?requested:tolerance,!!styles,preview),t1=performance.now();
    // OCCT sidecar: the hollow is still being computed; this stand-in (the unhollowed part) is display-only interim data.
    if(!m)return makeLocalSolid(K,unshelled(o),requested,styles);
    const d={numProp:3,vertProperties:m.vertices,triVerts:m.triangles,tolerance:1e-5};
@@ -50,5 +52,5 @@ export function shellLocalSolid(K,o,requested,styles,makeLocalSolid){
 }
 // worker.mjs (Android): builds the deferred hollows one by one, yielding between them; false when cancel() says a
 // newer preview is waiting.
-export async function computeShells(list,cancel){for(const {o,tolerance,display} of list){await new Promise(r=>setTimeout(r,0));if(cancel())return false;
- try{const t=performance.now(),fresh=!shellReady(o);solidMesh(o,tolerance,display);if(fresh&&hollowTimes.offset!==undefined)built.push({engine:'occt',type:o.type,ms:performance.now()-t,...hollowTimes});}catch{}}return true;}
+export async function computeShells(list,cancel){for(const {o,tolerance,display,preview} of list){await new Promise(r=>setTimeout(r,0));if(cancel())return false;
+ try{const t=performance.now(),fresh=!shellReady(o);solidMesh(o,tolerance,display,preview);if(fresh&&hollowTimes.offset!==undefined)built.push({engine:'occt',type:o.type,ms:performance.now()-t,...hollowTimes});}catch{}}return true;}
