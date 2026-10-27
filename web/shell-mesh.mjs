@@ -16,6 +16,9 @@ export function previewShells(on){preview=on;}export const shellPreview=()=>prev
 // Waydroid QA (d): one entry per hollow actually built (engine, ms, OCCT phases); worker.mjs logs them to the console
 // and the main thread's debug log ('hollow engine=occt|manifold …'), never to the UI.
 const built=[];export const takeHollowLog=()=>built.splice(0);
+// Waydroid QA D4: the phase times are cleared before every hollow mesh request, so a mesh served from a cache (no OCCT
+// offset run) adds no line instead of repeating the phases of an earlier hollow.
+const clearTimes=()=>{for(const k in hollowTimes)delete hollowTimes[k];};
 export const shellDeferrals=()=>deferrals;
 export function deferShells(on){defer=on;pending=[];}
 // Hollows the deferred previews need; compute(…) builds each (an error is kept by the caches' re-run as the job error).
@@ -39,7 +42,7 @@ export function shellLocalSolid(K,o,requested,styles,makeLocalSolid){
    if(s.status()!=='NoError'||!hollowGuard(measure(outer),measure(s),t))throw fail();built.push({engine:'manifold',type:o.type,ms:performance.now()-t0});}
   else{
    if(defer&&!shellReady(o)){pending.push({o,tolerance:requested,display:!!styles,preview});deferrals++;return makeLocalSolid(K,unshelled(o),requested,styles);}
-   const fresh=!shellReady(o),m=solidMesh(o,preview?requested:tolerance,!!styles,preview),t1=performance.now();
+   clearTimes();const fresh=!shellReady(o),m=solidMesh(o,preview?requested:tolerance,!!styles,preview),t1=performance.now();
    // OCCT sidecar: the hollow is still being computed; this stand-in (the unhollowed part) is display-only interim data.
    if(!m)return makeLocalSolid(K,unshelled(o),requested,styles);
    const d={numProp:3,vertProperties:m.vertices,triVerts:m.triangles,tolerance:1e-5};
@@ -53,4 +56,4 @@ export function shellLocalSolid(K,o,requested,styles,makeLocalSolid){
 // worker.mjs (Android): builds the deferred hollows one by one, yielding between them; false when cancel() says a
 // newer preview is waiting.
 export async function computeShells(list,cancel){for(const {o,tolerance,display,preview} of list){await new Promise(r=>setTimeout(r,0));if(cancel())return false;
- try{const t=performance.now(),fresh=!shellReady(o);solidMesh(o,tolerance,display,preview);if(fresh&&hollowTimes.offset!==undefined)built.push({engine:'occt',type:o.type,ms:performance.now()-t,...hollowTimes});}catch{}}return true;}
+ try{clearTimes();const t=performance.now(),fresh=!shellReady(o);solidMesh(o,tolerance,display,preview);if(fresh&&hollowTimes.offset!==undefined)built.push({engine:'occt',type:o.type,ms:performance.now()-t,...hollowTimes});}catch{}}return true;}
