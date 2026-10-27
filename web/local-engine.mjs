@@ -1,6 +1,7 @@
 import {previewShells} from './shell-mesh.mjs';
 import {SPLIT_TRIANGLES_3MF} from './three-mf-parts.mjs';
-import {makeObject,meshData,validateProject,QUALITY} from './kernel.mjs';
+import {makeObject,meshData,validateProject,QUALITY,revisionKey,contentKey,coincident} from './kernel.mjs';
+export {revisionKey};
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
 import {meshMeasurement,measureExact,objectTopology,objectTopologyEntry,memoTopology} from './cad-solid.mjs';
 import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE,BUNDLE_SPLIT,INDEXED_DISPLAY} from './perf-flags.mjs';
@@ -32,12 +33,26 @@ export async function initLocalEngine(K,options={}){
  function groundProject(value){const p=validateProject(value);let min=0;for(const o of p.objects.filter(o=>o.enabled)){const s=makeObject(K,o,.005);try{if(!s.isEmpty())min=Math.min(min,s.boundingBox().min[2]);}finally{s.delete();}}if(min<0)for(const o of p.objects){o.position[2]-=min;if(o.placement)o.placement[2]-=min;}p.buildPlaneEnabled=true;return {project:validateProject(p),lift:-min};}
  let acknowledged=null;const cache=ENGINE_CACHE?engineCache(K,{budget:options.engineCacheBudget,prepare:INDEXED_DISPLAY?d=>rust.prepareIndexed(d.vertices,d.triangles,d.flatTriangles,d.smoothingGroups):null}):null,cachedJob=d=>cache&&['preview','check','export'].includes(d?.type);let active=false;
  const threadEntry=o=>{const tolerance=resolutionTolerance(o,.15);const v=memoTopology(JSON.stringify(['thread',o.type,o.params,tolerance]),()=>threadTopology(K.threadMesh(o,tolerance),o));return {hash:v.hash,topology:v.t};};
+ // Waydroid QA D3 (mem-fix rev2): a Mirror Copy of a symmetric object lands on the original. Building it costs a second
+ // local solid plus an evaluated placed copy (~100 MB per hollow torus at 0.005 mm, kept by the engine cache), and the
+ // union of coincident meshes splits every coplanar face (1.3 GB). In exact jobs (check/export: no display styles) an
+ // object is detected as coincident with an earlier one BEFORE it is built: same content and mode, and its placement
+ // maps the earlier object's placed vertices onto themselves (identical placement, or e.g. a mirror through the centre
+ // of a symmetric shape, within 1e-3 mm, far below any mesh tolerance). It then reuses the earlier solid, which the union takes once; each one is
+ // reported (result.coincident, logged by the worker). Previews keep building every object: their per-object
+ // smoothing groups (display styles) differ when a duplicate is left out (tests/overlap-display.mjs, identical boxes).
+ // Cutouts are matched by id (excludedCutouts), so only solids are reused (tests/shell-absent.mjs, existing-cutouts).
+ const HEAP_TRIM=250*1048576;let seen=[],dropped=[],trimmed=0,floored=new Map();const disposed=new WeakSet();
+ function build(o,tolerance,styles){const make=()=>active?cache.makeObject(o,tolerance,styles):makeObject(K,o,tolerance,styles);if(styles||o.mode==='cut')return make();
+  const content=contentKey(o,tolerance);
+  for(const e of seen)if(e.content===content&&coincident(e.o,o,e.s)){dropped.push(`${o.type} ${o.id} = ${e.o.id}`);return e.s;}
+  const s=make();seen.push({content,o,s});return s;}
  const bridge={runtime_info:version=>({python:version,rust:rust.version,local:true}),
   place_object:placeObject,ground_project:groundProject,
-  floor_solid:(o,s)=>active?cache.floor(o,s):(()=>{const z=s.isEmpty()?0:s.boundingBox().min[2],delta=Math.max(0,-z);return delta>0?{solid:s.translate([0,0,delta]),adjustment:{id:o.id,sourcePosition:Array.from(o.position),position:[o.position[0],o.position[1],o.position[2]+delta]}}:null;})(),
+  floor_solid:(o,s)=>{if(floored.has(s)){const f=floored.get(s);return f&&{solid:f.solid,adjustment:{id:o.id,sourcePosition:Array.from(o.position),position:[o.position[0],o.position[1],o.position[2]+f.adjustment.position[2]-f.adjustment.sourcePosition[2]]}};}const f=(active?cache.floor(o,s):(()=>{const z=s.isEmpty()?0:s.boundingBox().min[2],delta=Math.max(0,-z);return delta>0?{solid:s.translate([0,0,delta]),adjustment:{id:o.id,sourcePosition:Array.from(o.position),position:[o.position[0],o.position[1],o.position[2]+delta]}}:null;})());floored.set(s,f);return f;},
   validate_layers:validateLayers,assert_same_layer:assertSameLayer,
-  styles:()=>new Map(),make_object:(o,tolerance,styles)=>active?cache.makeObject(o,tolerance,styles):makeObject(K,o,tolerance,styles),
-  dispose:s=>{if(!(active&&cache.owns(s)))s.delete();},union:solids=>active?cache.union(solids):K.Manifold.union(solids),
+  styles:()=>new Map(),make_object:build,
+  dispose:s=>{if(!(active&&cache.owns(s))&&!disposed.has(s)){disposed.add(s);s.delete();}},union:solids=>{const all=Array.from(solids),once=[...new Set(all)];if(once.length<all.length)solids=once;return active?cache.union(solids):K.Manifold.union(solids);},
   part:(o,s,styles)=>{if(!TOPOLOGY_SERVICE)return {id:o.id,mode:o.mode,...(active?cache.part(s,styles):meshData(s,styles)),...(active?{contentHash:cache.partKey(s,styles)}:{}),bounds:s.boundingBox(),topology:structuredClone(isThread(o)?threadTopology(K.threadMesh(o,resolutionTolerance(o,.15)),o):objectTopology(o))};
    // WS2: topology by geometry hash; the body rides along only when the requester has not acknowledged the hash
    // (no acknowledgement list means a direct caller, which always gets it). Cached bodies are shared, never mutated.
@@ -79,10 +94,13 @@ export async function initLocalEngine(K,options={}){
  const lazy=data=>{if(data?.type!=='preview'||options.noLazyMesh||!Array.isArray(data.project?.objects))return null;const model=lazyMeshPreview(data.project,{validate:p=>{if(p.format!=='tristancad'||![2,3].includes(p.version))throw Error('This is not a supported AvalonCad project.');validateObjects(p.objects);validateLayers(p);},
   topology:o=>{if(!TOPOLOGY_SERVICE)return {topology:structuredClone(objectTopology(o))};const {hash,topology}=objectTopologyEntry(o);return !hash||!acknowledged?.has(hash)?{topologyHash:hash,topology}:{topologyHash:hash};}});
   return model&&bridge.response(bridge.finish_result(model,'preview',true),data.id,'preview');};
- return {python,rust,info,process:data=>{previewShells(data?.type==='preview');acknowledged=TOPOLOGY_SERVICE&&Array.isArray(data?.topologyAck)?new Set(data.topologyAck):null;try{const r=lazy(data);if(r)return r;}catch(e){return bridge.error_response(data.id,String(e));}active=cachedJob(data);if(active)cache.begin();try{if(data.type==='measure'){try{for(const p of [data.a,data.b].filter(Boolean))validateProject(booleanProject([structuredClone(p.object)]));if(data.mode==='object'&&[data.a?.object,data.b?.object].some(meshMeasurement)){const meshes=[data.a,data.b].map(p=>measureMesh(p.object));return {id:data.id,distance:rust.meshMinDistance(...meshes)};}return {id:data.id,...measureExact(data)};}catch(e){return {id:data.id,error:e.message||String(e)};}}return process(data);}finally{if(active)cache.end();active=false;acknowledged=null;}},engineCache:cache,destroy};
+ const run=data=>{previewShells(data?.type==='preview');acknowledged=TOPOLOGY_SERVICE&&Array.isArray(data?.topologyAck)?new Set(data.topologyAck):null;try{const r=lazy(data);if(r)return r;}catch(e){return bridge.error_response(data.id,String(e));}active=cachedJob(data);if(active)cache.begin();try{if(data.type==='measure'){try{for(const p of [data.a,data.b].filter(Boolean))validateProject(booleanProject([structuredClone(p.object)]));if(data.mode==='object'&&[data.a?.object,data.b?.object].some(meshMeasurement)){const meshes=[data.a,data.b].map(p=>measureMesh(p.object));return {id:data.id,distance:rust.meshMinDistance(...meshes)};}return {id:data.id,...measureExact(data)};}catch(e){return {id:data.id,error:e.message||String(e)};}}return process(data);}finally{if(active)cache.end();active=false;acknowledged=null;}};
+ return {python,rust,info,process:data=>{seen=[];dropped=[];floored=new Map();
+  // Waydroid QA D3 rev2: wasm memory never shrinks, and an exact job builds every object at its own (Smooth) resolution
+  // on top of what the cache keeps from earlier jobs, so each job could ratchet the heap past the device ceiling
+  // (~360-400 MB). Before a check/export with Manifold's heap above HEAP_TRIM, the cache's solids are deleted first:
+  // the job then runs in memory the instance already has, as on a fresh start (same results: a cold cache builds the
+  // same solids). Logged with the heap size.
+  const heap=options.heapBytes?.();if(cache&&heap>HEAP_TRIM&&['check','export'].includes(data?.type)&&cache.size().local){cache.clear();trimmed=heap;}
+  const r=run(data);if(trimmed&&r){r.trimmed=trimmed>>20;trimmed=0;}seen=[];floored=new Map();if(dropped.length&&r)r.coincident=dropped;return r;},engineCache:cache,destroy};
 }
-// Object revision key for the F1e mesh cache: exact for every field; number arrays of 4,096+ entries (meshes) enter as
-// their length and a 64-bit FNV-style hash of the IEEE bits, so the key stays small and cheap for big STL imports.
-const f64=new Float64Array(1),u32=new Uint32Array(f64.buffer);
-function arrayHash(a){let h1=0x811c9dc5,h2=a.length|0;for(let i=0;i<a.length;i++){f64[0]=a[i];h1=Math.imul(h1^u32[0],16777619);h2=Math.imul(h2^u32[1],1540483477);}return (h1>>>0).toString(36)+'.'+(h2>>>0).toString(36);}
-export function revisionKey(o){return JSON.stringify(o,(k,v)=>(Array.isArray(v)||ArrayBuffer.isView(v))&&v.length>=4096?`#${v.length}:${arrayHash(v)}`:v);}
