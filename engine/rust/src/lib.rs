@@ -9,7 +9,7 @@ mod three_mf;
 mod measure;
 
 #[no_mangle]
-pub extern "C" fn engine_version() -> u32 { 4 }
+pub extern "C" fn engine_version() -> u32 { 5 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mesh_alloc(bytes: usize) -> *mut u8 {
@@ -360,5 +360,82 @@ mod tests {
         let v=[0.,0.,0.,1.,0.,0.,0.,1.,0.];let t=[0,1,2];let groups=[1,2];let mut positions=[0.;9];let mut normals=[0.;9];
         assert_eq!(unsafe{prepare_mesh(v.as_ptr(),v.len(),t.as_ptr(),t.len(),std::ptr::null(),0,
             groups.as_ptr(),groups.len(),positions.as_mut_ptr(),normals.as_mut_ptr())},2);
+    }
+}
+
+/// Export-mesh downward area in mm² and triangle count. Faces on the build plate (all three vertices at the
+/// plate's z: the lowest z of a grounded export, else z = 0) rest on the bed and are left out (QA addendum
+/// 2026-10-27); a raised face counts.
+/// Output is two f64 values, allocated once by the caller; inputs are borrowed.
+#[no_mangle]
+pub unsafe extern "C" fn overhang_stats(vp: *const f32, nv: usize, tp: *const u32, nt: usize,
+    threshold: f64, ground: u32, out: *mut f64) -> u32 {
+    if nv % 3 != 0 || nt % 3 != 0 || !threshold.is_finite() || !(0.0..=1.0).contains(&threshold)
+        || out.is_null() || (nv > 0 && vp.is_null()) || (nt > 0 && tp.is_null()) { return 1; }
+    let v = if nv == 0 { &[] } else { slice::from_raw_parts(vp, nv) };
+    let t = if nt == 0 { &[] } else { slice::from_raw_parts(tp, nt) };
+    let mut area = 0.0; let mut count = 0u32;
+    // ground != 0: the export is grounded, so the build plate is the lowest z; otherwise it is z = 0.
+    let bed = if ground != 0 { v.iter().skip(2).step_by(3).fold(f32::INFINITY, |m, &z| m.min(z)) } else { 0.0 };
+    for tri in t.chunks_exact(3) {
+        if tri.iter().any(|&i| i as usize >= nv / 3) { return 1; }
+        let a = tri[0] as usize * 3; let b = tri[1] as usize * 3; let c = tri[2] as usize * 3;
+        let mut u = [0.0; 3]; let mut w = [0.0; 3];
+        for k in 0..3 {
+            if !v[a+k].is_finite() || !v[b+k].is_finite() || !v[c+k].is_finite() { return 1; }
+            u[k] = v[b+k] as f64 - v[a+k] as f64;
+            w[k] = v[c+k] as f64 - v[a+k] as f64;
+        }
+        if v[a+2] == bed && v[b+2] == bed && v[c+2] == bed { continue; }
+        let x = u[1]*w[2]-u[2]*w[1]; let y = u[2]*w[0]-u[0]*w[2]; let z = u[0]*w[1]-u[1]*w[0];
+        let length = (x*x+y*y+z*z).sqrt();
+        if z < -threshold * length { area += length * 0.5; count += 1; }
+    }
+    *out = area; *out.add(1) = count as f64; 0
+}
+
+#[cfg(test)]
+mod overhang_tests {
+    use super::overhang_stats;
+    fn stats(v: &[f32], t: &[u32], threshold: f64) -> (u32, [f64; 2]) {
+        let mut out = [0.0; 2];
+        let code = unsafe { overhang_stats(v.as_ptr(), v.len(), t.as_ptr(), t.len(), threshold, 1, out.as_mut_ptr()) };
+        (code, out)
+    }
+    #[test]
+    fn wedge_and_winding() {
+        let v = [0.,0.,0., 0.,4.,0., 3.,0.,1.];
+        let (code, out) = stats(&v, &[0,1,2], std::f64::consts::FRAC_1_SQRT_2);
+        assert_eq!(code, 0); assert!((out[0] - 2.0*10.0f64.sqrt()).abs() < 1e-12); assert_eq!(out[1], 1.);
+        assert_eq!(stats(&v, &[0,2,1], 0.0).1, [0.,0.]);
+    }
+    #[test]
+    fn bottom_ceiling_degenerate_and_boundary() {
+        // vertex 3 is lower, so the z=0 faces are not on the build plate here
+        let v = [0.,0.,0., 0.,2.,0., 3.,0.,0., 0.,0.,-1.];
+        assert_eq!(stats(&v, &[0,1,2,0,1,2,0,0,0], 0.7), (0,[6.,2.]));
+        assert_eq!(stats(&v, &[0,1,2], 1.0), (0,[0.,0.]));
+        assert_eq!(stats(&[], &[], 0.7), (0,[0.,0.]));
+    }
+    #[test]
+    fn build_plate_faces_left_out() {
+        // a down face at the lowest z rests on the bed; the same face lifted above a lower vertex counts
+        let v = [0.,0.,0., 0.,2.,0., 3.,0.,0.];
+        assert_eq!(stats(&v, &[0,1,2], 0.7), (0,[0.,0.]));
+        let lifted = [0.,0.,1., 0.,2.,1., 3.,0.,1., 0.,0.,0.];
+        assert_eq!(stats(&lifted, &[0,1,2], 0.7), (0,[3.,1.]));
+        // not grounded: the plate is z = 0, so a face raised to z = 1 counts even when it is the lowest
+        let raised = [0.,0.,1., 0.,2.,1., 3.,0.,1.];
+        let mut out = [0.0; 2];
+        assert_eq!(unsafe { overhang_stats(raised.as_ptr(), 9, [0u32,1,2].as_ptr(), 3, 0.7, 0, out.as_mut_ptr()) }, 0);
+        assert_eq!(out, [3.,1.]);
+        assert_eq!(unsafe { overhang_stats(v.as_ptr(), 9, [0u32,1,2].as_ptr(), 3, 0.7, 0, out.as_mut_ptr()) }, 0);
+        assert_eq!(out, [0.,0.]);
+    }
+    #[test]
+    fn rejects_invalid() {
+        assert_eq!(stats(&[0.,0.,0.], &[0,1,2], 0.7).0, 1);
+        assert_eq!(stats(&[], &[], f64::NAN).0, 1);
+        assert_eq!(stats(&[f32::NAN,0.,0.], &[0,0,0], 0.7).0, 1);
     }
 }

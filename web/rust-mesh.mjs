@@ -7,14 +7,14 @@ export async function initRustMesh({binary,url,streaming}={}){
  if(!binary&&streaming&&WebAssembly.instantiateStreaming){const r=await fetch(url);if(!r.ok)throw Error('The bundled Rust engine could not load.');({instance}=await WebAssembly.instantiateStreaming(r,{}));}
  else{const bytes=binary||await (async()=>{const r=await fetch(url);if(!r.ok)throw Error('The bundled Rust engine could not load.');return r.arrayBuffer();})();({instance}=await WebAssembly.instantiate(bytes,{}));}
  const core=instance.exports;
- if(core.engine_version()!==4)throw Error('Unsupported Rust geometry engine.');
+ if(core.engine_version()!==5)throw Error('Unsupported Rust geometry engine.');
  function withBuffers(fn){const allocations=[];
   const allocate=bytes=>{if(!bytes)return 0;const ptr=core.mesh_alloc(bytes);if(!ptr)throw Error('The model exceeds available geometry memory.');allocations.push([ptr,bytes]);return ptr;};
   const input=data=>{const ptr=allocate(data.byteLength);if(data.byteLength)new Uint8Array(core.memory.buffer,ptr,data.byteLength).set(new Uint8Array(data.buffer,data.byteOffset,data.byteLength));return ptr;};
   try{return fn(allocate,input);}finally{for(const [ptr,bytes] of allocations)core.mesh_free(ptr,bytes);}
  }
  function validate(vertices,triangles){if(vertices.length%3||triangles.length%3)throw Error('Invalid geometry buffers.');}
- return {version:4,
+ return {version:5,
   // ADR-0001 F2a: wasm linear memory size (it never shrinks), for the leak bench.
   memoryBytes:()=>core.memory.buffer.byteLength,
   // F1e (ADR-0002): minimum distance with a bounded working set. Each mesh is streamed through one CHUNK-triangle slot
@@ -59,6 +59,13 @@ export async function initRustMesh({binary,url,streaming}={}){
     try{if(code)throw Error('The model contains invalid mesh geometry.');
      return {positions:new Float32Array(core.memory.buffer,pp,count*3).slice(),normals:new Float32Array(core.memory.buffer,np,count*3).slice(),index:new Uint32Array(core.memory.buffer,ip,n).slice()};}
     finally{core.free_floats(pp,pc);core.free_floats(np,nc);}
+   });
+  },
+  overhangStats(vertices,triangles,threshold=Math.SQRT1_2,ground=true){
+   validate(vertices,triangles);if(!core.overhang_stats)throw Error("mesh-core.wasm needs rebuild");
+   return withBuffers((allocate,input)=>{const vp=input(vertices),tp=input(triangles),op=allocate(16);
+    if(core.overhang_stats(vp,vertices.length,tp,triangles.length,threshold,ground?1:0,op))throw Error("Invalid geometry buffers.");
+    const out=new Float64Array(core.memory.buffer,op,2);return {area:out[0],count:out[1]};
    });
   },
   writeSTL(vertices,triangles,ground=true){
