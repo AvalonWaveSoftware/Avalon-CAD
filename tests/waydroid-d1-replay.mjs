@@ -10,8 +10,10 @@
 import assert from 'node:assert/strict';import fs from 'node:fs';
 import * as R from 'replicad';
 import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';
-import {objectTopology,occtNeedsReset,resetSolid,disposeSolidCache} from '../web/cad-solid.mjs';
-import {deferShells,takeDeferredShells,computeShells,takeHollowLog} from '../web/shell-mesh.mjs';
+import * as CS from '../web/cad-solid.mjs';import * as SM from '../web/shell-mesh.mjs';
+// Namespace imports, so a tree without the fix (e723ebc) runs the replay and fails on behaviour, not at import.
+const {objectTopology,resetSolid,disposeSolidCache}=CS,{deferShells,takeDeferredShells,computeShells}=SM;
+const occtNeedsReset=CS.occtNeedsReset||(()=>false),takeHollowLog=SM.takeHollowLog||(()=>[]);
 import {object,blank,defaults} from '../web/templates.mjs';import {mirrorObject} from '../web/operations.mjs';
 const K=await initKernel(),rust={binary:fs.readFileSync(new URL('../app/assets/mesh-core.wasm',import.meta.url))};
 // Volume and triangle count per job (the vertex bytes of a cold first hollow differ in Manifold IDs between sessions).
@@ -28,21 +30,27 @@ async function session(inject){disposeSolidCache();takeHollowLog();const E=await
  await change(p=>{p.objects[0].shell={thickness:1.5};});
  const top=objectTopology({...tube,shell:undefined}).faces.findIndex(f=>f.normal?.[2]>.999);
  const proto=R.getOC().BRepOffsetAPI_MakeThickSolid.prototype,real=proto.MakeThickSolidByJoin;
- if(inject)proto.MakeThickSolidByJoin=function(){proto.MakeThickSolidByJoin=real;throw new WebAssembly.RuntimeError('null function or function signature mismatch');};
+ // A trapped wasm instance stays unusable: from the trap on, this OCCT instance's thick solids keep trapping; only a fresh
+ // OCCT instance (new prototypes) works again. So a session that never resets OCCT gives failed hollows from job 2 on.
+ const oc0=R.getOC();if(inject)proto.MakeThickSolidByJoin=function(){throw new WebAssembly.RuntimeError('null function or function signature mismatch');};
  await change(p=>{p.objects[0].shell={thickness:1.5,open:[top]};});
- if(inject)assert.equal(proto.MakeThickSolidByJoin,real,'the injected trap ran');
+ const recovered=R.getOC()!==oc0;
  const torus=object('torus',{...defaults.torus},[40,0,4]);torus.id='torus';await change(p=>p.objects.push(torus));await change(p=>{p.objects[1].shell={thickness:2};});
  await change(p=>{p.groups=[{id:'g1',name:'Group 1'}];for(const o of p.objects)o.groupId='g1';});
  await change(p=>{p.objects[0].rotation=[0,0,15];});p=hist.pop();await job('preview',p);
  {const q=structuredClone(p);q.objects[0]=mirrorObject(q.objects[0],'YZ');await job('check',q);p=q;await job('preview',p);}
  {const q=structuredClone(p);const c=mirrorObject(q.objects[0],'YZ');c.id='copy';q.objects.push(c);await job('check',q);p=q;await job('preview',p);}
  {const q=structuredClone(p),b=object('box',{...defaults.box},[-45,0,7.5]);b.id='box';q.objects.push(b);await job('check',q);p=q;await job('preview',p);}
- return {log,resets,trapAt,hollows:takeHollowLog()};}
+ proto.MakeThickSolidByJoin=real;return {log,resets,trapAt,recovered,hollows:takeHollowLog()};}
 const clean=await session(false),trapped=await session(true);
 assert.ok(clean.log.every(l=>!/RuntimeError|null function|could not/i.test(l)),'clean replay: '+clean.log.join(', '));
+// Behaviour first: every job result of the trapped session, the trapped open-top hollow and Add Box included, must equal
+// the clean session (the trapped step re-runs on a fresh OCCT inside its job: computeShells → reset → re-run).
+const diff=trapped.log.map((l,i)=>l===clean.log[i]?null:`job ${i}: ${l} ≠ ${clean.log[i]}`).filter(Boolean);
+assert.deepEqual(diff,[],'after the injected trap the session gives the clean job results');
+// Recovery: OCCT was replaced by a fresh instance within the trapped job (job 2), exactly once.
+assert.ok(trapped.recovered,'OCCT is a fresh instance after the trapped open-top hollow');assert.ok(!clean.recovered);
 assert.equal(clean.resets,0);assert.equal(trapped.resets,1,'one OCCT reset after the injected trap');
 assert.equal(trapped.trapAt,2,'the trap is seen at the open-top hollow, not masked as the hollow message');
-// The step that trapped re-runs on the fresh OCCT inside the job (computeShells → reset → re-run), so even it matches.
-assert.deepEqual(trapped.log,clean.log,'after the reset the whole session, Add Box included, gives the clean results');
 assert.ok(clean.hollows.some(x=>x.engine==='occt'&&x.type==='torus'&&x.offset>=0&&x.mesh>=0),'hollow engine log with OCCT phases');
 console.log(`waydroid-d1-replay: ${clean.log.length} jobs clean; injected trap at job ${trapped.trapAt} → 1 OCCT reset, identical results`);
