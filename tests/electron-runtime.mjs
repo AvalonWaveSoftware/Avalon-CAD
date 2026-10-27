@@ -16,7 +16,7 @@ try {
   assert.equal(name,'Avalon CAD');assert.equal(userData,path.join(appData,'Avalon CAD'),'userData must stay appData/Avalon CAD');
   assert.equal(appData,path.join(testRoot,'profile'),'test profile isolates appData');}
  assert.equal(page.url(),'app://avalon-cad/index.html');assert.equal(await page.evaluate(()=>window.AvalonDesktop.platform),process.platform==='darwin'?'mac':process.platform);assert.equal(await page.evaluate(()=>self.crossOriginIsolated),true);
- assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:4,local:true});
+ assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:5,local:true});
  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');assert.equal(await page.evaluate(()=>typeof window.process),'undefined');
  // Unified desktop layout: the window runs the shared web layout (plain <body>, the one shared style.css, no desktop-only stylesheet).
  assert.equal(await page.locator('body').getAttribute('class'),null);
