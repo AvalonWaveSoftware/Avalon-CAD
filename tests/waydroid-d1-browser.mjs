@@ -14,7 +14,7 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const browser=await chromium.launch({executablePath:process.env.AVALON_CHROMIUM,headless:true,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--js-flags=--wasm-max-mem-pages='+(process.env.D1_PAGES||5000)]});
 const page=await browser.newPage({viewport:{width:412,height:860}});const logs=[];
 page.on('console',m=>{logs.push(m.text());});page.on('crash',()=>console.log('PAGE CRASH'));page.on('pageerror',e=>logs.push('pageerror '+e.message));page.on('worker',w=>w.on('console',m=>logs.push('[worker] '+m.text())));
-await page.addInitScript(t=>{window.Android={beginFile(){},appendFile(){},finishFile(){}};window.__TRAPJOB=t;},true); // mem-preview: preview-smoothness hollows no longer exhaust the 5000-page heap; the filleted Ø400 export (exact, tol 0.01) does
+await page.addInitScript(t=>{window.Android={beginFile(){},appendFile(){},finishFile(){}};window.__TRAPJOB=t;},true); // mem-preview: preview-smoothness hollows no longer exhaust the 5000-page heap; the filleted Ø400 export (exact, tol 0.01) does; mem-fix-3.0b: check/export now clear the engine cache above 250 MB, so that export fits; the trap job is a preview (no cache clear) of the Ø400 plus a filleted Ø200
 await page.goto('http://127.0.0.1:'+server.address().port+'/index.html');
 await page.waitForFunction(()=>window.__cad?.model!==undefined&&window.__cad.model!==null,null,{timeout:120000}).catch(()=>{});
 await page.mouse.click(200,300);
@@ -32,7 +32,7 @@ const out=await page.evaluate(async()=>{const C=window.__cad,res=[];const sleep=
  const mirror=o=>{const out=structuredClone(o);out.rotation=[o.rotation[0],-o.rotation[1],-o.rotation[2]];if(o.mirrored)delete out.mirrored;else out.mirrored=true;return out;};
  {const q=structuredClone(C.project);q.objects[0]=mirror(q.objects[0]);await req('check',{project:q,tolerance:.15});await ch(p=>{p.objects[0]=mirror(p.objects[0]);});}
  {const q=structuredClone(C.project);const c={...mirror(q.objects[0]),id:uid()};q.objects.push(c);await req('check',{project:q,tolerance:.15});await ch(p=>p.objects.push(c));}
- if(window.__TRAPJOB){const big=obj('cylinder',{diameter:400,h:200},[0,0,100]);big.fillets=[{edges:[0,2],radius:40}];const q=structuredClone(C.project);q.objects=[big];await req('export',{project:q,tolerance:.01,ground:true});}
+ if(window.__TRAPJOB){const big=obj('cylinder',{diameter:400,h:200},[0,0,100]);big.fillets=[{edges:[0,2],radius:40}];const q=structuredClone(C.project);const big2=structuredClone(big);big2.id='big2';big2.position=[600,0,100];big2.params={diameter:200,h:100};q.objects=[big,big2];await req('preview',{project:q,tolerance:.01});}
  const box=obj('box',{w:30,d:30,h:15},[-45,0,7.5]);const q=structuredClone(C.project);q.objects.push(box);await req('check',{project:q,tolerance:.15});await ch(p=>p.objects.push(box));
  // mem-preview: the deferred smooth hollows finish after the status settles; wait for a stable model, then compare it
  // with the exact check of the same project (preview smoothness: within 0.1%).

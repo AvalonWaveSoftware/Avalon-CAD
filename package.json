@@ -56,7 +56,7 @@
     "test:mirror": "node tests/mirror-mode.mjs && node tests/mirror-ui.mjs && node tests/mirror-parity.mjs && node tests/mirror-stl.mjs",
     "test:measure": "node tests/measure-tool.mjs && node tests/measure-ui.mjs && node tests/measure-picks.mjs && node tests/measure-mesh.mjs",
     "test:groups": "node tests/shortcuts.mjs --unit && node tests/groups.mjs && node tests/groups-ui.mjs",
-    "test:mem": "node tests/mem-preview.mjs && node tests/mem-idle-reset.mjs"
+    "test:mem": "node tests/mem-preview.mjs && node tests/mem-idle-reset.mjs && node tests/mem-fix-mirror-copy.mjs && node tests/mem-fix-repeat.mjs"
   },
   "keywords": [],
   "author": "",
