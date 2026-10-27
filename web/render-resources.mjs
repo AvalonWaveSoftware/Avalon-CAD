@@ -5,7 +5,8 @@
 // Materials are never mutated after creation (only the startup grid material is, and it is not shared).
 import {PERSISTENT_GL} from './perf-flags.mjs';
 const materials=new Map();
-export function material(kind,Class,params){if(!PERSISTENT_GL)return new Class(params);const key=kind+JSON.stringify(params);let m=materials.get(key);
+export function material(kind,Class,params,overhang=false){
+ if(overhang)return overhangMaterial(kind,Class,params);if(!PERSISTENT_GL)return new Class(params);const key=kind+JSON.stringify(params);let m=materials.get(key);
  if(!m){m=new Class(params);m.dispose=()=>{};materials.set(key,m);}return m;}
 // A geometry pool for one redraw generation. get(key, build) shares a geometry built this generation for the same key
 // (same radius/points); otherwise it builds the geometry and, when a geometry from the previous generation has the same
@@ -51,3 +52,20 @@ export function updateChanged(g,attributes,index){if(!PERSISTENT_GL||!g.index||!
  for(const [a,array] of list){const r=changed(a.array,array);if(!r)continue;a.array.set(array.subarray(r[0],r[1]),r[0]);a.addUpdateRange(r[0],r[1]-r[0]);a.needsUpdate=true;uploads.bytes+=(r[1]-r[0])*4;
   if(a===g.attributes.position){g.boundingBox=null;g.boundingSphere=null;}}
  return true;}
+
+// Separate cached program; the disabled call above retains the original WS3 path.
+const overhangMaterials=new Map();
+export function injectOverhang(shader){
+ shader.uniforms.overhangThreshold={value:Math.SQRT1_2};
+ shader.vertexShader='varying vec3 vOverhangNormal;\n'+shader.vertexShader.replace('#include <beginnormal_vertex>',`#include <beginnormal_vertex>
+ // Inverse transpose via cofactors of the model matrix (also valid for nonuniform scales).
+ mat3 m=mat3(modelMatrix);
+ vec3 a=cross(m[1],m[2]), b=cross(m[2],m[0]), c=cross(m[0],m[1]);
+ vOverhangNormal=mat3(a,b,c)*objectNormal / dot(m[0],a);`);
+ shader.fragmentShader='varying vec3 vOverhangNormal;\nuniform float overhangThreshold;\n'+shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+ if(normalize(vOverhangNormal).z < -overhangThreshold) diffuseColor.rgb=vec3(1.0,0.10224173307914941,0.036889450395083165);`);
+}
+function overhangMaterial(kind,Class,params){
+ const key=kind+JSON.stringify(params);let m=overhangMaterials.get(key);
+ if(!m){m=new Class(params);m.onBeforeCompile=injectOverhang;m.customProgramCacheKey=()=> 'overhang-v1';m.dispose=()=>{};overhangMaterials.set(key,m);}return m;
+}

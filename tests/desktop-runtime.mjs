@@ -19,7 +19,7 @@ try {
  await page.goto(origin+'/index.html');
  await page.waitForFunction(()=>window.__cad?.model?.engine?.local,{},{timeout:60000});
  assert.equal(page.url(),origin+'/index.html');assert.equal(await page.evaluate(()=>window.AvalonDesktop.platform),'mac');
- assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:4,local:true});
+ assert.deepEqual(await page.evaluate(()=>window.__cad.model.engine),{python:'3.13.2',rust:5,local:true});
  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');assert.equal(await page.evaluate(()=>typeof window.process),'undefined');
  // Unified desktop layout: the staged desktop web runs the shared layout (plain <body>, the one shared style.css, no desktop-only stylesheet).
  assert.equal(await page.locator('body').getAttribute('class'),null);

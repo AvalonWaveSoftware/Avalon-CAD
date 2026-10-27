@@ -182,6 +182,8 @@ const scenes={
  'fixture-subtract-in-add':async(p,s)=>{await load(p,fixture('subtract-in-add.tcad'));await s();},
  'imported-stl':async(p,s)=>{await load(p,proj('My model',[]),0);await p.locator('#importFile').setInputFiles({name:'tetra.stl',mimeType:'model/stl',buffer:stl()});await p.locator('#applyObject').click();
   await p.waitForFunction(()=>window.__cad.model?.parts?.length===1,{},{timeout:120000});await deselect(p);await fit(p);await s();},
+ 'sheet-view':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('[data-view=iso]').dblclick();await s();},
+ 'overhang-on':async(p,s)=>{await load(p,proj('Overhang',[ob('sphere','sphere',{diameter:40},[0,0,35])]),1);await p.locator('[data-view=iso]').dblclick();await p.locator('#overhang').check();await p.locator('#closeSheet').click();await p.locator('[data-view=front]').click();await s();},
  'wireframe-on':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#wire').click();await s();},
  'selection-highlight':async(p,s)=>{await loadTemplate(p,'plate');await H.tap(p,'select',[[0,0,6]]);await s();},
  'objects-panel':async(p,s)=>{await loadTemplate(p,'plate');await p.locator('#objectsToggle').click();await s();},
