@@ -7,7 +7,7 @@ export function faceSummary(part,o){
  const triangles=part.geometry?part.geometry.index.count/3:part.triangles.length/3,t=part.userData?.topology||part.topology;
  if(!t)return `${triangles.toLocaleString()} triangle faces`;
  const curved=t.faceCount-t.flatFaces;
- return `${t.faceCount.toLocaleString()} ${curved?'surface':'flat'} faces${o?.shell?' before hollow':''} · ${triangles.toLocaleString()} mesh triangles`;
+ return `${t.faceCount.toLocaleString()} ${curved?'surface':'flat'} faces${o?.shell?' (unhollowed)':''} · ${triangles.toLocaleString()} mesh triangles`;
 }
 export function resolutionPanel(o,part){
  const summary=`<div class="metrics" id="faceCountMetrics">${faceSummary(part,o)}<small>Counts for this shape before global cutouts. STL uses triangles to represent polygon and curved faces.</small></div>`;

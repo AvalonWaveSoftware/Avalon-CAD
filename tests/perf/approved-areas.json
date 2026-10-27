@@ -521,8 +521,8 @@
    "scene": "shell-closed",
    "selector": "#faceCountMetrics",
    "kind": "text",
-   "expected": "6 flat faces before hollow · 24 mesh triangles",
-   "approval": "Waydroid QA 2026-10-25 (b), waydroid-fix-3.0 (pending Master Chief): the Edit sheet face count of a hollow part says it counts the base shape's faces; scoped to #faceCountMetrics in shell-closed (phone and desktop)"
+   "expected": "6 flat faces (unhollowed) · 24 mesh triangles",
+   "approval": "Waydroid QA 2026-10-25 (b), waydroid-fix-3.0; Master Chief ruling 2026-10-25 23:09 CT (mem-preview-3.0): APPROVED, suffix ' (unhollowed)': the Edit sheet face count of a hollow part says it counts the base shape's faces; scoped to #faceCountMetrics in shell-closed (phone and desktop)"
   }
  ]
 }

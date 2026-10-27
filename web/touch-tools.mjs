@@ -12,7 +12,7 @@ import {validateProject} from './kernel-ui.mjs';
 import {getUnit,unitLabel,fmtLen,readLen,byUnit,unitMessage} from './units.mjs';
 export function installTouch(S){
  const {canvas,scene,camera,controls}=S, $=id=>document.getElementById(id);
- let mirrorCopy=true;
+ let mirrorCopy=true; // Copy toggle look (off muted, on teal fill): Master Chief ruling 2026-10-25 23:09 CT, APPROVED.
  let measuring=null,closeMeasure=null;
  let edgeKind='round',edgeText=null,mode='select',axis='XY',snap=true,step=.1,face=null,selection='shape',edgeSelection=[],multi=new Set(),gesture=null,committing=false,commitSnapshot=null,replay=false,firstPointer=null,lastTap=null,ray=new T.Raycaster(),baseMeshes=[],markers=[],handles=[],paint=new T.Group(),lastPaint=0;
  scene.add(paint);
