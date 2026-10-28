@@ -1,3 +1,4 @@
+import './import-3mf-platform.mjs';
 // Browser worker adapter: run the actual shipping Android bundle, including its WS14 handler, under Node.
 import {parentPort,workerData,Worker as NodeWorker} from 'node:worker_threads';
 import fs from 'node:fs/promises';
