@@ -60,7 +60,7 @@
     "test:overhang-reference": "node tests/overhang-wrapper.mjs && node tests/overhang-worker.mjs && node tests/overhang.mjs --reference-only",
     "test:import-3mf": "node tests/import-3mf-lazy.mjs && node tests/import-3mf-worker.mjs && node tests/import-3mf.mjs && node tests/import-3mf-worker.mjs --bundles && node tests/import-3mf-ui.mjs",
     "test:import-3mf:reference": "node tests/import-3mf-lazy.mjs && node tests/import-3mf-worker.mjs && node tests/import-3mf.mjs --reference",
-    "test:mem": "node tests/mem-preview.mjs && node tests/mem-idle-reset.mjs && node tests/mem-fix-mirror-copy.mjs && node tests/mem-fix-repeat.mjs && node tests/d6-cancel.mjs && node tests/d6-hollow-queue.mjs && node tests/d6-hollow-refuse.mjs && node tests/d6-restart-resend.mjs && node tests/d6-restart-android.mjs && node --expose-gc tests/limits-worker.mjs",
+    "test:mem": "node tests/mem-preview.mjs && node tests/mem-idle-reset.mjs && node tests/mem-fix-mirror-copy.mjs && node tests/mem-fix-repeat.mjs && node tests/d6-cancel.mjs && node tests/d6-hollow-queue.mjs && node tests/d6-hollow-refuse.mjs && node tests/d6-restart-resend.mjs && node tests/d6-restart-android.mjs && node tests/limits-import.mjs && node --expose-gc tests/limits-worker.mjs",
     "test:occt-watchdog": "node tests/occt-watchdog.mjs && node tests/occt-watchdog-ui.mjs && node tests/occt-android-budget.mjs",
     "test:occt-android-parity": "AVALON_ANDROID_BUILD=1 node tests/occt-sidecar.mjs",
     "test:ws14-android": "node tests/perf/ws14-android-bench.mjs --check",
