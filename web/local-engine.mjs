@@ -102,6 +102,8 @@ export async function initLocalEngine(K,options={}){
   // (~360-400 MB). Before a check/export with Manifold's heap above HEAP_TRIM, the cache's solids are deleted first:
   // the job then runs in memory the instance already has, as on a fresh start (same results: a cold cache builds the
   // same solids). Logged with the heap size.
-  const heap=options.heapBytes?.();if(cache&&heap>HEAP_TRIM&&['check','export'].includes(data?.type)&&cache.size().local){cache.clear();trimmed=heap;}
+  // QA 10-26: previews too (a rotate preview took the heap to 524 MB) when the cache itself holds over 64 MB (an
+  // exact job's Smooth solids); the small preview solids of a drag stay cached.
+  const heap=options.heapBytes?.(),t=data?.type,z=cache?.size();if(cache&&heap>HEAP_TRIM&&z.local&&(t==='check'||t==='export'||t==='preview'&&z.localBytes+z.derivedBytes>67108864)){cache.clear();trimmed=heap;}
   const r=run(data);if(trimmed&&r){r.trimmed=trimmed>>20;trimmed=0;}seen=[];floored=new Map();if(dropped.length&&r)r.coincident=dropped;return r;},engineCache:cache,destroy};
 }
