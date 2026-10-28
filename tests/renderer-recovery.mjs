@@ -36,5 +36,5 @@ assert.match(build,/AVALON_TEST_BUILD:-0/);assert.match(build,/if sys.argv\[1\] 
 const {execFileSync}=await import('node:child_process');
 fs.mkdirSync('build/java',{recursive:true});
 const script=build.split("<<'PYHOOK'\n")[1].split('\nPYHOOK')[0];
-for(const [flag,hasHook] of [['0',false],['1',true]]){execFileSync('python3',['-c',script,flag]);const source=fs.readFileSync('build/java/MainActivity.java','utf8');assert.equal(source.includes('debugCrashRenderer'),hasHook);assert.equal(source.includes('.terminate()'),hasHook);}
+for(const [flag,hasHook] of [['0',false],['1',true]]){execFileSync('python3',['-c',script,flag]);const source=fs.readFileSync('build/java/MainActivity.java','utf8');assert.equal(source.includes('debugCrashRenderer'),hasHook);assert.equal(source.includes('debugImportDelayMs'),hasHook);assert.equal(source.includes('.terminate()'),hasHook);}
 console.log(`PASS: ${checks} page recovery cases + Java lifecycle/guard and release/test source stripping checks`);
