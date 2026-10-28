@@ -5,8 +5,10 @@
 // pinned Chromium, Android mode, real UI: Edit → Hollow → Apply (refused after 5 s), then Duplicate → X 0.5 → Apply & add.
 // Deterministic metric: the duplicate is added within 60 s (fixed: a few seconds; 23ab0a4: never, the worker is busy for
 // hours; d6-cancel-3.0 rev1: only by its 120 s job limit), with exactly one worker restart logged.
-// rev3: QA's Ø400 at 0.005 is now refused up front (tests/d6-hollow-refuse.mjs), so this safety-net case uses a Ø30 sphere at Smooth 0.007,
-// which passes the estimate (~5.3 s) but runs past the 5 s limit. Also (QA rev2 notes): no job bar while the
+// rev4: QA's Ø400 at 0.005 is refused up front (tests/d6-hollow-refuse.mjs). This safety-net case lowers the sheet's
+// hollow limit to 400 ms with the test-only ?testHollowLimitMs=400 (honoured only on http://127.0.0.1) and hollows a
+// Ø400 sphere at Smooth 0.05: it passes the estimate (3.2 s) and takes ~3.5 s on the box, >8x the lowered limit
+// (rev3 used the real 5 s limit with a 5.5 s case and flaked 2/15 at QA). Also (QA rev2 notes): no job bar while the
 // hollow's own 5 s limit runs, and an unrelated check sent while the hollow runs is re-sent to the new worker and answers.
 //   node tests/d6-hollow-queue.mjs   (after npm run build:web)
 import assert from 'node:assert/strict';import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {createRequire} from 'node:module';
@@ -17,11 +19,11 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const browser=await chromium.launch({executablePath:process.env.AVALON_CHROMIUM,headless:true,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--js-flags=--wasm-max-mem-pages=5760']});
 const page=await browser.newPage({viewport:{width:1024,height:548}});
 await page.addInitScript(()=>{window.Android={beginFile(){},appendFile(){},finishFile(){}};});
-await page.goto('http://127.0.0.1:'+server.address().port+'/index.html');
+await page.goto('http://127.0.0.1:'+server.address().port+'/index.html?testHollowLimitMs=400');
 await page.waitForFunction(()=>window.__cad?.model!==undefined&&window.__cad.model!==null,null,{timeout:120000}).catch(()=>{});
 await page.evaluate(async()=>{const C=window.__cad,sleep=ms=>new Promise(r=>setTimeout(r,ms));const q=structuredClone(C.project);
- q.objects=[{id:'s1',name:'Sphere',type:'sphere',params:{diameter:30},position:[0,0,15],rotation:[0,0,0],mode:'solid',enabled:true,layerId:q.activeLayer,resolution:{mode:'tolerance',tolerance:.007}}];
- C.load(q);for(let i=0;i<600&&!(C.model?.volume>1e4);i++)await sleep(200);await sleep(1000);});
+ q.objects=[{id:'s1',name:'Sphere',type:'sphere',params:{diameter:400},position:[0,0,200],rotation:[0,0,0],mode:'solid',enabled:true,layerId:q.activeLayer,resolution:{mode:'tolerance',tolerance:.05}}];
+ C.load(q);for(let i=0;i<600&&!(C.model?.volume>1e7);i++)await sleep(200);await sleep(1000);});
 const t0=Date.now();
 await page.click('#editBtn');await page.waitForSelector('#hollowOn');await page.check('#hollowOn');await page.click('#applyObject');
 await page.evaluate(()=>{const C=window.__cad;window.__bars=0;window.__iv=setInterval(()=>{const b=document.getElementById('jobWatch');if(b&&getComputedStyle(b).display!=='none')window.__bars++;},100);
@@ -40,5 +42,5 @@ assert.ok(added,`the duplicated sphere is added within 60 s after the refused ho
 assert.deepEqual(objs,[[0,false],[0.5,false]],'the refused hollow left the sphere unchanged; the copy sits at X 0.5');
 assert.equal(bars,0,'no job bar while the hollow job runs under its own 5 s limit');
 assert.ok(Math.abs(side-1000)<1e-6,'the unrelated check sent during the hollow is re-sent after the restart and answers: '+side);
-assert.equal(log.filter(l=>/hollow check dropped after 5 s; worker restarted/.test(l)).length,1,'one worker restart for the dropped hollow job: '+JSON.stringify(log));
+assert.equal(log.filter(l=>/hollow check dropped after 0.4 s; worker restarted/.test(l)).length,1,'one worker restart for the dropped hollow job: '+JSON.stringify(log));
 console.log(`d6-hollow-queue: hollow refused after ${refusedS.toFixed(1)} s, worker restarted once; no bar; unrelated check re-sent (${side} mm³); duplicate at X 0.5 added in ${addS.toFixed(1)} s`);
