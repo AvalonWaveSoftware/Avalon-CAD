@@ -304,8 +304,8 @@ export const filletMeshStats=()=>({entries:meshes.size,bytes:meshBytes});
 // mem-preview (2b), Architect ruling 2026-10-25 23:02: preview=true (a hollow in a preview job, in-worker OCCT) meshes the
 // exact B-rep at the coarser of the object's and the job's tolerance; check and export jobs keep the object's.
 export const solidMesh=guarded(function solidMesh(o,tolerance,display=false,preview=false){
- const t=resolutionTolerance(o,tolerance),base=geometryKey(o)+'|'+(preview&&!remote?Math.max(t,tolerance):t)+'|',key=base+(display?1:0);
- if(remote)return remote.solidMesh(o,tolerance,display,key);
+ const t=resolutionTolerance(o,tolerance),base=geometryKey(o)+'|'+(preview&&(!remote||globalThis.__avalonAndroidWorker)?Math.max(t,tolerance):t)+'|',key=base+(display?1:0);
+ if(remote){if(preview&&globalThis.__avalonAndroidWorker){tolerance=Math.max(t,tolerance);o={...o,resolution:{mode:'tolerance',tolerance}};}return remote.solidMesh(o,tolerance,display,key);}
  if(preview)tolerance=Math.max(t,tolerance);else tolerance=t;
  if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display,true);
  let e=meshes.get(key);

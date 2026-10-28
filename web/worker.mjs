@@ -1,7 +1,7 @@
 import {initKernel} from './kernel.mjs';
 import {initLocalEngine} from './local-engine.mjs';
 import {TOPOLOGY_SERVICE,PARALLEL_INIT,BUNDLE_SPLIT,OCCT_SIDECAR} from './perf-flags.mjs';
-import {meshMeasurement,measureExact,initSolid,solidMeshFresh,objectTopology,warmShape,occtNeedsReset,resetSolid,lastTrap} from './cad-solid.mjs';
+import {meshMeasurement,measureExact,initSolid,solidMeshFresh,objectTopology,warmShape,occtNeedsReset,resetSolid,lastTrap,shellReady,hollowTimes} from './cad-solid.mjs';
 import {solidRemote,runJob,packError} from './occt-remote.mjs';
 import {needsSolid} from './solid-gate.mjs';
 import {initRustMesh} from './rust-mesh.mjs';
@@ -30,7 +30,7 @@ rustReady?.catch(()=>{});
 // heap). Requests are deduplicated while in flight; answers arrive in request order.
 const remote=OCCT_SIDECAR?solidRemote():null;let sidecar=null,nextAsk=0;const waiting=new Map(),inflight=new Map();
 function startSidecar(){if(sidecar)return sidecar;sidecar=new Worker(new URL('worker.js'+(PARALLEL_INIT?self.location.search:''),self.location.href),{type:'module',name:'occt'});
- sidecar.onmessage=({data})=>{const w=waiting.get(data.id);sent.delete(data.id);if(w){waiting.delete(data.id);w(data.answer);}};
+ sidecar.onmessage=({data})=>{if(data.hollows)return self.postMessage(data);const w=waiting.get(data.id);sent.delete(data.id);if(w){waiting.delete(data.id);w(data.answer);}};
  sidecar.onerror=e=>{for(const w of waiting.values())w({init:true,error:packError(Error(e.message||'The modeling engine could not start. Close and reopen the app.'))});waiting.clear();inflight.clear();sent.clear();sidecar.terminate();sidecar=null;};return sidecar;}
 function askSidecar(requests){startSidecar();return Promise.all(requests.map(r=>{const k=r.kind+'|'+r.key;let p=inflight.get(k);
  if(!p){const id=++nextAsk;p=new Promise(res=>waiting.set(id,res)).finally(()=>inflight.delete(k));inflight.set(k,p);sent.set(id,r);sidecar.postMessage({id,request:r});if(r.o?.shell)shellDeadline(id,r.o.shell.thickness);}return p;}));}
@@ -97,7 +97,14 @@ async function drain(){if(running)return;running=true;
   // ADR-0001 F2a option A fallback: encode a mesh that '3mf-mesh' returned, here, with the same parts and bytes as the pool.
   if(data.type==='encode3mf')result={id:data.id,buffer:engine.rust.write3MF(data.vertices,data.triangles,data.ground!==false)};
   else if(OCCT_SIDECAR&&data.type==='measure'&&!(data.mode==='object'&&[data.a?.object,data.b?.object].some(meshMeasurement))){const [answer]=await askSidecar([{kind:'measure',key:JSON.stringify(data),data}]);result=answer.error?{id:data.id,error:answer.error.message}:{id:data.id,...answer.result};}
-  else if(OCCT_SIDECAR){const abort=data.type==='preview'?new Promise(r=>current={type:'preview',abort:r}):null;try{result=await runJob(engine,data,remote,{fetch:askSidecar,onInterim:r=>postInterim(data.id,r),abort});}finally{current=null;}if(result.canceled){self.postMessage({id:data.id,canceled:true});continue;}}
+  else if(OCCT_SIDECAR){const abort=data.type==='preview'?new Promise(r=>current={type:'preview',abort:r}):null;try{const run=e=>runJob(e,data,remote,{fetch:askSidecar,onInterim:r=>postInterim(data.id,r),abort});
+   if(!globalThis.__avalonAndroidWorker)result=await run(engine);
+   else{const t=performance.now();try{result=await run(engine);}catch(e){if(!(e instanceof WebAssembly.RuntimeError))throw e;trapped=e;result={error:String(e)};}
+    if(trapOf(result)){const trap=report(data,result,t);engineTrapped=false;engine=null;runtime=kernel(true);try{result=await run(await runtime);}catch(e){if(!(e instanceof WebAssembly.RuntimeError))throw e;result={error:String(e)};}result.trap=trap;if(trapOf(result)){report(data,result,t);result.error=MEMORY_ERROR;}}
+    // mem-fix rev2 logs on the Android OCCT worker path too (same lines as the local path below).
+    if(result.coincident){self.postMessage({log:`coincident copy left out (${data.type}): ${result.coincident.join(', ')}`});delete result.coincident;}
+    if(result.trimmed){self.postMessage({log:`manifold cache cleared: heap ${result.trimmed} MB, before ${data.type}`});delete result.trimmed;}
+    note(data,result,t);}}finally{current=null;}if(result.canceled){self.postMessage({id:data.id,canceled:true});continue;}}
   // ADR-0001 F7 P3: after an OCCT memory error (wasm trap) the next job first gets a fresh OCCT instance from the compiled module.
   // Waydroid QA D3: this loop holds no engine while the job runs, so a trapped instance replaced for the re-run is
   // garbage at once (it kept its 300+ MB heap alive during the re-run on the device). A re-run that traps again ends as
@@ -130,7 +137,7 @@ function occtSidecar(){
   try{
    await prepareGlyphs(r.o||[r.data?.a?.object,r.data?.b?.object]);
    if(r.kind==='measure'){answer={result:measureExact(r.data)};self.postMessage({id,answer});return;}
-   if(r.kind==='mesh'){const m=solidMeshFresh(r.o,r.tolerance,r.display);answer={m};self.postMessage({id,answer},[m.vertices.buffer,m.triangles.buffer]);return;}
+   if(r.kind==='mesh'){const fresh=r.o?.shell&&!shellReady(r.o),t=performance.now(),m=solidMeshFresh(r.o,r.tolerance,r.display);if(fresh&&hollowTimes.offset!==undefined)self.postMessage({hollows:[{engine:'occt',type:r.o.type,ms:performance.now()-t,...hollowTimes}]});answer={m};self.postMessage({id,answer},[m.vertices.buffer,m.triangles.buffer]);return;}
    answer={t:objectTopology(r.o)};}catch(e){answer={error:packError(e)};}
   self.postMessage({id,answer});};
  // ADR-0001 occt-sidecar-warmup: the Amendment A2.5 idle warm-up (torus, then glyph 'B' once the outlines are loaded),

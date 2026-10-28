@@ -60,7 +60,7 @@ mkdir -p build/classes build/dex ../deliverables
 ./build-rust.sh
 npm run build:web
 # WS13 (D6): app/assets is not tracked; make sure the web build produced every shipped asset.
-for f in index.html style.css main.js worker.js export-pool.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt; do
+for f in index.html style.css main.js worker.js worker-sidecar.js worker-android.js export-pool.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt; do
   [ -f "app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
 done
 # ADR-0001 W0 (ruling 4): every lazy chunk main.js loads with import() must ship too.
