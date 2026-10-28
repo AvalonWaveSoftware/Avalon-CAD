@@ -39,7 +39,7 @@ assert.ok(a1.s>=1.9,'the bar appears after 2 s, not at once: '+a1.s);
 await shot('d6-bar.png');
 await page.click('#jobCancel');const t0=Date.now();const a2=await until(s=>s.toast,3000);const cancelMs=Date.now()-t0;
 await shot('d6-canceled.png');
-assert.ok(a2.error&&/Canceled/.test(a2.toast),'Cancel shows the canceled toast: '+JSON.stringify(a2));
+assert.ok(!a2.error&&/Canceled/.test(a2.toast),'Cancel shows the canceled toast in the neutral style (not the red error style): '+JSON.stringify(a2));
 assert.ok(cancelMs<1500&&!a2.bar,'Cancel ends the job at once and hides the bar: '+cancelMs+' ms');
 assert.ok(a2.log.some(l=>/check canceled after \d+ s; worker restarted/.test(l)),'the cancel is logged: '+a2.log);
 await new Promise(r=>setTimeout(r,2000));const a3=await state();

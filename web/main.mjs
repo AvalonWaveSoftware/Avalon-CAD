@@ -68,7 +68,7 @@ const startWarm=()=>{if(warmStarted)return;warmStarted=true;removeEventListener(
 const warmAfterStartup=()=>{if(warmStarted||window.Android)return;(globalThis.requestIdleCallback||(f=>setTimeout(f,200)))(startWarm,{timeout:2000});};
 addEventListener('pointerdown',startWarm,true);addEventListener('keydown',startWarm,true);
 worker.onerror=onWorkerError=e=>{topologies?.reset();for(const r of requests.values())r.reject(Error('The modeling engine could not start. Close and reopen the app.'));requests.clear();toast('The modeling engine could not start: '+e.message,true);};
-function toast(message,error=false){clearTimeout(toastTimer);$('toast').textContent=unitMessage(message);$('toast').classList.toggle('error',error);$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,error?7000:3500);}
+function toast(message,error=false){error=error&&message!==JOB_TEXT.canceled;clearTimeout(toastTimer);$('toast').textContent=unitMessage(message);$('toast').classList.toggle('error',error);$('toast').hidden=false;toastTimer=setTimeout(()=>$('toast').hidden=true,error?7000:3500);}
 function status(s){$('busy').textContent=s;}
 // While the v1 autosave can't be backed up, edits are not autosaved: show a persistent marker and re-warn at most once a minute.
 function autosaveMarker(on){const m=$('unsavedMarker');if(m)m.hidden=!on;}

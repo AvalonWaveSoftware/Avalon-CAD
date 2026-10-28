@@ -72,7 +72,7 @@ try{
   await page.waitForFunction(()=>{const b=document.getElementById('jobWatch');return b&&getComputedStyle(b).display!=='none';},null,{timeout:30000});
   await page.click('#jobCancel');let t=await toastOf(page);
   await page.waitForTimeout(1200);t=await page.evaluate(()=>({text:document.getElementById('toast').textContent,error:document.getElementById('toast').classList.contains('error')}));
-  assert.equal(t.text,CANCELED,name+': exactly the approved Canceled text');assert.equal(t.error,true);
+  assert.equal(t.text,CANCELED,name+': exactly the approved Canceled text');assert.equal(t.error,false,name+': the neutral toast style, not the red error style');
   const after=await page.evaluate(()=>({n:window.__cad.project.objects.length,json:JSON.stringify(window.__cad.project.objects),sheet:!!document.querySelector('#applyObject'),bar:getComputedStyle(document.getElementById('jobWatch')).display}));
   assert.equal(after.n,before.n,name+': no object added');assert.equal(after.json,before.json,name+': the model is unchanged');assert.equal(after.sheet,before.sheet,name+': no placement sheet opened');assert.equal(after.bar,'none',name+': the job bar is gone');
   assert.ok(!page.crashed,name+': the page did not crash');
