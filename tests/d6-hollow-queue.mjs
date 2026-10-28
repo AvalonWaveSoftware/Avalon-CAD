@@ -5,6 +5,8 @@
 // pinned Chromium, Android mode, real UI: Edit → Hollow → Apply (refused after 5 s), then Duplicate → X 0.5 → Apply & add.
 // Deterministic metric: the duplicate is added within 60 s (fixed: a few seconds; 23ab0a4: never, the worker is busy for
 // hours; d6-cancel-3.0 rev1: only by its 120 s job limit), with exactly one worker restart logged.
+// Also (QA rev2 notes): no job bar while the
+// hollow's own 5 s limit runs, and an unrelated check sent while the hollow runs is re-sent to the new worker and answers.
 //   node tests/d6-hollow-queue.mjs   (after npm run build:web)
 import assert from 'node:assert/strict';import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {createRequire} from 'node:module';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT);
@@ -21,15 +23,21 @@ await page.evaluate(async()=>{const C=window.__cad,sleep=ms=>new Promise(r=>setT
  C.load(q);for(let i=0;i<600&&!(C.model?.volume>1e7);i++)await sleep(200);await sleep(1000);});
 const t0=Date.now();
 await page.click('#editBtn');await page.waitForSelector('#hollowOn');await page.check('#hollowOn');await page.click('#applyObject');
+await page.evaluate(()=>{const C=window.__cad;window.__bars=0;window.__iv=setInterval(()=>{const b=document.getElementById('jobWatch');if(b&&getComputedStyle(b).display!=='none')window.__bars++;},100);
+ const q=structuredClone(C.project);q.objects=[{id:'b',name:'box',type:'box',params:{w:10,d:10,h:10},position:[300,0,5],rotation:[0,0,0],mode:'solid',enabled:true,layerId:q.activeLayer}];
+ window.__side=C.request('check',{project:q,tolerance:.15},undefined,undefined,false).then(r=>r.volume,e=>'ERR '+e.message);});
 await page.waitForFunction(()=>/hollow/i.test(document.querySelector('#sheetContent .modalerror')?.textContent||''),null,{timeout:30000});
 const refusedS=(Date.now()-t0)/1000;
 await page.click('#duplicateObject');await page.waitForSelector('#pos0');await page.fill('#pos0','0.5');
 const t1=Date.now();await page.click('#applyObject');
 const added=await page.waitForFunction(()=>window.__cad.project.objects.length===2,null,{timeout:60000}).then(()=>true,()=>false);const addS=(Date.now()-t1)/1000;
+const side=await page.evaluate(()=>window.__side),bars=await page.evaluate(()=>{clearInterval(window.__iv);return window.__bars;});
 const log=await page.evaluate(()=>window.__cad.debugLog.filter(l=>/restarted|wasm trap/.test(l)).map(l=>l.slice(25,200)));
 const objs=await page.evaluate(()=>window.__cad.project.objects.map(o=>[o.position[0],!!o.shell]));
 await browser.close();server.close();
 assert.ok(added,`the duplicated sphere is added within 60 s after the refused hollow (${addS.toFixed(1)} s; restarts: ${JSON.stringify(log)})`);
 assert.deepEqual(objs,[[0,false],[0.5,false]],'the refused hollow left the sphere unchanged; the copy sits at X 0.5');
+assert.equal(bars,0,'no job bar while the hollow job runs under its own 5 s limit');
+assert.ok(Math.abs(side-1000)<1e-6,'the unrelated check sent during the hollow is re-sent after the restart and answers: '+side);
 assert.equal(log.filter(l=>/hollow check dropped after 5 s; worker restarted/.test(l)).length,1,'one worker restart for the dropped hollow job: '+JSON.stringify(log));
-console.log(`d6-hollow-queue: hollow refused after ${refusedS.toFixed(1)} s, worker restarted once; duplicate at X 0.5 added in ${addS.toFixed(1)} s`);
+console.log(`d6-hollow-queue: hollow refused after ${refusedS.toFixed(1)} s, worker restarted once; no bar; unrelated check re-sent (${side} mm³); duplicate at X 0.5 added in ${addS.toFixed(1)} s`);

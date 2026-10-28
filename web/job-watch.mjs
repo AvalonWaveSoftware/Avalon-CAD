@@ -10,7 +10,7 @@ export const JOB_TEXT={check:'Checking the model…',export:'Preparing the expor
 const BAR='position:fixed;left:20px;right:20px;bottom:105px;z-index:31;align-items:center;gap:12px;padding:8px 8px 8px 16px;background:#2d454e;border:1px solid #4f727b;border-radius:12px;font-size:13px;box-shadow:0 10px 40px #0008';
 export function jobWatch(onStop){
  const jobs=new Map();let bar=null,tick=0;
- const stop=reason=>{const [id,j]=[...jobs][0]||[];if(!j)return;jobs.clear();render();onStop(reason,j.type,Math.round((performance.now()-j.t)/1000),id);};
+ const stop=reason=>{const [,j]=[...jobs][0]||[];if(!j)return;const ids=[...jobs.keys()];jobs.clear();render();onStop(reason,j.type,Math.round((performance.now()-j.t)/1000),ids);};
  function render(){const now=performance.now(),j=[...jobs.values()][0];
   if(j&&now-j.t>=(globalThis.__avalonJobTimeoutMs||JOB_TIMEOUT_MS))return stop('timeout');
   const show=j&&now-j.t>=JOB_SHOW_MS;if(!show){if(bar)bar.style.display='none';return;}
