@@ -12,6 +12,7 @@ $('overhang').checked=false;$('overhang').dispatchEvent(new w.Event('change'));a
 assert.equal(w.localStorage.getItem('tristancad.overhang'),'false');
 $('overhang').checked=true;$('overhang').dispatchEvent(new w.Event('change'));click('closeSheet');click('exportBtn');click('downloadSTL');await wait(()=>w.testSaved?.done);
 assert.ok(w.testSaved.chunks.length);await wait(()=>a.posted.includes('overhangStats'));
-try{const stats=await w.__cad.request('overhangStats',{project:structuredClone(w.__cad.project),tolerance:.15});assert.deepEqual([stats.area,stats.count],[0,0],'the plate rests on the build plate: no overhang');}catch(e){assert.match(e.message,/mesh-core.wasm needs rebuild/);}
+// A stale mesh-core.wasm ('mesh-core.wasm needs rebuild') is a failure, not a pass.
+const stats=await w.__cad.request('overhangStats',{project:structuredClone(w.__cad.project),tolerance:.15});assert.deepEqual([stats.area,stats.count],[0,0],'the plate rests on the build plate: no overhang');
 const b=await h.boot({'tristancad.overhang':'true'});b.q('[data-view=iso]').dispatchEvent(new b.w.MouseEvent('dblclick'));assert.equal(b.$('overhang').checked,true);
 a.close();b.close();console.log('PASS: overhang toggle, preference, no geometry job or project change, exact cached off material; stats job handled independently while STL saves.');

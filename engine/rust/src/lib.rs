@@ -9,7 +9,7 @@ mod three_mf;
 mod measure;
 
 #[no_mangle]
-pub extern "C" fn engine_version() -> u32 { 5 }
+pub extern "C" fn engine_version() -> u32 { 6 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mesh_alloc(bytes: usize) -> *mut u8 {

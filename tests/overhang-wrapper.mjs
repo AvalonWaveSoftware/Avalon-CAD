@@ -3,7 +3,7 @@ import {initRustMesh} from '../web/rust-mesh.mjs';
 // Exercise the real ownership wrapper with an instrumented ABI, never a shipped fallback.
 const original=WebAssembly.instantiate,memory=new WebAssembly.Memory({initial:1});
 let next=8,code=0,expectGround=1;const live=new Map();
-const core={memory,engine_version:()=>5,mesh_alloc(n){const p=next;next+=Math.ceil(n/8)*8;live.set(p,n);return p;},mesh_free(p,n){assert.equal(live.get(p),n);live.delete(p);},overhang_stats(vp,nv,tp,nt,threshold,ground,out){assert.equal(ground,expectGround);assert.deepEqual([...new Float32Array(memory.buffer,vp,nv)],[0,0,0,0,2,0,3,0,0]);assert.deepEqual([...new Uint32Array(memory.buffer,tp,nt)],[0,1,2]);assert.equal(threshold,Math.SQRT1_2);new Float64Array(memory.buffer,out,2).set([3,1]);return code;}};
+const core={memory,engine_version:()=>6,mesh_alloc(n){const p=next;next+=Math.ceil(n/8)*8;live.set(p,n);return p;},mesh_free(p,n){assert.equal(live.get(p),n);live.delete(p);},overhang_stats(vp,nv,tp,nt,threshold,ground,out){assert.equal(ground,expectGround);assert.deepEqual([...new Float32Array(memory.buffer,vp,nv)],[0,0,0,0,2,0,3,0,0]);assert.deepEqual([...new Uint32Array(memory.buffer,tp,nt)],[0,1,2]);assert.equal(threshold,Math.SQRT1_2);new Float64Array(memory.buffer,out,2).set([3,1]);return code;}};
 try{
  WebAssembly.instantiate=async()=>({instance:{exports:core}});
  const rust=await initRustMesh({binary:new Uint8Array()});

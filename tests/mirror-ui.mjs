@@ -17,7 +17,7 @@ w.Android={beginFile(name,mime){w.testSaved={name,mime,chunks:[]}},appendFile(x)
 w.eval(fs.readFileSync('build/test-ui.js','utf8'));
 const $=id=>w.document.getElementById(id),click=id=>$(id).click(),sleep=()=>new Promise(r=>setTimeout(r,25));
 const wait=async fn=>{for(let i=0;i<60;i++){if(fn())return;await sleep();}throw Error('Wait timed out: '+JSON.stringify({resolution:w.__cad.project.objects[0]?.resolution,volume:w.__cad.model?.volume,error:$('editError')?.textContent,toast:$('toast').textContent}))};
-await wait(()=>w.__cad.model!==null);assert.equal(w.__cad.model.volume,0);assert.equal(w.__cad.model.engine.local,true);assert.equal(w.__cad.model.engine.rust,5);
+await wait(()=>w.__cad.model!==null);assert.equal(w.__cad.model.volume,0);assert.equal(w.__cad.model.engine.local,true);assert.equal(w.__cad.model.engine.rust,6);
 
 click('addBtn');w.document.querySelector('[data-shape="wedge"]').click();click('applyObject');await wait(()=>w.__cad.project.objects.length===1&&w.__cad.model.volume>0);
 const button=$('mirrorMode');assert.equal(button.classList.contains('pending'),false);assert.equal(button.dataset.mode,'mirror');click('mirrorMode');

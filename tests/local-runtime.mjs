@@ -13,7 +13,7 @@ import {corners} from './display-corners.mjs';
 
 const K=await initKernel(),start=performance.now();await loadGlyphs();
 const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
-assert.equal(runtime.info.local,true);assert.equal(runtime.info.rust,5);assert.match(runtime.info.python,/^3\.13\./);
+assert.equal(runtime.info.local,true);assert.equal(runtime.info.rust,6);assert.match(runtime.info.python,/^3\.13\./);
 let checks=0,id=0;
 const run=data=>{const result=runtime.process({id:++id,...data});assert.equal(result.id,id);if(result.error)throw Error(result.error);return result;};
 function previewParity(project,tolerance){

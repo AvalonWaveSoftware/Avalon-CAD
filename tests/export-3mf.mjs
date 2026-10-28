@@ -74,7 +74,7 @@ function raw(bytes){const core=new WebAssembly.Instance(new WebAssembly.Module(b
  };}
 let baseBytes=null;try{baseBytes=execFileSync('git',['show',BASE_SHA+':app/assets/mesh-core.wasm'],{maxBuffer:1<<26});}catch{}
 if(!baseBytes)console.log(`SKIP byte identity vs ${BASE_SHA}: commit not in this clone`);
-else{const base=raw(baseBytes),now=raw(binary);assert.equal(base.version,3);assert.equal(now.version,5);let n=0;
+else{const base=raw(baseBytes),now=raw(binary);assert.equal(base.version,3);assert.equal(now.version,6);let n=0;
  const {buildModel}=await import('../web/kernel.mjs');
  for(const [name,project] of projects)for(const tol of [.15,.03]){const m=buildModel(K,project,tol);if(!m.triangles.length)continue;
   for(const ground of [true,false])assert.ok(base.stl(m.vertices,m.triangles,ground).equals(now.stl(m.vertices,m.triangles,ground)),name+': STL byte-identical to '+BASE_SHA);
