@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 // WS13 (D6): app/assets is not tracked; fail before staging if the web build has not run.
 export const REQUIRED_ASSETS = ['index.html', 'style.css', 'main.js', 'worker.js', 'worker-sidecar.js', 'export-pool.js', 'cad-kernel.wasm', 'manifold.wasm', 'mesh-core.wasm', 'perf-flags.json', 'THIRD_PARTY_NOTICES.txt'];
-// ADR-0001 W0 (ruling 4): the lazy chunks main.js loads with import(); each must ship in every package.
+// ADR-0001 W0 (ruling 4): the lazy chunks main.js or a worker bundle loads with import(); each must ship in every package.
 export function lazyChunks(dir) {
-  const main = fs.readFileSync(path.join(dir, 'main.js'), 'utf8');
+  const main = ['main.js', 'worker.js', 'worker-sidecar.js'].map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
   return [...new Set([...main.matchAll(/import\(["']\.\/(chunk-[\w-]+\.js)["']\)/g)].map(m => m[1]))].sort();
 }
 export function stageDesktop(root = process.cwd()) {

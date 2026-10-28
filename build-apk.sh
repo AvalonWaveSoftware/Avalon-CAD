@@ -60,11 +60,11 @@ mkdir -p build/classes build/dex ../deliverables
 ./build-rust.sh
 npm run build:web
 # WS13 (D6): app/assets is not tracked; make sure the web build produced every shipped asset.
-for f in index.html style.css main.js worker.js export-pool.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt; do
+for f in index.html style.css main.js worker.js worker-sidecar.js worker-android.js export-pool.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt; do
   [ -f "app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
 done
-# ADR-0001 W0 (ruling 4): every lazy chunk main.js loads with import() must ship too.
-CHUNKS=$(grep -oE 'import\("\./chunk-[A-Za-z0-9_-]+\.js"\)' "app/assets/main.js" | sed -E 's/.*\.\/(chunk-[^"]+)".*/\1/' | sort -u)
+# ADR-0001 W0 (ruling 4): every lazy chunk main.js or a worker bundle loads with import() must ship too.
+CHUNKS=$(grep -oE 'import\("\./chunk-[A-Za-z0-9_-]+\.js"\)' "app/assets/main.js" "app/assets/worker.js" "app/assets/worker-sidecar.js" | sed -E 's/.*\.\/(chunk-[^"]+)".*/\1/' | sort -u)
 for f in $CHUNKS; do [ -f "app/assets/$f" ] || { echo "Missing lazy chunk app/assets/$f" >&2; exit 1; }; done
 "$BT/aapt2" compile --dir app/res -o build/resources.zip
 RENAME_ARGS=(); [ "$APP_ID" = "$RELEASE_ID" ] || RENAME_ARGS=(--rename-manifest-package "$APP_ID")

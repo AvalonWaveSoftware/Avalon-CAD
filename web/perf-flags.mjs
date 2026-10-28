@@ -75,3 +75,6 @@ export const WASM_OPT=true;
 // at build time per worker bundle: worker.js is built with OCCT_SIDECAR=false (byte-identical to 2.7.1; the Android
 // app starts it) and worker-sidecar.js with true (desktop and web start it, and it starts itself again as the sidecar).
 export const OCCT_SIDECAR=!globalThis.Android;
+
+// Android main-thread watchdog; OCCT heap pre-checks are deliberately excluded.
+export const OCCT_JOB_BUDGET_MS=20000;

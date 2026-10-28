@@ -2,8 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const {randomUUID} = require('node:crypto');
 const MAX_BYTES = 50 * 1024 * 1024;
-const allowedExtensions = new Set(['.stl', '.tcad', '.avprefab', '.json']);
-// ADR-0001 F2a: 3MF can be saved (export). Opening .3mf stays refused until 3MF import (F2b) exists.
+const allowedExtensions = new Set(['.3mf', '.stl', '.tcad', '.avprefab', '.json']);
 const exportExtensions = new Set([...allowedExtensions, '.3mf']);
 
 function exportPayload(value) {

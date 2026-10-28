@@ -8,13 +8,16 @@ import assert from 'node:assert/strict';import fs from 'node:fs';import {createH
 import {initKernel} from '../web/kernel.mjs';import {initLocalEngine} from '../web/local-engine.mjs';
 import {object,defaults,blank,advancedDefaults,glyphDefaults} from '../web/templates.mjs';import {loadGlyphs} from '../web/glyph-geometry.mjs';import {migrateProject} from '../web/migrate.mjs';
 import {sidecarClient} from './occt-sidecar-client.mjs';
-const refDir=fileURLToPath(new URL('./.occt-sidecar-ref/',import.meta.url));fs.rmSync(refDir,{recursive:true,force:true});fs.cpSync('web',refDir+'web',{recursive:true});
+import {androidClient} from './android-occt-client.mjs';
+if(process.env.AVALON_ANDROID_BUILD==='1')globalThis.Android={};
+const makeClient=()=>{if(!globalThis.Android)return sidecarClient();const c=androidClient({rejectErrors:false});return {run:(_engine,job,opts)=>c.run(job,opts),close:c.close,stats:{requests:'Android port'},remote:{stats:()=>({transport:'Android top-level worker'})}};};
+const refDir=fileURLToPath(new URL(globalThis.Android?'./.occt-android-ref/':'./.occt-sidecar-ref/',import.meta.url));fs.rmSync(refDir,{recursive:true,force:true});fs.cpSync('web',refDir+'web',{recursive:true});
 process.on('exit',()=>fs.rmSync(refDir,{recursive:true,force:true}));
 const rust={binary:fs.readFileSync('app/assets/mesh-core.wasm')};
 const refKernel=await import(refDir+'web/kernel.mjs'),refEngine=await import(refDir+'web/local-engine.mjs');
 await loadGlyphs();await (await import(refDir+'web/glyph-geometry.mjs')).loadGlyphs();
 const KB=await refKernel.initKernel(),B=await refEngine.initLocalEngine(KB,{rust});
-const KA=await initKernel({solidOptions:false}),A=await initLocalEngine(KA,{rust}),client=sidecarClient();
+const KA=await initKernel({solidOptions:false}),A=await initLocalEngine(KA,{rust}),client=makeClient();
 const bytes=v=>v instanceof ArrayBuffer?Buffer.from(v):Buffer.from(v.buffer,v.byteOffset,v.byteLength);
 const enc=x=>createHash('sha1').update(JSON.stringify(x,(k,v)=>ArrayBuffer.isView(v)||v instanceof ArrayBuffer?bytes(v).toString('base64'):v)||'u').digest('hex');
 // Topology bodies are compared without groups[].faceId: that is OCCT's TShape hashCode, derived from the shape's heap
@@ -30,6 +33,7 @@ function same(a,b,what){assert.equal(a.error,b.error,what+' error');if(b.error)r
 let id=0,jobs=0,interims=0,interimWithoutMesh=0,errors=0;
 async function check(project,tolerance,what){for(const type of ['preview','check','export']){const job={id:++id,type,project:structuredClone(project),tolerance,ground:true};
  let offered=false;const a=await client.run(A,job,{onInterim:r=>{offered=true;assert.ok(r.displayPositions&&!r.error,what+' interim');}}),b=B.process(structuredClone(job));
+ if(globalThis.Android)assert.equal(JSON.stringify(job.project),JSON.stringify(project),'editable save input unchanged');
  if(offered){interims++;assert.equal(type,'preview');}same(a,b,what+' '+type);jobs++;if(b.error)errors++;}}
 for(const f of fs.readdirSync('tests/fixtures').filter(f=>f.endsWith('.tcad'))){const p=migrateProject(JSON.parse(fs.readFileSync('tests/fixtures/'+f,'utf8')),[]);await check(p,.15,f);}
 let seed=0x14ab;const rnd=()=>((seed=Math.imul(seed^seed>>>15,0x2c1b3c6d)+0x6d2b79f5>>>0)/4294967296),pick=a=>a[Math.floor(rnd()*a.length)],num=(a,b)=>Math.round((a+rnd()*(b-a))*4)/4;

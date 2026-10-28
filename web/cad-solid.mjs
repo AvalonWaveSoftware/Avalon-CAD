@@ -4,6 +4,7 @@ import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
 import {isThread} from './threads.mjs';
+import {hashedKey} from './mesh-key.mjs';
 import {OCCT_SCOPE,OCCT_CACHE_ENTRIES,TOPOLOGY_SERVICE,FILLET_MESH_CACHE} from './perf-flags.mjs';
 import {geometryHash} from './topology-pack.mjs';
 import {withScope,setHeapSource} from './occt-scope.mjs';
@@ -262,7 +263,7 @@ function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulato
 // BRepTools.Clean and deleted together when the entry leaves the cache. Nothing is cleaned while still in use.
 function release(entry){if(OCCT_SCOPE){const oc=R.getOC();for(const x of [entry.s,entry.base]){try{if(x)oc.BRepTools.Clean(x.wrapped,true);}catch(e){noteOcctError(e);}}}dispose(entry.s);dispose(entry.base);}
 // ADR-0001 F8: a hollow joins the key only when present (keys of every other part are unchanged).
-const geometryKey=o=>JSON.stringify(o.shell?[o.type,o.params,o.fillets||[],o.resolution||null,[o.shell.thickness,o.shell.open||[]]]:[o.type,o.params,o.fillets||[],o.resolution||null]);
+const geometryKey=o=>hashedKey(o.shell?[o.type,o.params,o.fillets||[],o.resolution||null,[o.shell.thickness,o.shell.open||[]]]:[o.type,o.params,o.fillets||[],o.resolution||null]);
 // WS2: the B-rep LRU holds 64 entries and an estimated byte budget; topology lives in its own map (below), so a
 // preview whose topology is cached never touches the B-rep, and evicting a B-rep keeps its topology.
 const BREP_ENTRIES=64,BREP_BYTES=128*1048576,TOPOLOGY_BYTES=32*1048576;let brepBytes=0;
@@ -304,8 +305,8 @@ export const filletMeshStats=()=>({entries:meshes.size,bytes:meshBytes});
 // mem-preview (2b), Architect ruling 2026-10-25 23:02: preview=true (a hollow in a preview job, in-worker OCCT) meshes the
 // exact B-rep at the coarser of the object's and the job's tolerance; check and export jobs keep the object's.
 export const solidMesh=guarded(function solidMesh(o,tolerance,display=false,preview=false){
- const t=resolutionTolerance(o,tolerance),base=geometryKey(o)+'|'+(preview&&!remote?Math.max(t,tolerance):t)+'|',key=base+(display?1:0);
- if(remote)return remote.solidMesh(o,tolerance,display,key);
+ const t=resolutionTolerance(o,tolerance),base=geometryKey(o)+'|'+(preview&&(!remote||globalThis.__avalonAndroidWorker)?Math.max(t,tolerance):t)+'|',key=base+(display?1:0);
+ if(remote){if(preview&&globalThis.__avalonAndroidWorker){tolerance=Math.max(t,tolerance);o={...o,resolution:{mode:'tolerance',tolerance}};}return remote.solidMesh(o,tolerance,display,key);}
  if(preview)tolerance=Math.max(t,tolerance);else tolerance=t;
  if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display,true);
  let e=meshes.get(key);

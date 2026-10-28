@@ -9,7 +9,7 @@ mod three_mf;
 mod measure;
 
 #[no_mangle]
-pub extern "C" fn engine_version() -> u32 { 5 }
+pub extern "C" fn engine_version() -> u32 { 7 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mesh_alloc(bytes: usize) -> *mut u8 {
@@ -437,5 +437,59 @@ mod overhang_tests {
         assert_eq!(stats(&[0.,0.,0.], &[0,1,2], 0.7).0, 1);
         assert_eq!(stats(&[], &[], f64::NAN).0, 1);
         assert_eq!(stats(&[f32::NAN,0.,0.], &[0,0,0], 0.7).0, 1);
+    }
+}
+
+// Compact caller-owned buffers in place. Keys retain signed zero; no tolerance.
+// The remap is sized once, and output never exceeds the input allocation.
+#[no_mangle]
+pub unsafe extern "C" fn weld_exact(vp: *mut f32, vn: usize, tp: *mut u32, tn: usize, count: *mut u32) -> u32 {
+    if vp.is_null() || tp.is_null() || count.is_null() || vn == 0 || tn == 0 { return 1; }
+    let vertices = slice::from_raw_parts_mut(vp, vn);
+    let triangles = slice::from_raw_parts_mut(tp, tn);
+    if !valid(vertices, triangles) { return 1; }
+    let mut seen: FxMap<[u32; 3], u32> = FxMap::default();
+    let mut remap = vec![0u32; vn / 3];
+    let mut used = 0usize;
+    for i in 0..vn / 3 {
+        let p = [vertices[i*3], vertices[i*3+1], vertices[i*3+2]];
+        let key = [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()];
+        let index = *seen.entry(key).or_insert_with(|| {
+            let index = used as u32;
+            vertices[used*3..used*3+3].copy_from_slice(&p);
+            used += 1;
+            index
+        });
+        remap[i] = index;
+    }
+    for t in triangles { *t = remap[*t as usize]; }
+    *count = (used * 3) as u32;
+    0
+}
+
+#[cfg(test)]
+mod weld_tests {
+    use super::*;
+    #[test]
+    fn exact_stable_signed_zero() {
+        let mut v = vec![0., 1., 2., -0., 1., 2., 0., 1., 2., f32::from_bits(1), 1., 2.];
+        let mut t = vec![2, 1, 0, 3, 2, 1];
+        let mut n = 0;
+        assert_eq!(unsafe { weld_exact(v.as_mut_ptr(), v.len(), t.as_mut_ptr(), t.len(), &mut n) }, 0);
+        assert_eq!(n, 9);
+        assert_eq!(v[3].to_bits(), (-0.0f32).to_bits());
+        assert_eq!(v[6].to_bits(), 1);
+        assert_eq!(t, vec![0, 1, 0, 2, 0, 1]);
+    }
+    #[test]
+    fn invalid_does_not_mutate() {
+        for value in [f32::NAN, f32::INFINITY] {
+            let mut v = vec![value, 0., 0.]; let mut t = vec![0,0,0]; let mut n = 99;
+            assert_eq!(unsafe { weld_exact(v.as_mut_ptr(), 3, t.as_mut_ptr(), 3, &mut n) }, 1);
+            assert_eq!(n,99);
+        }
+        let mut v = vec![0.,0.,0.]; let mut t = vec![0,1,0]; let mut n = 0;
+        assert_eq!(unsafe { weld_exact(v.as_mut_ptr(), 3, t.as_mut_ptr(), 3, &mut n) }, 1);
+        assert_eq!(t,vec![0,1,0]);
     }
 }

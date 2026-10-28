@@ -3,7 +3,7 @@
 // (tests/fixtures/edges, dumped from the app) and primitives, indexed and not, at the app's angles (28, 15) and others.
 // cachedEdges reuses one geometry per source, ignores the overlay's dispose() and releases on source dispose/change.
 // Env EDGES_SPHERE: directory with sphere524k-0.pos.f32 / .idx.u32 (default the android-large-mesh-memory artifacts).
-import assert from 'node:assert/strict';import fs from 'node:fs';import * as THREE from 'three';
+import {fileURLToPath} from 'node:url';import assert from 'node:assert/strict';import fs from 'node:fs';import * as THREE from 'three';
 import {edgePositions,cachedEdges} from '../web/edges.mjs';
 const bytes=a=>Buffer.from(a.buffer,a.byteOffset,a.byteLength);
 const geo=(pos,idx)=>{const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));if(idx)g.setIndex(new THREE.BufferAttribute(idx,1));return g;};
@@ -16,7 +16,7 @@ for(const [k,g] of Object.entries(prims)){check(k,g);if(g.index)check(k+'-nonind
 check('odd',geo(new Float32Array([0,0,0,1,0,0,0,1,0,-0,-0,0,1,0,0,0,0,1,0.00004,0,0,1,0,0,0,1,0,NaN,0,0,NaN,0,0,0,0,2,1e9,0,0,0,1e9,0,0,0,1e9]),new Uint32Array([0,1,2,3,4,5,0,1,2,6,7,8,9,10,11,12,13,14,2,1,0])));
 check('odd-nonindexed',geo(new Float32Array([0,0,0,1,0,0,0,1,0,1,0,0,0,0,0,0,0,1,0,0,0,0.00006,0,0,1,1,1])));
 // Mounting plate (app pick geometries)
-const fx=new URL('./fixtures/edges/',import.meta.url).pathname;for(let k=0;k<5;k++)check('plate-'+k,geo(read(fx+`plate-${k}.pos.f32`,Float32Array),read(fx+`plate-${k}.idx.u32`,Uint32Array)));
+const fx=fileURLToPath(new URL('./fixtures/edges/',import.meta.url));for(let k=0;k<5;k++)check('plate-'+k,geo(read(fx+`plate-${k}.pos.f32`,Float32Array),read(fx+`plate-${k}.idx.u32`,Uint32Array)));
 // 524k sphere (app display geometry)
 const S=process.env.EDGES_SPHERE||'/workspace/avalon-cad-artifacts/android-large-mesh-memory/edges-fixtures';
 const sp=geo(read(S+'/sphere524k-0.pos.f32',Float32Array),read(S+'/sphere524k-0.idx.u32',Uint32Array));

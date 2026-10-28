@@ -1,4 +1,5 @@
 import {build} from 'esbuild';
+import {workerChunkPlugin,workerChunkBuilds} from './tools/worker-chunks.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 const {BUNDLE_SPLIT}=await import('./web/perf-flags.mjs');
@@ -23,14 +24,22 @@ if(BUNDLE_SPLIT){const bytes=Object.values(ui.metafile.outputs).find(o=>o.entryP
 // ADR occt-sidecar-desktop-web: two worker bundles with OCCT_SIDECAR fixed at build time (see web/perf-flags.mjs).
 // worker.js (false) is what the Android WebView starts, identical to 2.7.1; worker-sidecar.js (true) is what desktop and
 // web start, and its nested 'occt' sidecar loads worker-sidecar.js again.
-const fixedSidecar=on=>({name:'fixed-sidecar',setup(b){b.onLoad({filter:/[\\/]web[\\/](perf-flags|worker)\.mjs$/},a=>{let src=fs.readFileSync(a.path,'utf8');
- if(a.path.endsWith('perf-flags.mjs')){const line='export const OCCT_SIDECAR=!globalThis.Android;';if(src.includes(line))src=src.replace(line,'export const OCCT_SIDECAR='+on+';');/* a fixed true/false (flag variants) stays as written */}
+const fixedSidecar=(on,force=false)=>({name:'fixed-sidecar',setup(b){b.onLoad({filter:/[\\/]web[\\/](perf-flags|worker)\.mjs$/},a=>{let src=fs.readFileSync(a.path,'utf8');
+ if(a.path.endsWith('perf-flags.mjs')){const line='export const OCCT_SIDECAR=!globalThis.Android;';if(force)src=src.replace(/export const OCCT_SIDECAR=[^;]+;/,'export const OCCT_SIDECAR=true;');else if(src.includes(line))src=src.replace(line,'export const OCCT_SIDECAR='+on+';');/* a fixed true/false (flag variants) stays as written */}
  else if(on){const ref="new URL('worker.js'";if(!src.includes(ref))throw Error('worker.mjs: sidecar URL not found');src=src.replace(ref,"new URL('worker-sidecar.js'");}
  return {contents:src,loader:'js'};});}});
 for(const [on,out] of [[false,'app/assets/worker.js'],[true,'app/assets/worker-sidecar.js']])
- await build({entryPoints:['web/worker.mjs'],outfile:out,bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixedSidecar(on)],define:{__AVALON_SIDECAR_BUNDLE__:String(on)},external:['node:*','module','fs','path','crypto']});
+ await build({entryPoints:['web/worker.mjs'],outfile:out,bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixedSidecar(on),workerChunkPlugin],define:{__AVALON_SIDECAR_BUNDLE__:String(on)},external:['node:*','module','fs','path','crypto']});
+for(const c of workerChunkBuilds(process.cwd()))await build({...c.options,outfile:'app/assets/'+c.out});
 // ADR-0001 F2a option A: the 3MF pool worker, started by the page like worker.js (counts toward the worker budget).
 await build({entryPoints:['web/export-pool-worker.mjs'],outfile:'app/assets/export-pool.js',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,external:['node:*','module','fs','path','crypto']});
+// Android always uses the remote client, even in a fixed OCCT_SIDECAR=false flag experiment. Normally this is
+// exactly worker-sidecar.js, so the adapter reuses those bytes rather than duplicating a 164 KB gzip bundle.
+const androidCore=await build({entryPoints:['web/worker.mjs'],write:false,bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixedSidecar(true,true),workerChunkPlugin],define:{__AVALON_SIDECAR_BUNDLE__:"true"},external:['node:*','module','fs','path','crypto']});
+const extraCore=!Buffer.from(androidCore.outputFiles[0].contents).equals(fs.readFileSync('app/assets/worker-sidecar.js'));
+fs.rmSync('app/assets/worker-android-core.js',{force:true});if(extraCore)fs.writeFileSync('app/assets/worker-android-core.js',androidCore.outputFiles[0].contents);
+const androidTransport={name:'android-transport',setup(b){b.onLoad({filter:/[\\/]android-worker\.mjs$/},a=>({contents:fs.readFileSync(a.path,'utf8').replaceAll('./worker-sidecar.js',extraCore?'./worker-android-core.js':'./worker-sidecar.js'),loader:'js'}));}};
+await build({entryPoints:['web/android-worker.mjs'],outfile:'app/assets/worker-android.js',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[androidTransport],external:['./worker-sidecar.js','./worker-android-core.js','node:*','module','fs','path','crypto']});
 for(const [src,dst] of [['THIRD_PARTY_NOTICES.txt','app/assets/THIRD_PARTY_NOTICES.txt'],['web/index.html','app/assets/index.html'],['web/style.css','app/assets/style.css']])fs.copyFileSync(src,dst);
 // WS13: with WASM_OPT the OCCT and Manifold binaries ship after wasm-opt -Oz (binaryen pinned in devDependencies). The
 // result is cached under build/wasm-opt by the input's SHA-256, binaryen version and flags, so only the first build

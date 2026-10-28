@@ -5,7 +5,7 @@
 // unconstrained run gives (before P3 they failed with 'null function or function signature mismatch' / 'memory access
 // out of bounds' until the app was restarted).
 //   node tests/occt-reset.mjs
-import assert from 'node:assert/strict';import {spawnSync} from 'node:child_process';import fs from 'node:fs';import crypto from 'node:crypto';
+import {fileURLToPath} from 'node:url';import assert from 'node:assert/strict';import {spawnSync} from 'node:child_process';import fs from 'node:fs';import crypto from 'node:crypto';
 if(process.argv[2]==='--child'){
  const {initKernel}=await import('../web/kernel.mjs');const {initLocalEngine}=await import('../web/local-engine.mjs');const S=await import('../web/cad-solid.mjs');
  const {object,blank}=await import('../web/templates.mjs');const {loadGlyphs}=await import('../web/glyph-geometry.mjs');
@@ -21,7 +21,7 @@ if(process.argv[2]==='--child'){
    const pv=await run({type:'preview',project:prj,tolerance:.15}),ex=await run({type:'export',project:prj,tolerance:.01,ground:true});
    out.push({c,place:placed.position,preview:h(pv.vertices)+h(pv.triangles),stl:h(ex.buffer)});}catch(e){out.push({c,error:e.message});}}
  console.log(JSON.stringify({out,resets}));process.exit(0);}
-const child=(rows,flags=[])=>{const r=spawnSync(process.execPath,[...flags,new URL(import.meta.url).pathname,'--child',rows],{encoding:'utf8',maxBuffer:1<<24});assert.equal(r.status,0,r.stderr);return JSON.parse(r.stdout.trim().split('\n').at(-1));};
+const child=(rows,flags=[])=>{const r=spawnSync(process.execPath,[...flags,fileURLToPath(new URL(import.meta.url)),'--child',rows],{encoding:'utf8',maxBuffer:1<<24});assert.equal(r.status,0,r.stderr);return JSON.parse(r.stdout.trim().split('\n').at(-1));};
 const t=performance.now(),free=child('box,A'),capped=child('big,box,A',['--wasm-max-mem-pages=2400']);
 assert.equal(capped.out[0].error,'RuntimeError: memory access out of bounds','the trap reaches the user with its original text');
 assert.equal(capped.resets,1,'one fresh OCCT instance after the trap');

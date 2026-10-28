@@ -4,9 +4,9 @@
 // a box. Preview runs as the Android worker (deferred hollows → computeShells → re-run), then check and exports in the
 // same engine (shared caches: a coarse preview mesh must never reach them).
 //   node tests/mem-preview.mjs
-import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';import {fileURLToPath} from 'node:url';
 import fs from 'node:fs';import crypto from 'node:crypto';
-const R=new URL('..',import.meta.url).pathname.replace(/\/$/,'');const imp=m=>import(R+'/web/'+m);
+const R=fileURLToPath(new URL('..',import.meta.url)).replace(/\/$/,'');const imp=m=>import(R+'/web/'+m);
 const {initKernel}=await imp('kernel.mjs'),{initLocalEngine}=await imp('local-engine.mjs'),{objectTopology}=await imp('cad-solid.mjs'),SM=await imp('shell-mesh.mjs'),{object,blank,defaults}=await imp('templates.mjs'),{mirrorObject}=await imp('operations.mjs');
 const K=await initKernel(),E=await initLocalEngine(K,{rust:{binary:fs.readFileSync(R+'/app/assets/mesh-core.wasm')}});
 const h=x=>crypto.createHash('sha256').update(Buffer.from(x.buffer?x.buffer:x,x.byteOffset||0,x.byteLength)).digest('hex').slice(0,16);

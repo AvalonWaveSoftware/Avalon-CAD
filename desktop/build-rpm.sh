@@ -18,8 +18,8 @@ grep -q "JS_ENGINE=false" "$ROOT/web/perf-flags.mjs" && ASSETS="$ASSETS python/p
 for f in $ASSETS; do
   [ -f "$ROOT/app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
 done
-# ADR-0001 W0 (ruling 4): every lazy chunk main.js loads with import() must ship too.
-CHUNKS=$(grep -oE 'import\("\./chunk-[A-Za-z0-9_-]+\.js"\)' "$ROOT/app/assets/main.js" | sed -E 's/.*\.\/(chunk-[^"]+)".*/\1/' | sort -u)
+# ADR-0001 W0 (ruling 4): every lazy chunk main.js or a worker bundle loads with import() must ship too.
+CHUNKS=$(grep -oE 'import\("\./chunk-[A-Za-z0-9_-]+\.js"\)' "$ROOT/app/assets/main.js" "$ROOT/app/assets/worker.js" "$ROOT/app/assets/worker-sidecar.js" | sed -E 's/.*\.\/(chunk-[^"]+)".*/\1/' | sort -u)
 for f in $CHUNKS; do [ -f "$ROOT/app/assets/$f" ] || { echo "Missing lazy chunk app/assets/$f" >&2; exit 1; }; done
 # --skip-web must not ship assets built from older sources (tools/web-stamp.mjs compares content hashes).
 # AVALON_ALLOW_STALE_WEB=1 packages anyway, with a warning.

@@ -7,7 +7,7 @@ import {overhangStats} from './overhang-reference.mjs';
 // strict overhang.mjs separately requires the actual new Rust export.
 const binary=fs.readFileSync('app/assets/mesh-core.wasm');
 const {instance}=await WebAssembly.instantiate(binary,{});
-const source=fs.readFileSync('web/rust-mesh.mjs','utf8').replace("from './three-mf-parts.mjs'",'from '+JSON.stringify(new URL('../web/three-mf-parts.mjs',import.meta.url).href)).replace('engine_version()!==5','engine_version()!=='+instance.exports.engine_version());
+const source=fs.readFileSync('web/rust-mesh.mjs','utf8').replace("from './three-mf-parts.mjs'",'from '+JSON.stringify(new URL('../web/three-mf-parts.mjs',import.meta.url).href)).replace('engine_version()!==7','engine_version()!=='+instance.exports.engine_version());
 const init=(await import('data:text/javascript,'+encodeURIComponent(source))).initRustMesh;
 const rust=await init({binary});let calls=0;rust.overhangStats=(v,t)=>{calls++;return overhangStats(v,t);};
 const runtime=await initLocalEngine(await initKernel(),{rust:{ready:Promise.resolve(rust)}});

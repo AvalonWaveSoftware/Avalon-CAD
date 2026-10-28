@@ -138,11 +138,13 @@ public class MainActivity extends Activity {
         }else if(request==OPEN&&result==RESULT_OK&&data!=null&&data.getData()!=null){
             final Uri uri=data.getData();
             files.execute(()->{try{String name="model.stl";try(Cursor c=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)){if(c!=null&&c.moveToFirst())name=c.getString(0);}
-                try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){if(in==null)throw new IOException();byte[] buf=new byte[32768];int n;while((n=in.read(buf))!=-1){if(out.size()+n>MAX_FILE)throw new IOException("File too large");out.write(buf,0,n);}String encoded=Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);final String label=name;runOnUiThread(()->web.evaluateJavascript("window.nativeImportStart("+JSONObject.quote(label)+")",ignored->sendImport(encoded,0)));}
+                try(InputStream in=getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){if(in==null)throw new IOException();byte[] buf=new byte[32768];int n;while((n=in.read(buf))!=-1){if(out.size()+n>MAX_FILE)throw new IOException("File too large");out.write(buf,0,n);}final byte[] bytes=out.toByteArray();final String label=name;runOnUiThread(()->web.evaluateJavascript("window.nativeImportStart("+JSONObject.quote(label)+","+bytes.length+")",ignored->sendImport(bytes,0)));}
             }catch(Exception e){notice("Could not read the file. Imports are limited to 50 MB.",true);}});
         }
     }
-    private void sendImport(String encoded,int at){if(at>=encoded.length()){web.evaluateJavascript("window.nativeImportEnd()",null);return;}int end=Math.min(at+32768,encoded.length());web.evaluateJavascript("window.nativeImportChunk("+JSONObject.quote(encoded.substring(at,end))+")",ignored->sendImport(encoded,end));}
+    // limits-3.0 rev6 (Waydroid QA D1/D2): encoded one slice at a time (24,576 bytes = 32,768 base64 characters, so no padding
+    // before the last slice) instead of as one 70 MB String; the file name is kept as picked and the page decides STL or 3MF from the bytes.
+    private void sendImport(byte[] bytes,int at){if(at>=bytes.length){web.evaluateJavascript("window.nativeImportEnd()",null);return;}int end=Math.min(at+24576,bytes.length);web.evaluateJavascript("window.nativeImportChunk("+JSONObject.quote(Base64.encodeToString(bytes,at,end-at,Base64.NO_WRAP))+")",ignored->sendImport(bytes,end));}
     @Override protected void onSaveInstanceState(Bundle state){super.onSaveInstanceState(state);if(stagingFile!=null){state.putString("pending",stagingFile.getName());state.putString("name",outputName);state.putString("mime",outputMime);state.putBoolean("awaiting",awaitingSave);}}
     @Override public void onBackPressed(){web.evaluateJavascript("window.handleBack?window.handleBack():false",result->{if(!"true".equals(result))super.onBackPressed();});}
     @Override protected void onPause(){super.onPause();web.onPause();}

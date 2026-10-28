@@ -14,6 +14,8 @@ assert.ok(size<=757760,'main.js '+size+' B > 757,760 B (740 KiB cap)');
 // dynamic import() target exists in app/assets, every chunk file is referenced, and no chunk carries engine code.
 assert.ok(!/(?:^|[;}\n])import(?:[^(;]*?from)?\s*["']\.\/chunk-/.test(main),'main.js imports a chunk statically');
 const lazy=[...main.matchAll(/import\(["']\.\/(chunk-[\w-]+\.js)["']\)/g)].map(m=>m[1]),files=fs.readdirSync('app/assets').filter(f=>/^chunk-.*\.js$/.test(f));
+// stl-import-weld: lazy worker chunks (tools/worker-chunks.mjs) are referenced by the worker bundles, never by main.js.
+const workerLazy=['worker.js','worker-sidecar.js'].flatMap(f=>[...fs.readFileSync('app/assets/'+f,'utf8').matchAll(/import\(["']\.\/(chunk-[\w-]+\.js)["']\)/g)].map(m=>m[1]));lazy.push(...workerLazy.filter(f=>!lazy.includes(f)));
 assert.ok(lazy.length>=1,'main.js has at least one lazy import()');assert.deepEqual([...new Set(lazy)].sort(),files.sort(),'lazy imports and chunk files match');
 for(const f of files){const c=fs.readFileSync('app/assets/'+f,'utf8');for(const marker of ['BRepAlgoAPI','opencascade','setOC'])assert.ok(!c.includes(marker),f+' contains '+marker);}
 for(const marker of ['BRepAlgoAPI','opencascade','setOC'])assert.ok(!main.includes(marker),'main.js contains '+marker);

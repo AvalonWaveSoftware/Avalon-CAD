@@ -3,6 +3,7 @@ import {glyphManifold} from './glyph-geometry.mjs';
 import {initSolid,solidMesh,objectTopology,objectTopologyEntry,setTriangulator} from './cad-solid.mjs';
 import {TOPOLOGY_SERVICE,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {facetedSphere,facetMesh,curvedTypes,resolutionTolerance,customFaces} from './facets.mjs';
+import {hashedKey} from './mesh-key.mjs';
 import {isThread,containsThreads,validateThread} from './threads.mjs';
 import {layerOf,normalizeLayers,materialGroups} from './layers.mjs';
 import {QUALITY,segments,validateProject,ccwPoints,assertSimplePolygon,readSTL} from './kernel-ui.mjs';
@@ -91,9 +92,7 @@ const partTopology=o=>{if(!TOPOLOGY_SERVICE)return {topology:structuredClone(obj
 // (the reference the engine is compared with) applies the same rule as the local-engine bridge.
 // Object revision key for the F1e mesh cache: exact for every field; number arrays of 4,096+ entries (meshes) enter as
 // their length and a 64-bit FNV-style hash of the IEEE bits, so the key stays small and cheap for big STL imports.
-const f64=new Float64Array(1),u32=new Uint32Array(f64.buffer);
-function arrayHash(a){let h1=0x811c9dc5,h2=a.length|0;for(let i=0;i<a.length;i++){f64[0]=a[i];h1=Math.imul(h1^u32[0],16777619);h2=Math.imul(h2^u32[1],1540483477);}return (h1>>>0).toString(36)+'.'+(h2>>>0).toString(36);}
-export function revisionKey(o){return JSON.stringify(o,(k,v)=>(Array.isArray(v)||ArrayBuffer.isView(v))&&v.length>=4096?`#${v.length}:${arrayHash(v)}`:v);}
+export const revisionKey=hashedKey;
 export const contentKey=(o,tolerance)=>revisionKey([o.type,o.params,o.fillets??null,o.resolution??null,o.shell??null,o.mode,o.layerId??null,o.excludedCutouts??null,tolerance]);
 const affine=o=>{const r=(o.rotation||[0,0,0]).map(a=>a*Math.PI/180),[cx,cy,cz]=r.map(Math.cos),[sx,sy,sz]=r.map(Math.sin),k=o.scale?Array.from(o.scale):[1,1,1];
   const R=[[cz*cy,cz*sy*sx-sz*cx,cz*sy*cx+sz*sx],[sz*cy,sz*sy*sx+cz*cx,sz*sy*cx-cz*sx],[-sy,cy*sx,cy*cx]],d=[k[0]*(o.mirrored?-1:1),k[1],k[2]];
