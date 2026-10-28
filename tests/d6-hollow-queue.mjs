@@ -5,7 +5,8 @@
 // pinned Chromium, Android mode, real UI: Edit → Hollow → Apply (refused after 5 s), then Duplicate → X 0.5 → Apply & add.
 // Deterministic metric: the duplicate is added within 60 s (fixed: a few seconds; 23ab0a4: never, the worker is busy for
 // hours; d6-cancel-3.0 rev1: only by its 120 s job limit), with exactly one worker restart logged.
-// Also (QA rev2 notes): no job bar while the
+// rev3: QA's Ø400 at 0.005 is now refused up front (tests/d6-hollow-refuse.mjs), so this safety-net case uses a Ø30 sphere at Smooth 0.007,
+// which passes the estimate (~5.3 s) but runs past the 5 s limit. Also (QA rev2 notes): no job bar while the
 // hollow's own 5 s limit runs, and an unrelated check sent while the hollow runs is re-sent to the new worker and answers.
 //   node tests/d6-hollow-queue.mjs   (after npm run build:web)
 import assert from 'node:assert/strict';import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {createRequire} from 'node:module';
@@ -19,8 +20,8 @@ await page.addInitScript(()=>{window.Android={beginFile(){},appendFile(){},finis
 await page.goto('http://127.0.0.1:'+server.address().port+'/index.html');
 await page.waitForFunction(()=>window.__cad?.model!==undefined&&window.__cad.model!==null,null,{timeout:120000}).catch(()=>{});
 await page.evaluate(async()=>{const C=window.__cad,sleep=ms=>new Promise(r=>setTimeout(r,ms));const q=structuredClone(C.project);
- q.objects=[{id:'s1',name:'Sphere',type:'sphere',params:{diameter:400},position:[0,0,200],rotation:[0,0,0],mode:'solid',enabled:true,layerId:q.activeLayer,resolution:{mode:'tolerance',tolerance:.005}}];
- C.load(q);for(let i=0;i<600&&!(C.model?.volume>1e7);i++)await sleep(200);await sleep(1000);});
+ q.objects=[{id:'s1',name:'Sphere',type:'sphere',params:{diameter:30},position:[0,0,15],rotation:[0,0,0],mode:'solid',enabled:true,layerId:q.activeLayer,resolution:{mode:'tolerance',tolerance:.007}}];
+ C.load(q);for(let i=0;i<600&&!(C.model?.volume>1e4);i++)await sleep(200);await sleep(1000);});
 const t0=Date.now();
 await page.click('#editBtn');await page.waitForSelector('#hollowOn');await page.check('#hollowOn');await page.click('#applyObject');
 await page.evaluate(()=>{const C=window.__cad;window.__bars=0;window.__iv=setInterval(()=>{const b=document.getElementById('jobWatch');if(b&&getComputedStyle(b).display!=='none')window.__bars++;},100);
