@@ -2,6 +2,7 @@ import {previewShells} from './shell-mesh.mjs';
 import {SPLIT_TRIANGLES_3MF} from './three-mf-parts.mjs';
 import {makeObject,meshData,validateProject,QUALITY,revisionKey,contentKey,coincident} from './kernel.mjs';
 export {revisionKey};
+import {cloneLean} from './kernel-ui.mjs';
 import {validateLayers,assertSameLayer,booleanProject} from './layers.mjs';
 import {meshMeasurement,measureExact,objectTopology,objectTopologyEntry,memoTopology} from './cad-solid.mjs';
 import {TOPOLOGY_SERVICE,ENGINE_CACHE,JS_ENGINE,BUNDLE_SPLIT,INDEXED_DISPLAY} from './perf-flags.mjs';
@@ -23,13 +24,13 @@ export async function initLocalEngine(K,options={}){
  const measured=new Map(),MEASURE_CACHE_BYTES=12*1048576;let measuredBytes=0;
  const meshBytes=m=>m.vertices.byteLength+m.triangles.byteLength;
  function measureMesh(object){const key=revisionKey(object);let m=measured.get(key);if(m){measured.delete(key);measured.set(key,m);return m;}
-  const o=structuredClone(object);validateProject(booleanProject([o]));const s=makeObject(K,o,QUALITY.ultra);try{m=meshData(s);}finally{s.delete();}
+  const o=cloneLean(object);validateProject(booleanProject([o]));const s=makeObject(K,o,QUALITY.ultra);try{m=meshData(s);}finally{s.delete();}
   const bytes=meshBytes(m);if(bytes>MEASURE_CACHE_BYTES)return m;
   while(measured.size&&measuredBytes+bytes>MEASURE_CACHE_BYTES){const [k,old]=measured.entries().next().value;measured.delete(k);measuredBytes-=meshBytes(old);}
   measured.set(key,m);measuredBytes+=bytes;return m;}
  const rust=await (options.rust?.ready||initRustMesh(options.rust||{}));
  K.threadMesh=(o,tolerance)=>rust.threadMesh(o.type,o.params,tolerance);
- function placeObject(value,requested,floor){const o=structuredClone(value),at=Array.from(requested);if(at.length!==3||at.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('Invalid placement coordinates.');if(floor)at[2]=Math.max(0,at[2]);o.position=[0,0,0];validateProject(booleanProject([o]));const s=makeObject(K,o,.005);try{const b=s.boundingBox();if(s.isEmpty())throw Error('This object contains no material.');o.position=[at[0]-(b.min[0]+b.max[0])/2,at[1]-(b.min[1]+b.max[1])/2,at[2]-b.min[2]];o.positionReference='base';o.placement=at;validateProject(booleanProject([o]));return {object:o};}finally{s.delete();}}
+ function placeObject(value,requested,floor){const o=cloneLean(value),at=Array.from(requested);if(at.length!==3||at.some(x=>!Number.isFinite(x)||Math.abs(x)>10000))throw Error('Invalid placement coordinates.');if(floor)at[2]=Math.max(0,at[2]);o.position=[0,0,0];validateProject(booleanProject([o]));const s=makeObject(K,o,.005);try{const b=s.boundingBox();if(s.isEmpty())throw Error('This object contains no material.');o.position=[at[0]-(b.min[0]+b.max[0])/2,at[1]-(b.min[1]+b.max[1])/2,at[2]-b.min[2]];o.positionReference='base';o.placement=at;validateProject(booleanProject([o]));return {object:o};}finally{s.delete();}}
  function groundProject(value){const p=validateProject(value);let min=0;for(const o of p.objects.filter(o=>o.enabled)){const s=makeObject(K,o,.005);try{if(!s.isEmpty())min=Math.min(min,s.boundingBox().min[2]);}finally{s.delete();}}if(min<0)for(const o of p.objects){o.position[2]-=min;if(o.placement)o.placement[2]-=min;}p.buildPlaneEnabled=true;return {project:validateProject(p),lift:-min};}
  let statsJob=false;let acknowledged=null;const cache=ENGINE_CACHE?engineCache(K,{budget:options.engineCacheBudget,prepare:INDEXED_DISPLAY?d=>rust.prepareIndexed(d.vertices,d.triangles,d.flatTriangles,d.smoothingGroups):null}):null,cachedJob=d=>cache&&['preview','check','export','overhangStats'].includes(d?.type);let active=false;
  const threadEntry=o=>{const tolerance=resolutionTolerance(o,.15);const v=memoTopology(JSON.stringify(['thread',o.type,o.params,tolerance]),()=>threadTopology(K.threadMesh(o,tolerance),o));return {hash:v.hash,topology:v.t};};

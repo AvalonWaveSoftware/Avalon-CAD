@@ -4,6 +4,7 @@ import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
 import {isThread} from './threads.mjs';
+import {hashedKey} from './mesh-key.mjs';
 import {OCCT_SCOPE,OCCT_CACHE_ENTRIES,TOPOLOGY_SERVICE,FILLET_MESH_CACHE} from './perf-flags.mjs';
 import {geometryHash} from './topology-pack.mjs';
 import {withScope,setHeapSource} from './occt-scope.mjs';
@@ -262,7 +263,7 @@ function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulato
 // BRepTools.Clean and deleted together when the entry leaves the cache. Nothing is cleaned while still in use.
 function release(entry){if(OCCT_SCOPE){const oc=R.getOC();for(const x of [entry.s,entry.base]){try{if(x)oc.BRepTools.Clean(x.wrapped,true);}catch(e){noteOcctError(e);}}}dispose(entry.s);dispose(entry.base);}
 // ADR-0001 F8: a hollow joins the key only when present (keys of every other part are unchanged).
-const geometryKey=o=>JSON.stringify(o.shell?[o.type,o.params,o.fillets||[],o.resolution||null,[o.shell.thickness,o.shell.open||[]]]:[o.type,o.params,o.fillets||[],o.resolution||null]);
+const geometryKey=o=>hashedKey(o.shell?[o.type,o.params,o.fillets||[],o.resolution||null,[o.shell.thickness,o.shell.open||[]]]:[o.type,o.params,o.fillets||[],o.resolution||null]);
 // WS2: the B-rep LRU holds 64 entries and an estimated byte budget; topology lives in its own map (below), so a
 // preview whose topology is cached never touches the B-rep, and evicting a B-rep keeps its topology.
 const BREP_ENTRIES=64,BREP_BYTES=128*1048576,TOPOLOGY_BYTES=32*1048576;let brepBytes=0;

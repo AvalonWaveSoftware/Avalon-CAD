@@ -19,9 +19,15 @@ const meshPassed=new WeakMap();
 // what structuredClone gives for a JSON tree, except that frozen number arrays of 256+ entries (imported meshes) stay
 // shared: they cannot change, and every other array/object is a fresh mutable copy.
 export function cloneSharing(v){if(v===null||typeof v!=='object')return v;if(Array.isArray(v))return v.length>=256&&Object.isFrozen(v)&&typeof v[0]==='number'?v:v.map(cloneSharing);const o={};for(const k of Object.keys(v))o[k]=cloneSharing(v[k]);return o;}
+// limits-3.0 rev6 (Waydroid QA D1): imported mesh arrays are never written after the import (nothing assigns into them), so a
+// copy of a project or object that holds one may share them instead of duplicating 40-50 MB of numbers per copy. cloneLean
+// is structuredClone for everything else; with no mesh in the tree it is structuredClone exactly.
+const hasMesh=o=>o?.type==='mesh'||(Array.isArray(o?.params?.children)&&o.params.children.some(hasMesh));
+function keepMesh(v,inMesh){if(v===null||typeof v!=='object')return v;if(Array.isArray(v))return inMesh&&v.length>=256&&typeof v[0]==='number'?v:v.map(x=>keepMesh(x,false));const o={};for(const k of Object.keys(v))o[k]=keepMesh(v[k],inMesh||k==='mesh');return o;}
+export const cloneLean=v=>(Array.isArray(v?.objects)?v.objects:[v]).some(hasMesh)?keepMesh(v,false):structuredClone(v);
 export function validateProject(p, shareFrozen=false) {
   if (!p || p.format!=='tristancad' || (p.version!==2&&p.version!==3) || !Array.isArray(p.objects) || p.objects.length>100) throw Error('This is not a supported AvalonCad project (maximum 100 objects).');
-  const out=shareFrozen?cloneSharing(p):structuredClone(p);
+  const out=shareFrozen?cloneSharing(p):cloneLean(p);
   normalizeLayers(out);
   validateGroups(out);
   if(out.buildPlaneEnabled!==undefined&&typeof out.buildPlaneEnabled!=='boolean')throw Error('Invalid build-plane setting.');

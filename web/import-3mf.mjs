@@ -1,5 +1,7 @@
 import {weldExact} from './worker-stl.mjs';
 // F2b: this module is a separate worker bundle; no decoder runs at startup.
+// limits-3.0 rev6 (Waydroid QA D1): vertices (v exact, f binary32), and triangle corners (t) are flat number arrays per object, not
+// one small array per vertex and per triangle, which took several times the memory of the numbers themselves.
 const FILE=50*1024*1024, XML=256*1024*1024, LIMIT=1000000;
 const messages=['','Malformed 3MF file.','No mesh in 3MF file.','STL exceeds 1 million triangles.','Import is limited to 50 MB.','Invalid imported mesh.','The model exceeds available geometry memory.'];
 function fail(code=1){const e=Error(messages[code]);e.code=code;throw e;}
@@ -36,15 +38,15 @@ function parse(xml){const objects=new Map(),build=[],stack=[];let current=null,u
  if(name.includes(':')||[...a.keys()].some(k=>k.includes(':')&&!k.startsWith('xmlns')&&!k.endsWith(':path')||['pid','p1','p2','p3'].includes(k)))ignored=true;
  switch(name){case 'model':if(model||stack.length)fail();model=true;unit=({micron:.001,millimeter:1,centimeter:10,inch:25.4,foot:304.8,meter:1000})[a.get('unit')??'millimeter'];if(typeof unit!=='number')fail();break;
  case 'object':{const id=integer(a.get('id'));if(current||objects.has(id))fail();current={v:[],f:[],t:[],c:[]};objects.set(id,current);break;}
- case 'vertex':if(!stack.includes('vertices')||!current)fail();if(current.v.length>=3000000)fail(3);{const xyz=['x','y','z'].map(k=>coordinate(a.get(k)));current.v.push(xyz.map(x=>x[0]));current.f.push(xyz.map(x=>x[1]));}break;
- case 'triangle':if(!stack.includes('triangles')||!current)fail();if(current.t.length>=LIMIT)fail(3);current.t.push(['v1','v2','v3'].map(k=>integer(a.get(k))));break;
+ case 'vertex':if(!stack.includes('vertices')||!current)fail();if(current.v.length>=9000000)fail(3);{const xyz=['x','y','z'].map(k=>coordinate(a.get(k)));current.v.push(xyz[0][0],xyz[1][0],xyz[2][0]);current.f.push(xyz[0][1],xyz[1][1],xyz[2][1]);}break;
+ case 'triangle':if(!stack.includes('triangles')||!current)fail();if(current.t.length>=LIMIT*3)fail(3);current.t.push(...['v1','v2','v3'].map(k=>integer(a.get(k))));break;
  case 'component':if(!current)fail();current.c.push([integer(a.get('objectid')),transform(a),[...a].find(([k])=>k.endsWith(':path'))?.[1].replace(/^\/+/, '')]);break;
  case 'item':if(!stack.includes('build'))fail();build.push([integer(a.get('objectid')),transform(a)]);break;
  case 'basematerials':case 'colorgroup':case 'color':case 'texture2d':case 'beam':case 'beams':case 'beamlattice':case 'slicestack':case 'slices':case 'slice':case 'compositematerials':case 'multiproperties':ignored=true;
  }
  if(!single){if(stack.length>=64)fail();stack.push(name);}else if(name==='object')current=null;
  }
- if(!model||stack.length||trim(xml.slice(pos)))fail();for(const o of objects.values()){if(o.c.length&&(o.v.length||o.t.length)||o.t.some(t=>t.some(i=>i>=o.v.length)))fail();}return {objects,build,unit,ignored};
+ if(!model||stack.length||trim(xml.slice(pos)))fail();for(const o of objects.values()){if(o.c.length&&(o.v.length||o.t.length)||o.t.some(i=>i>=o.v.length/3))fail();}return {objects,build,unit,ignored};
 }
 async function models(b){if(b.length>FILE)fail(4);const view=new DataView(b.buffer,b.byteOffset,b.byteLength);const u16=p=>view.getUint16(p,true),u32=p=>view.getUint32(p,true);let e=-1;for(let p=b.length-22;p>=Math.max(0,b.length-65557);p--)if(u32(p)===0x06054b50&&p+22+u16(p+20)===b.length){e=p;break;}if(e<0)fail();if(u16(e+4)||u16(e+6)||u16(e+8)!==u16(e+10))fail();const end=u32(e+16)+u32(e+12);if(end!==e)fail();let p=u32(e+16),total=0;const out=new Map();
  for(let i=0;i<u16(e+10);i++){if(u32(p)!==0x02014b50)fail();const flags=u16(p+8),method=u16(p+10),packed=u32(p+20),size=u32(p+24),n=u16(p+28);if(packed>FILE||p+46+n>b.length)fail();const name=utf8.decode(b.subarray(p+46,p+46+n));if(name.endsWith('.model')){if(flags&1||size>XML-total)fail();total+=size;const q=u32(p+42);if(u32(q)!==0x04034b50||u16(q+8)!==method)fail();const ln=u16(q+26);if(q+30+ln>b.length||utf8.decode(b.subarray(q+30,q+30+ln))!==name)fail();const off=q+30+ln+u16(q+28);if(off+packed>u32(e+16))fail();const src=b.subarray(off,off+packed);let data;
@@ -52,7 +54,7 @@ async function models(b){if(b.length>FILE)fail(4);const view=new DataView(b.buff
  p+=46+n+u16(p+30)+u16(p+32);if(p>end)fail();}if(p!==end)fail();if(!out.has('3D/3dmodel.model'))fail(2);return out;
 }
 export async function decode3MF(bytes){try{const scenes=await models(bytes),root=scenes.get('3D/3dmodel.model');let count=0,fuel=3000000,vertices,triangles,vi=0,ti=0;
- function walk(part,id,m,depth,write){if(depth>=64||!fuel--)fail();const scene=scenes.get(part),o=scene?.objects.get(id);if(!o)fail();if(!write){count+=o.t.length;if(count>LIMIT)fail(3);}else{const exact=root.unit===1&&m.every((x,i)=>x===ID[i]);for(const tri of o.t)for(const i of tri){const p=exact?o.f[i]:point(m,o.v[i]).map(x=>Math.fround(x*root.unit));for(const x of p){if(!Number.isFinite(x))fail();vertices[vi++]=x;}triangles[ti]=ti;ti++;}}
+ function walk(part,id,m,depth,write){if(depth>=64||!fuel--)fail();const scene=scenes.get(part),o=scene?.objects.get(id);if(!o)fail();if(!write){count+=o.t.length/3;if(count>LIMIT)fail(3);}else{const exact=root.unit===1&&m.every((x,i)=>x===ID[i]);for(const i of o.t){const p=exact?[o.f[3*i],o.f[3*i+1],o.f[3*i+2]]:point(m,[o.v[3*i],o.v[3*i+1],o.v[3*i+2]]).map(x=>Math.fround(x*root.unit));for(const x of p){if(!Number.isFinite(x))fail();vertices[vi++]=x;}triangles[ti]=ti;ti++;}}
  for(const [child,t,path]of o.c){const target=path??part,next=scenes.get(target);if(!next)fail();const local=t.slice();for(let i=0;i<9;i++)local[i]*=next.unit/scene.unit;walk(target,child,compose(m,local),depth+1,write);}}
  for(const [id,m]of root.build)walk('3D/3dmodel.model',id,m,0,false);if(!count)fail(2);vertices=allocate(Float32Array,count*9);triangles=allocate(Uint32Array,count*3);fuel=3000000;for(const [id,m]of root.build)walk('3D/3dmodel.model',id,m,0,true);return {vertices,triangles,ignored:[...scenes.values()].some(s=>s.ignored)};
  }catch(e){if(Number.isInteger(e.code)&&e.code>=1&&e.code<=6)throw e;fail();}}

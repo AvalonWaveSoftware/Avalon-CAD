@@ -170,13 +170,13 @@
    "text": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:290"
+   "source": "web/main.mjs:300"
   },
   {
    "text": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:290"
+   "source": "web/main.mjs:300"
   },
   "Export a printable 3MF",
   "Build & save .3MF",
@@ -254,13 +254,13 @@
    "text": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:290"
+   "source": "web/main.mjs:300"
   },
   {
    "text": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:290"
+   "source": "web/main.mjs:300"
   },
   {
    "text": "File format",
