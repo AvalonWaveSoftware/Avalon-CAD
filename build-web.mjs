@@ -1,4 +1,5 @@
 import {build} from 'esbuild';
+import {workerChunkPlugin,workerChunkBuilds} from './tools/worker-chunks.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 const {BUNDLE_SPLIT}=await import('./web/perf-flags.mjs');
@@ -28,12 +29,13 @@ const fixedSidecar=(on,force=false)=>({name:'fixed-sidecar',setup(b){b.onLoad({f
  else if(on){const ref="new URL('worker.js'";if(!src.includes(ref))throw Error('worker.mjs: sidecar URL not found');src=src.replace(ref,"new URL('worker-sidecar.js'");}
  return {contents:src,loader:'js'};});}});
 for(const [on,out] of [[false,'app/assets/worker.js'],[true,'app/assets/worker-sidecar.js']])
- await build({entryPoints:['web/worker.mjs'],outfile:out,bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixedSidecar(on)],define:{__AVALON_SIDECAR_BUNDLE__:String(on)},external:['node:*','module','fs','path','crypto']});
+ await build({entryPoints:['web/worker.mjs'],outfile:out,bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixedSidecar(on),workerChunkPlugin],define:{__AVALON_SIDECAR_BUNDLE__:String(on)},external:['node:*','module','fs','path','crypto']});
+for(const c of workerChunkBuilds(process.cwd()))await build({...c.options,outfile:'app/assets/'+c.out});
 // ADR-0001 F2a option A: the 3MF pool worker, started by the page like worker.js (counts toward the worker budget).
 await build({entryPoints:['web/export-pool-worker.mjs'],outfile:'app/assets/export-pool.js',bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,external:['node:*','module','fs','path','crypto']});
 // Android always uses the remote client, even in a fixed OCCT_SIDECAR=false flag experiment. Normally this is
 // exactly worker-sidecar.js, so the adapter reuses those bytes rather than duplicating a 164 KB gzip bundle.
-const androidCore=await build({entryPoints:['web/worker.mjs'],write:false,bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixedSidecar(true,true)],define:{__AVALON_SIDECAR_BUNDLE__:"true"},external:['node:*','module','fs','path','crypto']});
+const androidCore=await build({entryPoints:['web/worker.mjs'],write:false,bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixedSidecar(true,true),workerChunkPlugin],define:{__AVALON_SIDECAR_BUNDLE__:"true"},external:['node:*','module','fs','path','crypto']});
 const extraCore=!Buffer.from(androidCore.outputFiles[0].contents).equals(fs.readFileSync('app/assets/worker-sidecar.js'));
 fs.rmSync('app/assets/worker-android-core.js',{force:true});if(extraCore)fs.writeFileSync('app/assets/worker-android-core.js',androidCore.outputFiles[0].contents);
 const androidTransport={name:'android-transport',setup(b){b.onLoad({filter:/[\\/]android-worker\.mjs$/},a=>({contents:fs.readFileSync(a.path,'utf8').replaceAll('./worker-sidecar.js',extraCore?'./worker-android-core.js':'./worker-sidecar.js'),loader:'js'}));}};

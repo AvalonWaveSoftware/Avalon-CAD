@@ -9,15 +9,17 @@ import {fileURLToPath} from 'node:url';
 // node zlib level 9 on both sides.
 //   node tests/worker-budget.mjs                check the current tree against the reference
 //   node tests/worker-budget.mjs --measure DIR  print the two sizes of another tree (used to write the reference)
-import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {gzipSync} from 'node:zlib';import {build} from 'esbuild';
+import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {gzipSync} from 'node:zlib';import {build} from 'esbuild';import {workerChunkPlugin,workerChunkBuilds} from '../tools/worker-chunks.mjs';
 export async function workerSizes(root){
  const fixed=on=>({name:'fixed-sidecar',setup(b){b.onLoad({filter:/[\\/]web[\\/](perf-flags|worker)\.mjs$/},a=>{let src=fs.readFileSync(a.path,'utf8');
   if(a.path.endsWith('perf-flags.mjs')){const line=['export const OCCT_SIDECAR=false;','export const OCCT_SIDECAR=!globalThis.Android;'].find(l=>src.includes(l));if(!line)throw Error('perf-flags.mjs: OCCT_SIDECAR line not found');src=src.replace(line,'export const OCCT_SIDECAR='+on+';');}
   else if(on){const ref="new URL('worker.js'";if(src.includes(ref))src=src.replace(ref,"new URL('worker-sidecar.js'");}
   return {contents:src,loader:'js'};});}});
  const out={};for(const [on,name] of [[false,'worker.js'],[true,'worker-sidecar.js']]){
-  const r=await build({absWorkingDir:root,entryPoints:[path.join(root,'web/worker.mjs')],write:false,outfile:path.join(root,'out',name),bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixed(on)],define:{__AVALON_SIDECAR_BUNDLE__:String(on)},external:['node:*','module','fs','path','crypto'],logLevel:'silent'});
+  const r=await build({absWorkingDir:root,entryPoints:[path.join(root,'web/worker.mjs')],write:false,outfile:path.join(root,'out',name),bundle:true,format:'esm',platform:'browser',target:'chrome100',minify:true,plugins:[fixed(on),workerChunkPlugin],define:{__AVALON_SIDECAR_BUNDLE__:String(on)},external:['node:*','module','fs','path','crypto'],logLevel:'silent'});
   const bytes=r.outputFiles[0].contents;out[name]={raw:bytes.length,gz:gzipSync(bytes,{level:9}).length};}
+ // Lazy worker chunks (tools/worker-chunks.mjs): both bundles load the same asset, so its gzip counts once, added to worker.js gz (raw stays the shipped worker.js size).
+ for(const c of workerChunkBuilds(root)){const r=await build({...c.options,write:false,outfile:path.join(root,'out',c.out)});const bytes=r.outputFiles[0].contents,gz=gzipSync(bytes,{level:9}).length;out['worker.js'].gz+=gz;(out.chunks??={})[c.out]={raw:bytes.length,gz};}
  return out;}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  if(process.argv[2]==='--measure'){console.log(JSON.stringify(await workerSizes(path.resolve(process.argv[3]))));process.exit(0);}
