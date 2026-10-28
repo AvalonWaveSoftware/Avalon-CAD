@@ -15,7 +15,7 @@ import {fileURLToPath} from 'node:url';
 //    behaviour); web (mouse 1024x688 and phone 412x915) keeps the 180 ms rise animation.
 // 6. Sheet jump fix (approved by Master Chief): at 700 and 1440 px wide the web sheet stays horizontally centred (<= 1 px)
 //    through its slide-up (paused at 0..100 %); at phone width it keeps the full-width rise.
-import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import os from 'node:os';import {createRequire} from 'node:module';
+import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import {createRequire} from 'node:module';
 import {stageDesktop} from '../desktop/stage.mjs';import {diffPixels} from './perf/png.mjs';
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),ASSETS=path.join(ROOT,'app/assets');
 const files=d=>fs.readdirSync(d,{recursive:true}).filter(f=>fs.statSync(path.join(d,f)).isFile()).sort();

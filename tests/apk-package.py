@@ -120,6 +120,9 @@ def check_apk(path, test_build=False):
         main = apk.read('assets/main.js').decode()
         assert b'type="module"' in apk.read('assets/index.html') and b'src="main.js' in apk.read('assets/index.html'), 'main.js is not a module script'
         chunks = sorted(set(re.findall(r'import\(["\']\./(chunk-[\w-]+\.js)["\']\)', main)))
+        workers = ''.join(apk.read('assets/' + w).decode() for w in ('worker.js', 'worker-sidecar.js'))
+        # stl-import-weld: lazy worker chunks (tools/worker-chunks.mjs) ship like main.js chunks.
+        chunks = sorted(set(chunks) | set(re.findall(r'import\(["\']\./(chunk-[\w-]+\.js)["\']\)', workers)))
         assert chunks, 'main.js has no lazy import() chunk'
         for name in chunks:
             assert 'assets/' + name in names, f'Missing lazy chunk assets/{name}'

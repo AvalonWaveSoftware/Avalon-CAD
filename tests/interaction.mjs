@@ -18,7 +18,7 @@ w.Android={beginFile(name,mime){w.testSaved={name,mime,chunks:[]}},appendFile(x)
 w.eval(fs.readFileSync('build/test-ui.js','utf8'));
 const $=id=>w.document.getElementById(id),click=id=>$(id).click(),sleep=()=>new Promise(r=>setTimeout(r,25));
 const wait=async fn=>{for(let i=0;i<60;i++){if(fn())return;await sleep();}throw Error('Wait timed out: '+JSON.stringify({resolution:w.__cad.project.objects[0]?.resolution,volume:w.__cad.model?.volume,error:$('editError')?.textContent,toast:$('toast').textContent}))};
-await wait(()=>w.__cad.model!==null);assert.equal(w.__cad.model.volume,0);assert.equal(w.__cad.model.engine.local,true);assert.equal(w.__cad.model.engine.rust,6);
+await wait(()=>w.__cad.model!==null);assert.equal(w.__cad.model.volume,0);assert.equal(w.__cad.model.engine.local,true);assert.equal(w.__cad.model.engine.rust,7);
 click('addBtn');w.document.querySelector('[data-shape="box"]').click();$('p_w').value='40';$('p_d').value='30';$('p_h').value='10';$('pos2').value='0';click('applyObject');await wait(()=>w.__cad.model.volume===12000);
 click('addBtn');w.document.querySelector('[data-shape="cylinder"]').click();$('p_diameter').value='6';$('p_h').value='20';$('pos2').value='0';$('mode').value='cut';click('applyObject');await wait(()=>w.__cad.model.volume<12000&&w.__cad.model.volume>11000);const cutVolume=w.__cad.model.volume;
 click('undo');await wait(()=>w.__cad.project.objects.length===1&&w.__cad.model.volume===12000);click('redo');await wait(()=>w.__cad.project.objects[1].mode==='cut');
