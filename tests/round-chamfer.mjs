@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 // ADR-0001 F6 (§4 F6, §5.2): Edge ▾ Chamfer (mode-bar label per Master Chief ruling 1). fillets[].kind:'chamfer' is a symmetric chamfer whose distance is stored
 // in radius (save format v3); entries without kind are rounds exactly as before. Checks the analytic chamfer volume,
 // mixed round + chamfer on one shape (chamfers first, round edges found again through MakeChamfer history), the error
@@ -73,7 +74,7 @@ assert.throws(()=>validateProject(wrap({...box(),fillets:[{edges:[0],radius:1,ki
 assert.equal(requiredVersion(wrap(c2)),3);assert.equal(forWrite(wrap(c2)).version,3);
 const rounds=wrap(withRoundover(box(),[0,1],2));assert.equal(requiredVersion(rounds),2);assert.equal(forWrite(rounds),rounds);
 // 9. Local engine: chamfer preview, check and export work end to end; the export volume matches the analytic value.
-const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:new URL('../node_modules/pyodide/',import.meta.url).pathname,pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
+const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:fileURLToPath(new URL('../node_modules/pyodide/',import.meta.url)),pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
 let id=0;const run=d=>{const r=runtime.process({id:++id,...d});if(r.error)throw Error(r.error);return r;};
 const p=wrap(c2);p.version=3;const preview=run({type:'preview',project:p,tolerance:.15});near(preview.volume,6000-15+1/3,1e-6,'preview volume');
 const stl=run({type:'export',project:p,tolerance:.15,ground:true});near(stl.volume,6000-15+1/3,1e-6,'export volume');assert.equal(Buffer.from(stl.buffer).readUInt32LE(80),stl.triangles);

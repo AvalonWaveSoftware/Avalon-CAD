@@ -146,13 +146,13 @@
   {
    "text": "Bottom-center placement · millimeters",
    "runtime": true,
-   "source": "web/main.mjs:178",
+   "source": "web/main.mjs:184",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   },
   {
    "text": "Object center position · millimeters",
    "runtime": true,
-   "source": "web/main.mjs:178",
+   "source": "web/main.mjs:184",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   },
   "Plate",
@@ -162,7 +162,7 @@
   {
    "text": "Overall size 17.59 × 24.99 × 7.00 mm (X × Y × Z).",
    "runtime": true,
-   "source": "web/main.mjs:170",
+   "source": "web/main.mjs:176",
    "approval": "F7 batch (pending Master Chief)"
   },
   "Engrave needs a plate thicker than 0.039 in.",
@@ -170,13 +170,13 @@
    "text": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:284"
+   "source": "web/main.mjs:290"
   },
   {
    "text": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:284"
+   "source": "web/main.mjs:290"
   },
   "Export a printable 3MF",
   "Build & save .3MF",
@@ -192,25 +192,25 @@
   {
    "text": "File format",
    "runtime": true,
-   "source": "web/main.mjs:267",
+   "source": "web/main.mjs:273",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "STL · binary · most compatible",
    "runtime": true,
-   "source": "web/main.mjs:267",
+   "source": "web/main.mjs:273",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "3MF · compressed · smaller file",
    "runtime": true,
-   "source": "web/main.mjs:267",
+   "source": "web/main.mjs:273",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "exportFormat",
    "runtime": true,
-   "source": "web/main.mjs:267",
+   "source": "web/main.mjs:273",
    "approval": "export-3mf: id of the File format select, used by its <label for>; not shown text. export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   "Choose a mirror plane through the object center",
@@ -241,49 +241,49 @@
   {
    "text": "Bottom-center placement · millimeters",
    "runtime": true,
-   "source": "web/main.mjs:177",
+   "source": "web/main.mjs:183",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   },
   {
    "text": "Object center position · millimeters",
    "runtime": true,
-   "source": "web/main.mjs:177",
+   "source": "web/main.mjs:183",
    "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
   },
   {
    "text": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:284"
+   "source": "web/main.mjs:290"
   },
   {
    "text": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
    "approval": "Android safety stages (pending Master Chief)",
    "runtime": true,
-   "source": "web/main.mjs:284"
+   "source": "web/main.mjs:290"
   },
   {
    "text": "File format",
    "runtime": true,
-   "source": "web/main.mjs:267",
+   "source": "web/main.mjs:273",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "STL · binary · most compatible",
    "runtime": true,
-   "source": "web/main.mjs:267",
+   "source": "web/main.mjs:273",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "3MF · compressed · smaller file",
    "runtime": true,
-   "source": "web/main.mjs:267",
+   "source": "web/main.mjs:273",
    "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   {
    "text": "exportFormat",
    "runtime": true,
-   "source": "web/main.mjs:267",
+   "source": "web/main.mjs:273",
    "approval": "export-3mf: id of the File format select, used by its <label for>; not shown text. export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
   },
   "Group",
@@ -341,6 +341,12 @@
    "runtime": true,
    "source": "web/resolution-ui.mjs:10",
    "approval": "Waydroid QA 2026-10-25 (b), waydroid-fix-3.0; Master Chief ruling 2026-10-25 23:09 CT (mem-preview-3.0): APPROVED, suffix ' (unhollowed)'"
+  },
+  {
+   "text": "This was too heavy to finish on this device, so it was stopped. Your model wasn't changed.",
+   "runtime": true,
+   "source": "web/android-occt.mjs:3",
+   "approval": "Android safety stages (pending Master Chief)"
   },
   "View",
   "Overhang",

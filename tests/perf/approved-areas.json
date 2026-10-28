@@ -523,6 +523,13 @@
    "kind": "text",
    "expected": "6 flat faces (unhollowed) · 24 mesh triangles",
    "approval": "Waydroid QA 2026-10-25 (b), waydroid-fix-3.0; Master Chief ruling 2026-10-25 23:09 CT (mem-preview-3.0): APPROVED, suffix ' (unhollowed)': the Edit sheet face count of a hollow part says it counts the base shape's faces; scoped to #faceCountMetrics in shell-closed (phone and desktop)"
+  },
+  {
+   "scene": "*",
+   "selector": "#toast",
+   "kind": "text",
+   "expected": "This was too heavy to finish on this device, so it was stopped. Your model wasn't changed.",
+   "approval": "Android safety stages (pending Master Chief)"
   }
  ]
 }

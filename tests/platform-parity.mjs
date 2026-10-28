@@ -20,7 +20,7 @@ import {stageDesktop} from '../desktop/stage.mjs';import {diffPixels} from './pe
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),ASSETS=path.join(ROOT,'app/assets');
 const files=d=>fs.readdirSync(d,{recursive:true}).filter(f=>fs.statSync(path.join(d,f)).isFile()).sort();
 // 1. staged output
-const mac=path.join(stageDesktop(ROOT),'web'),rpm=fs.mkdtempSync(path.join(os.tmpdir(),'avalon-rpm-'))+'/web';fs.cpSync(ASSETS,rpm,{recursive:true});
+const mac=path.join(stageDesktop(ROOT),'web'),rpm=fs.mkdtempSync(path.join(ROOT,'build/avalon-rpm-'))+'/web';fs.cpSync(ASSETS,rpm,{recursive:true});
 for(const [name,dir] of [['Mac stage',mac],['RPM stage',rpm]]){assert.deepEqual(files(dir),files(ASSETS),name+' has exactly the app/assets files');for(const f of files(ASSETS))assert.ok(fs.readFileSync(path.join(dir,f)).equals(fs.readFileSync(path.join(ASSETS,f))),name+' '+f+' byte-identical');}
 const html=fs.readFileSync(path.join(ASSETS,'index.html'),'utf8');assert.ok(html.includes('<body>'),'plain <body>');assert.equal((html.match(/rel="stylesheet"/g)||[]).length,1);assert.match(html,/href="style\.css\?v=/);
 assert.equal(files(ASSETS).filter(f=>f.endsWith('.css')).join(),'style.css','one stylesheet');assert.ok(!fs.existsSync(path.join(ROOT,'desktop/desktop.css')),'desktop/desktop.css is gone');
@@ -33,7 +33,7 @@ if(process.argv.includes('--staged'))process.exit(0);
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.wasm':'application/wasm'};
 const servers=[];const serve=async dir=>{const s=http.createServer((q,r)=>{const f=path.resolve(dir,new URL(q.url,'http://x').pathname.slice(1)||'index.html');if(!f.startsWith(dir+path.sep)||!fs.existsSync(f)){r.writeHead(404);return r.end();}r.setHeader('Content-Type',MIME[path.extname(f)]||'application/octet-stream');fs.createReadStream(f).pipe(r);});await new Promise(r=>s.listen(0,'127.0.0.1',r));servers.push(s);return 'http://127.0.0.1:'+s.address().port;};
-const rpm2=fs.mkdtempSync(path.join(os.tmpdir(),'avalon-rpm-'))+'/web';fs.cpSync(ASSETS,rpm2,{recursive:true});
+const rpm2=fs.mkdtempSync(path.join(ROOT,'build/avalon-rpm-'))+'/web';fs.cpSync(ASSETS,rpm2,{recursive:true});
 const browser=await chromium.launch({executablePath:process.env.AVALON_CHROMIUM,headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--ignore-gpu-blocklist','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const BOXES={header:'header',toolbar:'.toolbar',modes:'#touchModes',selection:'.selection',dock:'.dock',sheet:'#sheet',toggle:'#objectsToggle',panel:'#objectsPanel',help:'#desktopHelp'};
 const box={id:'b',name:'Box',type:'box',params:{w:40,d:30,h:20},position:[0,0,10],rotation:[0,0,0],mode:'solid',enabled:true,layerId:'layer-1'};
