@@ -206,8 +206,8 @@ function editMenu(newObject=null){if(!newObject?.params||!newObject?.id)newObjec
   const at=[0,1,2].map(i=>lens.read('pos'+i));draft.position=at;draft.rotation=[0,1,2].map(i=>Number($('rot'+i).value));
   if(hollow){hollow.read(draft);if(!sameTopology(o,draft))hollow.clearOpen(draft);if(draft.shell)hollowBusy=setTimeout(()=>{const b=$('applyObject');if(b&&panelBusy){b.dataset.label=b.textContent;b.textContent='Hollowing…';}},300);}
   // ADR-0003: while a hollow is part of the draft, every engine reply here is held to the 5 s hard limit; a late reply is
-  // dropped and nothing is stored, so the model stays unchanged.
-  const ask=draft.shell?(type,data)=>withShellTimeout(request(type,data),draft.shell.thickness):request;
+  // dropped and nothing is stored, so the model stays unchanged. D6: the worker is restarted then, or the dropped job kept it busy (a Ø400 sphere hollow at 0.005 runs for hours) and every later job queued behind it.
+  const ask=draft.shell?(type,data)=>{const job=request(type,data);let open=true;job.then(()=>open=false,()=>open=false);return withShellTimeout(job,draft.shell.thickness).catch(e=>{if(open)restartWorker(`hollow ${type} dropped after 5 s`,e.message);throw e;});}:request;
   const p=structuredClone(project);if(creating){if(p.objects.length>=100)throw Error('Maximum 100 objects.');p.objects.push(draft);}else p.objects[p.objects.findIndex(x=>x.id===o.id)]=draft;p.activeLayer=draft.layerId;validateProject(p);lockPanel(true);
   if(draft.positionReference==='base'){draft=(await ask('place',{object:draft,position:at,floor:p.buildPlaneEnabled===true})).object;p.objects[p.objects.findIndex(x=>x.id===draft.id)]=draft;}
   if(!creating&&selection().length>1)translateMembers(p,project.objects.filter(x=>x.id!==o.id&&selection().includes(x.id)),draft.position.map((v,i)=>v-o.position[i]));
