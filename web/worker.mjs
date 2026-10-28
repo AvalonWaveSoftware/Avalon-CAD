@@ -123,7 +123,7 @@ async function drain(){if(running)return;running=true;
   for(const p of result.parts||[]){for(const key of ['vertices','triangles','flatTriangles','smoothingGroups'])if(p[key])transfers.push(p[key].buffer);if(!TOPOLOGY_SERVICE&&p.topology)transfers.push(p.topology.vertices.buffer,p.topology.triangles.buffer);}
   if(TOPOLOGY_SERVICE)transfers.push(...shipTopologies(result));
   self.postMessage(result,transfers);
- }catch(e){self.postMessage({id:data.id,error:(data.type==='importSTL'?'':'Local geometry processing could not start: ')+(e.message||String(e))});}}}
+ }catch(e){self.postMessage({id:data.id,error:(data.type==='importSTL'||data.type==='import3MF'?'':'Local geometry processing could not start: ')+(e.message||String(e))});}}}
  finally{running=false;idleReset();}
 }
 }
