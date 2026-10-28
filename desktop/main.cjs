@@ -50,7 +50,7 @@ if (process.env.AVALON_SOFTWARE_GL === '1') {
 }
 protocol.registerSchemesAsPrivileged([{scheme: SCHEME, privileges: {standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true}}]);
 
-const filters = [{name: 'Avalon CAD models and STL', extensions: ['tcad', 'avprefab', 'stl', 'json']}];
+const filters = [{name: 'Avalon CAD models and STL', extensions: ['tcad', 'avprefab', 'stl', 'json', '3mf']}];
 function sendAction(action) { if (loaded && window && !window.isDestroyed()) window.webContents.send('avalon:action', action); }
 function trusted(event) { return window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame.url.startsWith(ORIGIN + '/'); }
 
