@@ -91,6 +91,7 @@ def check_apk(path, test_build=False):
             for name in names:
                 if re.fullmatch(r'classes(?:\d+)?\.dex', name):
                     assert b'debugCrashRenderer' not in apk.read(name), 'Release APK contains renderer crash hook'
+                    assert b'debugImportDelayMs' not in apk.read(name), 'Release APK contains the import-delay test hook'
         resources = apk.getinfo('resources.arsc')
         assert resources.compress_type == ZIP_STORED, (
             'Android API 30+ rejects compressed resources.arsc')

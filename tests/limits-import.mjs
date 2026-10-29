@@ -2,6 +2,8 @@
 // base64 slices, nativeImportEnd), real app, built assets, window.Android stub, phone-size page, headless Chromium.
 //  1. Cancel during a large STL import and during a large 3MF import: the job bar's Cancel shows exactly the approved
 //     "Canceled. Nothing was changed.", the model is unchanged, the page does not crash, and the next import works.
+//  1b. The Canceled toast uses the neutral toast style (no red error class); the delay hook that makes this reachable on a device
+//     (?testImportDelayMs=N or localStorage testImportDelayMs) is inert in the app and in release builds.
 //  2. D2: a binary STL whose header starts with "PK" imports as an STL under its own name (Java no longer renames it),
 //     and MainActivity.java no longer renames or builds one big base64 String.
 //  3. Both transports decode exactly (with the byte count, and without it).
@@ -13,7 +15,7 @@ import {zip,model} from './import-3mf-reference.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT);
 const assets=path.resolve(process.env.AVALON_ASSETS||'app/assets'),MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.wasm':'application/wasm'};
 const server=http.createServer((q,r)=>{const f=path.resolve(assets,new URL(q.url,'http://x').pathname.slice(1)||'index.html');if(!fs.existsSync(f)){r.writeHead(404);r.end();return;}r.setHeader('Content-Type',MIME[path.extname(f)]||'application/octet-stream');r.setHeader('Cache-Control','no-store');fs.createReadStream(f).pipe(r);});
-await new Promise(r=>server.listen(0,'127.0.0.1',r));
+await new Promise(r=>server.listen(0,'0.0.0.0',r));
 const ARGS=['--no-sandbox','--disable-dev-shm-usage','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'];
 const CANCELED='Canceled. Nothing was changed.',STL_TOAST='Choose placement, then Apply to add the imported STL.',MF_TOAST='Choose placement, then Apply to add the imported 3MF.';
 // --- fixtures ---
@@ -37,9 +39,11 @@ function qaSTL(N,M,R=50){const p=(i,j)=>{const th=Math.PI*i/N,ph=2*Math.PI*j/M;r
 const bigSTL=sphere(40000),[sv,st]=indexedSphere(40000),big3MF=zip(model(sv,st));
 const sleepNode=ms=>new Promise(r=>setTimeout(r,ms));
 // --- helpers ---
-async function open(browser){const page=await browser.newPage({viewport:{width:412,height:915}});page.crashed=false;page.on('crash',()=>{page.crashed=true;});page.on('pageerror',e=>console.error('pageerror',e.message));if(process.env.DBG)page.on('console',m=>console.error('console',m.text().slice(0,200)));
- await page.addInitScript(()=>{window.Android={beginFile(){},appendFile(){},finishFile(){}};const post=Worker.prototype.postMessage;Worker.prototype.postMessage=function(m,t){if(window.__holdMs&&(m?.type==='importSTL'||m?.type==='import3MF')){const ms=window.__holdMs;setTimeout(()=>post.call(this,m,t),ms);return;}return post.call(this,m,t);};});
- await page.goto('http://127.0.0.1:'+server.address().port+'/index.html');await page.waitForFunction(()=>window.__cad?.model?.engine?.local===true,null,{timeout:120000});return page;}
+// host 127.0.0.1 is the harness; 127.0.0.2 is "not the harness" (the app's origin never matches either), where the import-delay hook is inert
+// unless the page has the test APK's Android bridge (debugCrashRenderer, stripped from release builds by build-apk.sh).
+async function open(browser,{host='127.0.0.1',bridge=false}={}){const page=await browser.newPage({viewport:{width:412,height:915}});page.crashed=false;page.on('crash',()=>{page.crashed=true;});page.on('pageerror',e=>console.error('pageerror',e.message));if(process.env.DBG)page.on('console',m=>console.error('console',m.text().slice(0,200)));
+ await page.addInitScript(b=>{window.Android={beginFile(){},appendFile(){},finishFile(){}};if(b){window.Android.debugCrashRenderer=()=>{};window.Android.debugImportDelayMs=()=>window.__d||0;}},bridge);
+ await page.goto('http://'+host+':'+server.address().port+'/index.html');await page.waitForFunction(()=>window.__cad?.model?.engine?.local===true,null,{timeout:120000});return page;}
 // What MainActivity.sendImport does: 24,576 raw bytes (32,768 base64 characters) per slice, the byte count first.
 async function javaImport(page,name,bytes,{size=true}={}){const b=Buffer.from(bytes),slices=[];for(let at=0;at<b.length;at+=24576)slices.push(b.subarray(at,Math.min(at+24576,b.length)).toString('base64'));
  await page.evaluate(()=>{const t=document.getElementById('toast');t.hidden=true;t.textContent='';});
@@ -68,15 +72,15 @@ try{
  // 1. Cancel during a large import (the import message is held 2.7 s so the 2 s job bar is up while the import is pending)
  for(const [name,bytes,ok] of [['large.stl',bigSTL,STL_TOAST],['large.3mf',big3MF,MF_TOAST]]){
   const before=await page.evaluate(()=>({n:window.__cad.project.objects.length,json:JSON.stringify(window.__cad.project.objects),sheet:!!document.querySelector('#applyObject')}));
-  await page.evaluate(()=>{window.__holdMs=2700;});await javaImport(page,name,bytes);
+  await page.evaluate(()=>{localStorage.setItem('testImportDelayMs','2700');});await javaImport(page,name,bytes);
   await page.waitForFunction(()=>{const b=document.getElementById('jobWatch');return b&&getComputedStyle(b).display!=='none';},null,{timeout:30000});
   await page.click('#jobCancel');let t=await toastOf(page);
   await page.waitForTimeout(1200);t=await page.evaluate(()=>({text:document.getElementById('toast').textContent,error:document.getElementById('toast').classList.contains('error')}));
-  assert.equal(t.text,CANCELED,name+': exactly the approved Canceled text');assert.equal(t.error,true);
+  assert.equal(t.text,CANCELED,name+': exactly the approved Canceled text');assert.equal(t.error,false,name+': the neutral toast style, not the red error style');
   const after=await page.evaluate(()=>({n:window.__cad.project.objects.length,json:JSON.stringify(window.__cad.project.objects),sheet:!!document.querySelector('#applyObject'),bar:getComputedStyle(document.getElementById('jobWatch')).display}));
   assert.equal(after.n,before.n,name+': no object added');assert.equal(after.json,before.json,name+': the model is unchanged');assert.equal(after.sheet,before.sheet,name+': no placement sheet opened');assert.equal(after.bar,'none',name+': the job bar is gone');
   assert.ok(!page.crashed,name+': the page did not crash');
-  await page.evaluate(()=>{window.__holdMs=0;});await sleepNode(300);
+  await page.evaluate(()=>localStorage.removeItem('testImportDelayMs'));await sleepNode(300);
   await javaImport(page,name,bytes);t=await toastOf(page);assert.equal(t.text,ok,name+': the next import after the Cancel works');assert.equal(t.error,false);
   await page.evaluate(()=>document.querySelector('#applyObject').click());await page.waitForFunction(n=>window.__cad.project.objects.length>n,before.n,{timeout:120000});
   const m=await page.evaluate(()=>window.__cad.model?.triangles?.length/3);assert.ok(!page.crashed);
@@ -85,6 +89,15 @@ try{
  }
  await page.close();
 }finally{await browser.close();}
+// 5. the import-delay hook is inert outside the harness and the test APK
+{const b2=await chromium.launch({executablePath:process.env.AVALON_CHROMIUM,headless:true,args:ARGS});
+ try{for(const [bridge,active] of [[false,false],[true,true]]){const page=await open(b2,{host:'127.0.0.2',bridge});await page.evaluate(b=>{if(b)window.__d=4000;else localStorage.setItem('testImportDelayMs','4000');},bridge);
+   const t0=Date.now();await javaImport(page,'cube.stl',cubeSTL);const t=await toastOf(page);const ms=Date.now()-t0;
+   if(active){assert.ok(ms>=3900,'with the test APK bridge the import is held (took '+ms+' ms)');}else{assert.ok(ms<3000,'without the bridge, off the harness host, the hook is inert: import took '+ms+' ms');assert.equal(t.text,STL_TOAST);}
+   await page.close();}
+  const page=await open(b2);await page.evaluate(()=>{localStorage.setItem('testImportDelayMs','3000');});const t0=Date.now();await javaImport(page,'cube.stl',cubeSTL);await toastOf(page);assert.ok(Date.now()-t0>=2900,'on the harness host the hook delays the import');
+  out.push('the import-delay hook is inert off the harness host without the test bridge, and active on the harness host and with the bridge');}
+ finally{await b2.close();}}
 // 4. memory
 if(!process.env.AVALON_LIMITS_SKIP_MEM){
  const LIMIT=+process.env.AVALON_LIMITS_MB||96,huge=qaSTL(512,512);

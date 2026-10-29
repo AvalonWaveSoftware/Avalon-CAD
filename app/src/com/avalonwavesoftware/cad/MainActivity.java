@@ -100,6 +100,8 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void debugCrashRenderer(){runOnUiThread(()->{
             if(android.os.Build.VERSION.SDK_INT>=29&&web.getWebViewRenderProcess()!=null)web.getWebViewRenderProcess().terminate();
         });}
+        // Test builds only: `adb shell am start -S -n <test app>/<activity> --ei import_delay_ms 3500` holds every STL/3MF import 3.5 s so the job bar's Cancel can be reached.
+        @JavascriptInterface public int debugImportDelayMs(){return Math.max(0,Math.min(60000,getIntent().getIntExtra("import_delay_ms",0)));}
         // END TEST_RENDERER_CRASH_HOOK
         // ADR-0001 F2a option B (debug, no UI): one logcat line per export, tag AvalonExport; the page logs its
         // [Avalon export] line here too so QA can read both with `adb logcat -s AvalonExport`.
