@@ -11,7 +11,7 @@ const field=(obj,name,fallback)=>{const v=obj?.[name];return v==null?fallback:v;
 // Python's math.isfinite raised a TypeError for a non-numeric coordinate; here it is an invalid coordinate (the UI's
 // validateProject rejects such projects before any job, so no caller reaches this case).
 const isFinite=v=>(typeof v==='number'||typeof v==='boolean')&&Number.isFinite(+v);
-function validateObjects(objects){
+export function validateObjects(objects){
  if(objects.length>100)throw Error('Maximum 100 objects per project.');
  const ids=new Set();
  for(const obj of objects){
@@ -22,7 +22,7 @@ function validateObjects(objects){
 }
 export function jsJobs(native){
  function buildModel(project,tolerance,individual=false){
-  if(field(project,'format')!=='tristancad'||field(project,'version')!==2)throw Error('This is not a supported AvalonCad project.');
+  if(field(project,'format')!=='tristancad'||![2,3].includes(field(project,'version')))throw Error('This is not a supported AvalonCad project.');
   validateObjects(project.objects);native.validate_layers(project);
   const owned=[],parts=[],solids=[],cuts=[],adjustments=[],styles=individual?native.styles():undefined,own=s=>(owned.push(s),s);
   try{
@@ -71,7 +71,7 @@ export function jsJobs(native){
    if(kind==='place')result=native.place_object(job.object,job.position,field(job,'floor',false));
    else if(kind==='groundProject')result=native.ground_project(job.project);
    else if(kind==='boolean')result=evaluateBoolean(job);
-   else{const model=buildModel(job.project,field(job,'tolerance',.15),kind==='preview');result=native.finish_result(model,kind,field(job,'ground',true));}
+   else{const model=buildModel(job.project,field(job,'tolerance',.15),kind==='preview');result=native.finish_result(model,kind,field(job,'ground',true),field(job,'format','stl'));}
    return native.response(result,field(job,'id'),kind);
   }catch(error){return native.error_response(field(job,'id'),String(error));}
  }

@@ -853,6 +853,16 @@ Source: https://github.com/rust-lang/rust/tree/1.90.0
 Full licenses: licenses/Rust-MIT.txt and licenses/Rust-Apache-2.0.txt
 AvalonCad Rust mesh source is provided in engine/rust under the app ISC license.
 
+miniz_oxide 0.9.1 (MIT OR Zlib OR Apache-2.0; used here under MIT)
+Copyright 2013-2014 RAD Game Tools and Valve Software; Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC; Copyright (c) 2017 Frommi
+Source: https://github.com/Frommi/miniz_oxide (vendored unmodified in engine/rust/vendor/miniz_oxide-0.9.1)
+DEFLATE compression for 3MF export, compiled into mesh-core.wasm.
+Full license: licenses/miniz_oxide-MIT.txt
+
+adler2 2.0.1 (0BSD OR MIT OR Apache-2.0; used here under MIT), a dependency of miniz_oxide
+Source: https://github.com/oyvindln/adler2 (vendored unmodified in engine/rust/vendor/adler2-2.0.1)
+Full license: licenses/adler2-MIT.txt
+
 Emscripten runtime (MIT and University of Illinois/NCSA licenses)
 Source: https://github.com/emscripten-core/emscripten
 Full license: licenses/Emscripten-License.txt

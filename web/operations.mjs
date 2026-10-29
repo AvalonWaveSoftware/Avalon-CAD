@@ -5,11 +5,14 @@ import {isThread,containsThreads} from './threads.mjs';
 import {polyBounds,POLYHEDRON_TYPES} from './polyhedra-shapes.mjs';
 import {GLYPH_METRICS} from './glyph-metrics.mjs';
 // Letters: outline bounding box × size / cap height (UI-safe metrics only), and the extrusion depth.
-export function glyphDimensions(p){const m=GLYPH_METRICS.m[p.char],k=p.size/GLYPH_METRICS.capHeight;return m?[(m[2]-m[0])*k,(m[3]-m[1])*k,p.depth]:[p.size,p.size,p.depth];}
+// ADR-0001 F7: with a plate the bounds are the plate (outline box + 2 × margin) and the total height (Emboss: plate +
+// depth; Engrave: the plate). Without one, exactly as before.
+export function glyphDimensions(p){const m=GLYPH_METRICS.m[p.char],k=p.size/GLYPH_METRICS.capHeight,d=m?[(m[2]-m[0])*k,(m[3]-m[1])*k,p.depth]:[p.size,p.size,p.depth];
+ if(!(p.plate>0))return d;const g=p.plateMargin>0?2*p.plateMargin:0;return [d[0]+g,d[1]+g,p.engrave===true?p.plate:p.plate+p.depth];}
 export const axes=['X','Y','Z'];
 export function rotation(o){return new T.Euler(...o.rotation.map(T.MathUtils.degToRad),'ZYX');}
-export function matrix(o){return new T.Matrix4().compose(new T.Vector3(...o.position),new T.Quaternion().setFromEuler(rotation(o)),new T.Vector3(...(o.scale||[1,1,1])));}
-export function direction(o,axis,sign=1){const v=new T.Vector3();v.setComponent(axis,sign);return v.applyEuler(rotation(o));}
+export function matrix(o){return new T.Matrix4().compose(new T.Vector3(...o.position),new T.Quaternion().setFromEuler(rotation(o)),new T.Vector3(...(o.scale||[1,1,1])).multiply(new T.Vector3(o.mirrored?-1:1,1,1)));}
+export function direction(o,axis,sign=1){const v=new T.Vector3();v.setComponent(axis,sign*(axis===0&&o.mirrored?-1:1));return v.applyEuler(rotation(o));}
 function facetedBounds(o){const n=customFaces(o);if(!n||!['cylinder','cone','tube','sphere'].includes(o.type))return null;const p=o.params,r=Math.max(p.diameter,p.top||0)/2,pts=o.type==='sphere'?facetedSphere(n,p.diameter).flatMap(f=>f.points):Array.from({length:n},(_,i)=>[r*Math.cos(i*2*Math.PI/n),r*Math.sin(i*2*Math.PI/n),0]);const min=[0,1,2].map(i=>Math.min(...pts.map(a=>a[i]))),max=[0,1,2].map(i=>Math.max(...pts.map(a=>a[i])));if(o.type!=='sphere'){min[2]=-p.h/2;max[2]=p.h/2;}return {min,max};}
 export function dimensions(o){const p=o.params,s=o.scale||[1,1,1];let d;
  switch(o.type){case'threadrod':{const diameter=p.diameter-2*p.clearance;d=[diameter,diameter,p.h];break;}case'threadtube':d=[p.outer,p.outer,p.h];break;case'wedge':case'pyramid':case'box':case'rounded':case'triprism':d=[p.w,p.d,p.h];break;case'tetrahedron':case'octahedron':case'decahedron':case'dodecahedron':case'icosahedron':d=polyBounds(o.type,p);break;case'torus':d=[p.diameter,p.diameter,p.tube];break;case'glyph':d=glyphDimensions(p);break;case'cylinder':case'cone':case'tube':d=[Math.max(p.diameter,p.top||0),Math.max(p.diameter,p.top||0),p.h];break;case'sphere':d=[p.diameter,p.diameter,p.diameter];break;case'polygon':d=[Math.max(...p.points.map(a=>a[0]))-Math.min(...p.points.map(a=>a[0])),Math.max(...p.points.map(a=>a[1]))-Math.min(...p.points.map(a=>a[1])),p.h];break;default:{const b=o.localBounds;if(b)d=b.max.map((v,i)=>v-b.min[i]);else d=[1,1,1];}}
@@ -27,7 +30,10 @@ export function stretch(o,axis,sign,amount){const out=structuredClone(o),d=dimen
   if(axis===2&&o.type!=='sphere')p.h=next/s[axis];else{const ratio=next/d[axis];p.diameter*=ratio;if(p.inner)p.inner*=ratio;if(p.top)p.top*=ratio;}
  }else if(POLYHEDRON_TYPES.includes(o.type)){const ratio=next/d[axis];if(o.type==='decahedron'){p.diameter*=ratio;p.h*=ratio;}else p.size*=ratio; // uniform: keeps the solid regular
  }else if(o.type==='torus'){if(axis===2)p.tube=next/s[axis];else p.diameter=next/s[axis];
- }else if(o.type==='glyph'){if(axis===2)p.depth=next/s[axis];else p.size*=next/d[axis];
+ }else if(o.type==='glyph'){
+  // F7 plate: the margin and plate thickness stay; the glyph (size, or depth for Emboss) takes the change. Engrave: Z sets the plate.
+  if(p.plate>0){const g=p.plateMargin>0?2*p.plateMargin:0;if(axis===2){if(p.engrave===true)p.plate=next/s[axis];else p.depth=next/s[axis]-p.plate;}else p.size*=(next/s[axis]-g)/(d[axis]/s[axis]-g);}
+  else if(axis===2)p.depth=next/s[axis];else p.size*=next/d[axis];
  }else if(o.type==='polygon'){
   if(axis===2)p.h=next/s[axis];else{const vals=p.points.map(a=>a[axis]),mid=(Math.max(...vals)+Math.min(...vals))/2,ratio=next/d[axis];for(const a of p.points)a[axis]=mid+(a[axis]-mid)*ratio;}
  }else {out.scale=[...s];out.scale[axis]*=next/d[axis];}
@@ -38,6 +44,18 @@ export function stretch(o,axis,sign,amount){const out=structuredClone(o),d=dimen
 export function faceAxis(o,normal){const n=new T.Vector3(...normal);const order=[0,1,2].sort((a,b)=>Math.abs(n.getComponent(b))-Math.abs(n.getComponent(a)));return {axis:order[0],sign:n.getComponent(order[0])>=0?1:-1};}
 export function localCenter(o){const b=facetedBounds(o);if(b)return b.min.map((v,i)=>(v+b.max[i])/2);if(o.type==='polygon'){return [0,1].map(i=>(Math.max(...o.params.points.map(p=>p[i]))+Math.min(...o.params.points.map(p=>p[i])))/2).concat(0);}if(o.localBounds)return o.localBounds.min.map((v,i)=>(v+o.localBounds.max[i])/2);return [0,0,0];}
 export function worldCenter(o){return new T.Vector3(...localCenter(o)).applyMatrix4(matrix(o)).toArray();}
+// ADR-0001 F3 (Rotate handles): turn o by deg about the WORLD axis (0 X, 1 Y, 2 Z) through center (world). The new
+// orientation is Raxis·R, stored back as the ZYX Euler degrees of rotation() (the separateObject quaternion pattern); the
+// position turns about center, so the selection centre stays put. Float noise within 1e-9 of a micro-degree/micro-mm is
+// dropped (and -0 becomes 0), so 15° steps store exact values and 24 × 15° comes back to the start.
+const tidy=v=>{const r=Math.round(v*1e6)/1e6;return Math.abs(v-r)<1e-9?r+0:v;};
+export const ROTATE_SNAP=15;
+// Q7: snapped turns are whole multiples of 15°; free (Shift held, or Snap off) passes the angle through.
+export const snapAngle=(deg,free=false)=>free?deg:Math.round(deg/ROTATE_SNAP)*ROTATE_SNAP+0;
+// Shallow copy: runs on every pointermove of a ring drag, so params (an imported mesh) are shared, never cloned.
+export function rotateAbout(o,axis,deg,center){const out={...o},n=new T.Vector3(),c=new T.Vector3(...center);n.setComponent(axis,1);
+ const q=new T.Quaternion().setFromAxisAngle(n,T.MathUtils.degToRad(deg)),e=new T.Euler().setFromQuaternion(q.clone().multiply(new T.Quaternion().setFromEuler(rotation(o))),'ZYX');
+ out.rotation=[e.x,e.y,e.z].map(v=>tidy(T.MathUtils.radToDeg(v)));out.position=new T.Vector3(...o.position).sub(c).applyQuaternion(q).add(c).toArray().map(tidy);return out;}
 export function centerPoints(o,topology){const m=matrix(o),d=dimensions(o),points=[{kind:'center',label:'Object center',point:worldCenter(o)}];
  for(let axis=0;axis<3;axis++)for(const sign of [-1,1]){const local=localCenter(o);local[axis]+=sign*d[axis]/2/(o.scale?.[axis]||1);const v=new T.Vector3(...local).applyMatrix4(m);points.push({kind:'axis',axis,sign,label:axes[axis]+' face center',point:v.toArray()});}
  if(topology)for(const f of topology.faces.filter(f=>f.kind==='PLANE')){const p=new T.Vector3(...f.center).applyMatrix4(m);points.push({kind:'face',face:f.index,label:'Face center',point:p.toArray()});}
@@ -45,12 +63,13 @@ export function centerPoints(o,topology){const m=matrix(o),d=dimensions(o),point
 }
 export function alignCenters(o,target){const result=structuredClone(o);const a=worldCenter(o),b=worldCenter(target);result.position=result.position.map((v,i)=>v+b[i]-a[i]);return result;}
 export function alignFaceCenters(o,axis,sign,target,targetAxis,targetSign,overlap=.02){const out=structuredClone(o),d=dimensions(o),td=dimensions(target),a=direction(o,axis,sign).multiplyScalar(d[axis]/2),b=direction(target,targetAxis,targetSign).multiplyScalar(td[targetAxis]/2);const sourceCenter=worldCenter(o),targetCenter=worldCenter(target);out.position=out.position.map((v,i)=>v+targetCenter[i]+b.getComponent(i)-sourceCenter[i]-a.getComponent(i));const into=direction(target,targetAxis,targetSign).multiplyScalar(-overlap);out.position=out.position.map((v,i)=>v+into.getComponent(i));return out;}
-export function withRoundover(o,edgeIndices,radius){const result=structuredClone(o);result.fillets=result.fillets||[];const chosen=new Set(edgeIndices);result.fillets=result.fillets.map(f=>({...f,edges:f.edges.filter(e=>!chosen.has(e))})).filter(f=>f.edges.length);if(radius>0)result.fillets.push({edges:[...chosen],radius});return result;}
+// ADR-0001 F6: kind 'chamfer' stores a symmetric chamfer distance in radius (save format v3); rounds keep {edges,radius}.
+export function withRoundover(o,edgeIndices,radius,kind){const result=structuredClone(o);result.fillets=result.fillets||[];const chosen=new Set(edgeIndices);result.fillets=result.fillets.map(f=>({...f,edges:f.edges.filter(e=>!chosen.has(e))})).filter(f=>f.edges.length);if(radius>0)result.fillets.push(kind==='chamfer'?{edges:[...chosen],radius,kind}:{edges:[...chosen],radius});return result;}
 export function conjoined(objects,id,bounds){const center=bounds?bounds.min.map((v,i)=>(v+bounds.max[i])/2):[0,1,2].map(i=>objects.reduce((s,o)=>s+o.position[i],0)/objects.length);return {id,layerId:layerOf(objects[0]),name:'Conjoined solid',type:'joined',mode:'solid',enabled:true,position:center,rotation:[0,0,0],params:{children:objects.map(o=>({...structuredClone(o),position:o.position.map((v,i)=>v-center[i])}))}};}
 export function selectedPieces(project,ids){return ids.map(id=>project.objects.find(o=>o.id===id)).filter(o=>o?.enabled);}
 export function mergeResult(objects,id,bounds,cutouts=[],fillOverlaps=false){
  assertSameLayer(objects,cutouts);
- const child=(o,mode)=>({...structuredClone(o),sourceMode:o.mode,mode});
+ const child=(o,mode)=>{const c={...structuredClone(o),sourceMode:o.mode,mode};delete c.groupId;return c;};// F5: groupId is top-level only
  const result=conjoined([...objects.map(o=>child(o,'solid')),...cutouts.map(o=>child(o,'cut'))],id,bounds);result.params.operation='add';
  if(fillOverlaps)result.params.fillOverlaps=true;
  const excluded=objects.flatMap(o=>o.excludedCutouts||[]);
@@ -58,3 +77,14 @@ export function mergeResult(objects,id,bounds,cutouts=[],fillOverlaps=false){
  result.name='Merged solid';return result;
 }
 export function connectingBridges(objects,diameter,create){const result=[];for(let i=1;i<objects.length;i++){const a=new T.Vector3(...objects[0].position),b=new T.Vector3(...objects[i].position),v=b.clone().sub(a),length=v.length();if(length<.05)continue;const q=new T.Quaternion().setFromUnitVectors(new T.Vector3(0,0,1),v.normalize()),e=new T.Euler().setFromQuaternion(q,'ZYX'),o=create('cylinder',{diameter,h:length+diameter},a.add(b).multiplyScalar(.5).toArray(),'Connecting bridge');o.rotation=[e.x,e.y,e.z].map(T.MathUtils.radToDeg);o.layerId=layerOf(objects[0]);result.push(o);}return result;}
+
+// S R F is a proper rotation; the remaining local reflection toggles handedness.
+export function mirrorObject(o,plane,center=worldCenter(o)){
+ const axis={YZ:0,XZ:1,XY:2}[plane];if(axis===undefined)throw Error('Invalid mirror plane.');
+ const out=structuredClone(o),s=new T.Matrix4().makeScale(...[0,1,2].map(i=>i===axis?-1:1));
+ const r=s.multiply(new T.Matrix4().makeRotationFromEuler(rotation(o))).multiply(new T.Matrix4().makeScale(-1,1,1));
+ const e=new T.Euler().setFromRotationMatrix(r,'ZYX');out.rotation=[e.x,e.y,e.z].map(T.MathUtils.radToDeg);
+ out.position[axis]=2*center[axis]-out.position[axis];
+ if(out.placement)out.placement[axis]=2*center[axis]-out.placement[axis];
+ if(o.mirrored)delete out.mirrored;else out.mirrored=true;return out;
+}

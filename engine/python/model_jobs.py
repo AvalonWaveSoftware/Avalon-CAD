@@ -28,7 +28,7 @@ def validate_objects(objects):
                 raise ValueError("Invalid object coordinates.")
 
 def build_model(project, tolerance, individual=False):
-    if field(project, "format") != "tristancad" or field(project, "version") != 2:
+    if field(project, "format") != "tristancad" or field(project, "version") not in (2, 3):
         raise ValueError("This is not a supported AvalonCad project.")
     validate_objects(project.objects)
     native.validate_layers(project)
@@ -135,7 +135,7 @@ def process_job(job):
             result = evaluate_boolean(job)
         else:
             model = build_model(job.project, field(job, "tolerance", .15), kind == "preview")
-            result = native.finish_result(model, kind, field(job, "ground", True))
+            result = native.finish_result(model, kind, field(job, "ground", True), field(job, "format", "stl"))
         return native.response(result, field(job, "id"), kind)
     except Exception as error:
         return native.error_response(field(job, "id"), str(error))

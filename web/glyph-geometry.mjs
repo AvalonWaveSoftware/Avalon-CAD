@@ -60,13 +60,35 @@ export function glyphBlueprints(R,char,size){
  }
  return R.organiseBlueprints(blueprints);
 }
+// ADR-0001 F7 glyph finish (save format v3 params, all optional): plate (mm slab; 0 or absent = none), plateMargin (mm around the outline's
+// bounding box), engrave (true: the glyph is cut ENGRAVE_DEPTH = 1 mm into the top of the plate, whatever its depth;
+// Architect F7 ruling 5: the plate must be thicker than 1 mm).
+// Absent or zero values build exactly the 2.x glyph. With a plate the local frame stays centred on the bounding box:
+//   Emboss (plate, no engrave): total height H = plate + depth; plate z ∈ [−H/2, −H/2 + plate], glyph on top.
+//   Engrave: plate z ∈ [−plate/2, plate/2]; the glyph is cut 1 mm deep from its top face.
+// Letter bevel was removed from 3.0 (Master Chief, 2026-10-25); the plate is Manifold (glyphManifold).
+export function glyphFinish(p){const plate=p.plate>0?p.plate:0;return {plate,margin:plate&&p.plateMargin>0?p.plateMargin:0,engrave:!!(plate&&p.engrave===true)};}
+export const hasGlyphFinish=p=>p.plate>0;
+export const ENGRAVE_DEPTH=1;
+export const GLYPH_FINISH_KEYS=['plate','plateMargin','engrave'];
+// Half extents (mm) of the glyph outline's bounding box in the local frame (the outline is centred on it).
+export function glyphHalfExtents(char,size){const F=need(),info=F.glyphInfo(char);if(!info)throw Error('Choose a letter, number or symbol.');const [x0,y0,x1,y1]=info.bbox,k=size/F.GLYPH_FONT.capHeight;return [(x1-x0)*k/2,(y1-y0)*k/2];}
+// z ranges of the plate and of the glyph prism (for Engrave: the cutting prism, which runs depth above the plate so
+// the cut never shares the plate's top face).
+export function glyphLayout(p){const f=glyphFinish(p),d=p.depth;if(!f.plate)return {f,glyph:[-d/2,d/2]};
+ if(f.engrave)return {f,plate:[-f.plate/2,f.plate/2],glyph:[f.plate/2-ENGRAVE_DEPTH,f.plate/2+ENGRAVE_DEPTH]};const H=f.plate+d;return {f,plate:[-H/2,-H/2+f.plate],glyph:[-H/2+f.plate,H/2]};}
 // Manifold solid in the local frame (caller owns the result).
-export function glyphManifold(K,{char,size,depth},tol){
- const cs=new K.CrossSection(glyphLoops(char,size,tol),'NonZero');
- try{return K.Manifold.extrude(cs,depth,0,0,[1,1],true);}finally{cs.delete();}
+export function glyphManifold(K,p,tol){
+ const {char,size,depth}=p,cs=new K.CrossSection(glyphLoops(char,size,tol),'NonZero');
+ if(!hasGlyphFinish(p)){try{return K.Manifold.extrude(cs,depth,0,0,[1,1],true);}finally{cs.delete();}}
+ const {f,plate,glyph}=glyphLayout(p),[hx,hy]=glyphHalfExtents(char,size),keep=[cs],own=x=>(keep.push(x),x);
+ try{const g=own(own(K.Manifold.extrude(cs,glyph[1]-glyph[0])).translate([0,0,glyph[0]]));
+  const slab=own(own(K.Manifold.cube([2*(hx+f.margin),2*(hy+f.margin),f.plate],true)).translate([0,0,(plate[0]+plate[1])/2]));
+  return f.engrave?slab.subtract(g):slab.add(g);}
+ finally{for(const x of keep)x.delete();}
 }
-// Exact B-rep solid in the local frame.
-export function glyphSolid(R,{char,size,depth}){return glyphBlueprints(R,char,size).sketchOnPlane('XY',-depth/2).extrude(depth);}
+// Exact B-rep glyph prism in the local frame (z0 = bottom; default: centred on depth).
+export function glyphSolid(R,{char,size,depth},z0=-depth/2,h=depth){return glyphBlueprints(R,char,size).sketchOnPlane('XY',z0).extrude(h);}
 // Picker tiles (main.js has no outlines): every character as [advance, SVG path d] in font units with Y down, so
 // the sheet shows the exact Roboto Bold shapes that will be built, the same on every platform.
 export async function glyphOutlines(){const F=await loadGlyphs(),out={};

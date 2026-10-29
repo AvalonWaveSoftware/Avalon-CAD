@@ -1,0 +1,35 @@
+import {shipTopologies} from '../web/topology-pack.mjs';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {JSDOM} from 'jsdom';
+import {build} from 'esbuild';
+import {initKernel,buildModel} from '../web/kernel.mjs';
+import {loadPyodide} from 'pyodide';
+import {initLocalEngine} from '../web/local-engine.mjs';
+const K=await initKernel({solidOptions:{wasmBinary:fs.readFileSync('node_modules/replicad-opencascadejs/dist/replicad_single.wasm')}});
+const runtime=await initLocalEngine(K,{loadPyodide,pythonURL:process.cwd()+'/node_modules/pyodide/',pythonSource:fs.readFileSync('engine/python/model_jobs.py','utf8'),rust:{binary:fs.readFileSync('app/assets/mesh-core.wasm')}});
+await build({entryPoints:['web/main.mjs'],outfile:'build/test-ui.js',bundle:true,format:'iife',platform:'browser',target:'chrome100',external:['manifold-3d','node:*'],define:{'import.meta.url':'"https://appassets.androidplatform.net/assets/main.js"'},plugins:[{name:'test-renderer',setup(b){b.onResolve({filter:/^three$/},args=>args.importer.endsWith('three-test.mjs')?null:{path:process.cwd()+'/tests/three-test.mjs'});}}]});
+const dom=new JSDOM(fs.readFileSync('web/index.html','utf8'),{url:'https://appassets.androidplatform.net/assets/index.html',pretendToBeVisual:true,runScripts:'outside-only'}),w=dom.window;
+w.HTMLCanvasElement.prototype.setPointerCapture=function(){};w.HTMLCanvasElement.prototype.releasePointerCapture=function(){};w.HTMLCanvasElement.prototype.hasPointerCapture=function(){return false};const uiErrors=[];w.addEventListener('error',e=>uiErrors.push(e.error?.message||e.message));
+w.HTMLCanvasElement.prototype.getBoundingClientRect=function(){return {left:0,top:0,right:412,bottom:600,width:412,height:600}};w.structuredClone=structuredClone;w.TextEncoder=TextEncoder;w.TextDecoder=TextDecoder;w.ResizeObserver=class{constructor(fn){this.fn=fn}observe(){this.fn()}};Object.defineProperty(w.HTMLCanvasElement.prototype,'clientWidth',{get:()=>412});Object.defineProperty(w.HTMLCanvasElement.prototype,'clientHeight',{get:()=>600});
+w.MessageChannel=class{constructor(){this.port1={};this.port2={close(){}};}};
+w.Worker=class {postMessage(input){if(input.type==='occtPort')return;const data=structuredClone(input);setTimeout(()=>{try{const result=runtime.process(data);result.engine=runtime.info;shipTopologies(result);this.onmessage({data:result});}catch(e){this.onmessage({data:{id:data.id,error:e.message}})}},0)}};
+w.Android={beginFile(name,mime){w.testSaved={name,mime,chunks:[]}},appendFile(x){w.testSaved.chunks.push(x)},finishFile(){w.testSaved.done=true}};
+w.eval(fs.readFileSync('build/test-ui.js','utf8'));
+const $=id=>w.document.getElementById(id),click=id=>$(id).click(),sleep=()=>new Promise(r=>setTimeout(r,25));
+const wait=async fn=>{for(let i=0;i<60;i++){if(fn())return;await sleep();}throw Error('Wait timed out: '+JSON.stringify({resolution:w.__cad.project.objects[0]?.resolution,volume:w.__cad.model?.volume,error:$('editError')?.textContent,toast:$('toast').textContent}))};
+await wait(()=>w.__cad.model!==null);assert.equal(w.__cad.model.volume,0);assert.equal(w.__cad.model.engine.local,true);assert.equal(w.__cad.model.engine.rust,7);
+
+click('addBtn');w.document.querySelector('[data-shape="wedge"]').click();click('applyObject');await wait(()=>w.__cad.project.objects.length===1&&w.__cad.model.volume>0);
+const button=$('mirrorMode');assert.equal(button.classList.contains('pending'),false);assert.equal(button.dataset.mode,'mirror');click('mirrorMode');
+assert.equal(w.__cad.touch.getState().mode,'mirror');assert.equal($('mirrorCopy').getAttribute('aria-pressed'),'true');
+const volume=w.__cad.model.volume,original=JSON.stringify(w.__cad.project.objects[0]),history=w.__cad.historyLength;
+w.document.querySelector('[data-mirror=YZ]').click();await wait(()=>!w.__cad.touch.isCommitting()&&w.__cad.project.objects.length===2);
+assert.equal(JSON.stringify(w.__cad.project.objects[0]),original);assert.equal(w.__cad.project.objects[1].mirrored,true);assert.equal(w.__cad.historyLength,history+1);
+click('undo');await wait(()=>w.__cad.project.objects.length===1);click('redo');await wait(()=>w.__cad.project.objects.length===2);click('mirrorCopy');
+assert.equal($('mirrorCopy').getAttribute('aria-pressed'),'false');w.document.querySelector('[data-mirror=XZ]').click();await wait(()=>!w.__cad.touch.isCommitting());assert.equal(w.__cad.project.objects.length,2);
+assert.equal(!!w.__cad.project.objects[1].mirrored,false);
+// Failure restores both the project and selection, and records no history entry.
+const before=JSON.stringify(w.__cad.project),h=w.__cad.historyLength,savedProcess=runtime.process;runtime.process=()=>{throw Error('test check failure')};
+w.document.querySelector('[data-mirror=XY]').click();await wait(()=>!w.__cad.touch.isCommitting());assert.equal(JSON.stringify(w.__cad.project),before);assert.equal(w.__cad.historyLength,h);runtime.process=savedProcess;
+assert.deepEqual(uiErrors,[]);runtime.destroy();dom.window.close();console.log('mirror-ui: copy default, YZ copy, in-place XZ, undo/redo, one history entry, failure rollback; real local geometry, rendering stubbed');

@@ -16,5 +16,24 @@ export function decodePNG(buf){
  return {width:w,height:h,data:out};
 }
 // Number of pixels whose RGBA differs. Different sizes count every pixel as differing.
+// ADR-0001 F6 ruling 5: like diffPixels, but also counts the differing pixels outside box ([x0,y0,x1,y1] in image
+// pixels, x1/y1 exclusive; or an array of such boxes, a pixel inside any of them is allowed) and returns their bounding box, so a re-baseline can be limited to one element's box.
+export function diffOutside(a,b,box){const A=decodePNG(a),B=decodePNG(b);if(A.width!==B.width||A.height!==B.height)return {differing:Math.max(A.width*A.height,B.width*B.height),outside:Math.max(A.width*A.height,B.width*B.height),sizeMismatch:true};
+ let n=0,out=0,bb=null;const boxes=Array.isArray(box[0])?box:[box],inside=(x,y)=>boxes.some(([x0,y0,x1,y1])=>x>=x0&&x<x1&&y>=y0&&y<y1);for(let y=0;y<A.height;y++)for(let x=0;x<A.width;x++){const i=(y*A.width+x)*4;if(A.data.readUInt32BE(i)===B.data.readUInt32BE(i))continue;n++;
+  if(!inside(x,y)){out++;bb=bb?[Math.min(bb[0],x),Math.min(bb[1],y),Math.max(bb[2],x+1),Math.max(bb[3],y+1)]:[x,y,x+1,y+1];}}return {differing:n,outside:out,outsideBox:bb};}
 export function diffPixels(a,b){const A=decodePNG(a),B=decodePNG(b);if(A.width!==B.width||A.height!==B.height)return {differing:Math.max(A.width*A.height,B.width*B.height),sizeMismatch:true};
  let n=0;for(let i=0;i<A.data.length;i+=4)if(A.data.readUInt32BE(i)!==B.data.readUInt32BE(i))n++;return {differing:n,total:A.width*A.height};}
+// ADR-0001 hidden ruling: differing pixels inside rect ([x0,y0,x1,y1] image px, x1/y1 exclusive, clipped to the image).
+// Different sizes: null (the caller fails loudly).
+export function diffIn(a,b,rect){const A=decodePNG(a),B=decodePNG(b);if(A.width!==B.width||A.height!==B.height)return null;
+ const [x0,y0,x1,y1]=[Math.max(0,rect[0]),Math.max(0,rect[1]),Math.min(A.width,rect[2]),Math.min(A.height,rect[3])];let n=0;
+ for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){const i=(y*A.width+x)*4;if(A.data.readUInt32BE(i)!==B.data.readUInt32BE(i))n++;}return n;}
+// ADR-0001 ruling (a) on 4f9392c: differing px in a hidden container's region (CSS px rect, scaled by dpr) and how many
+// of them lie outside every approved area OF THIS CAPTURE. areas: [{capture, box:[x0,y0,x1,y1] image px}]; an area
+// measured in another capture never counts. Different sizes: null.
+export function regionDiff({base,now,dpr=1,capture,areas=[]},rect){const A=decodePNG(base),B=decodePNG(now);if(A.width!==B.width||A.height!==B.height)return null;
+ const own=areas.filter(a=>a&&a.capture===capture&&Array.isArray(a.box)).map(a=>a.box),k=dpr;
+ const [x0,y0,x1,y1]=[Math.max(0,Math.floor(rect[0]*k)),Math.max(0,Math.floor(rect[1]*k)),Math.min(A.width,Math.ceil((rect[0]+rect[2])*k)),Math.min(A.height,Math.ceil((rect[1]+rect[3])*k))];
+ let differing=0,uncovered=0;for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){const i=(y*A.width+x)*4;if(A.data.readUInt32BE(i)===B.data.readUInt32BE(i))continue;differing++;
+  if(!own.some(([a0,b0,a1,b1])=>x>=a0&&x<a1&&y>=b0&&y<b1))uncovered++;}
+ return {differing,uncovered};}

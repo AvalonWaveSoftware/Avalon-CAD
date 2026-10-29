@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 // WS14 bench (OCCT_SIDECAR), Node. A cylinder (80 x 30 mm, face tolerance 0.005, a loadable project) gets both
 // circular edges filleted (radius ~3) for the first time
 // in a project with 10 plain objects, then another object is moved while the fillet is still being computed.
@@ -11,7 +12,7 @@
 // Gated: on.move <= 50 ms (ADR v1 sidecar acceptance) and the final move result is byte-identical to the in-process engine's. Run from the repo root after build:web: node tests/perf/ws14-bench.mjs [--check]
 import fs from 'node:fs';import os from 'node:os';
 const check=process.argv.includes('--check'),ROUNDS=+(process.env.AVALON_WS14_ROUNDS||5);
-const refDir=new URL('../.ws14-ref/',import.meta.url).pathname;fs.rmSync(refDir,{recursive:true,force:true});fs.cpSync('web',refDir+'web',{recursive:true});
+const refDir=fileURLToPath(new URL('../.ws14-ref/',import.meta.url));fs.rmSync(refDir,{recursive:true,force:true});fs.cpSync('web',refDir+'web',{recursive:true});
 process.on('exit',()=>fs.rmSync(refDir,{recursive:true,force:true}));
 const {initKernel}=await import('../../web/kernel.mjs'),{initLocalEngine}=await import('../../web/local-engine.mjs'),T=await import('../../web/templates.mjs');
 const {sidecarClient}=await import('../occt-sidecar-client.mjs');

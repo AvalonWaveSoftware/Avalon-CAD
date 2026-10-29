@@ -1,0 +1,535 @@
+{
+ "note": "Approved pixel areas for in-flight, unmerged changes only (ADR-0001 ruling, 2026-10-17): boxes approve PIXELS only, every DOM/string difference fails. An entry is removed once its change is in a baseline. F6 (round-chamfer-dropdown: [data-mode=round], #edgeToolMenu, sheet-radius-menu #sheet p.subtle) was removed when perf-baseline-release-3.0-6892eb7 (a full render of 6892eb7) became the baseline. Format: {baseline: <baseline folder name>, box: <selector>, overlay: <selector|null>, scenes: {<scene>: [<selector>...]}}; pixels.mjs applies it only when basename(AVALON_PIXEL_BASELINE) equals baseline. DOM entries (ADR-0001 approved-dom-areas): \"dom\" is a list of {scene: scene name, capture id or \"*\", selector, kind: attribute name or \"text\", expected: the exact new value, approval: commit or ruling}. A DOM change in a capture passes only when an entry matches it exactly (scene, element matches selector, same kind, new value === expected); every other DOM change, every aria-label/role change without its own entry and every computed-style/box change fails. Selectors: one complex selector of tag/#id/.class/[attr=value] compounds joined by \" \" or \">\", whose last compound has an #id, .class or [attr=value]; no \"*\", lists, pseudo-classes, \"+\"/\"~\", presence or partial attribute matches, or bare tags (tests/perf/approved-dom.mjs). expected must be a string in the baseline's strings-baseline.json or tests/perf/strings-additions.json (checked at load). Like the boxes, entries are for in-flight, unmerged changes only: an entry is removed when its change merges and the baseline rolls forward. export-3mf (ADR-0001 F2a, NOT merged into release-3.0; HELD): the Export sheet's new File format field (c60c94c; Architect ruling 2, 19:55 CT) reflows the sheet below it, so the approved area is the sheet panel (#sheet) in the sheet-export scenes only (box null = no global box; every other scene is strict). Pixels only: the sheet-export DOM still differs (the new field) and fails as ruled; QA re-captures sheet-export@phone/desktop (Master Chief approval). Remove this entry when F2a is in a baseline. ADR-0001 F7 (glyph-emboss-bevel), Architect ruling R3 (Oct 18): edit-glyph@desktop/@phone only: the added #glyphFinish block (Edit-glyph finish fields), the #shapeSize text of the Q11 pre-filled glyph, and the sheet content beneath it shifting down (box changes inside the per-scene area #sheetContent). Approval 'F7 batch (pending Master Chief)'; remove when F7 merges and the baseline rolls forward.",
+ "baseline": "perf-baseline-release-3.0-6e08e75",
+ "box": "#desktopHelp",
+ "overlay": null,
+ "scenes": {
+  "*": [
+   "#measureBtn",
+   "#mirrorMode",
+   "#rotateMode"
+  ],
+  "edit-glyph": [
+   "#sheet",
+   "#sheetContent"
+  ],
+  "sheet-edit-object": [
+   "#sheet",
+   "#hollowBox"
+  ],
+  "sheet-export": [
+   "#sheet"
+  ],
+  "shell-closed": [
+   "#faceCountMetrics"
+  ]
+ },
+ "dom": [
+  {
+   "scene": "*",
+   "selector": "#desktopHelp",
+   "kind": "text",
+   "expected": "Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom · ? for shortcuts",
+   "approval": "keyboard-shortcuts help pill '· ? for shortcuts' (QA'd at 40f3c6e)"
+  },
+  {
+   "scene": "*",
+   "selector": "#helpBtn",
+   "kind": "title",
+   "expected": "Help (?)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#undo",
+   "kind": "title",
+   "expected": "Undo (Cmd/Ctrl+Z)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#redo",
+   "kind": "title",
+   "expected": "Redo (Cmd/Ctrl+Shift+Z)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#wire",
+   "kind": "title",
+   "expected": "Wireframe (W)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#fit",
+   "kind": "title",
+   "expected": "Fit model (0)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#touchModes>button[data-mode=select]",
+   "kind": "title",
+   "expected": "Select (V)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#touchModes>button[data-mode=move]",
+   "kind": "title",
+   "expected": "Move (M)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#touchModes>button[data-mode=stretch]",
+   "kind": "title",
+   "expected": "Stretch (S)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#touchModes>button[data-mode=round]",
+   "kind": "title",
+   "expected": "Edge (F)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#deselectBtn",
+   "kind": "title",
+   "expected": "Clear (Shift+Delete)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#addBtn",
+   "kind": "title",
+   "expected": "Add (A)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#exportBtn",
+   "kind": "title",
+   "expected": "Export (Cmd/Ctrl+E)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#closeSheet",
+   "kind": "title",
+   "expected": "Close panel (Esc)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#duplicateObject",
+   "kind": "title",
+   "expected": "Duplicate (Cmd/Ctrl+D)",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "scene": "*",
+   "selector": "#unitSwitch",
+   "kind": "added",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)"
+  },
+  {
+   "scene": "*",
+   "selector": "#dimsTitle",
+   "kind": "added",
+   "expected": "Dimensions · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)"
+  },
+  {
+   "scene": "*",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Bottom-center placement · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)"
+  },
+  {
+   "scene": "*",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Object center position · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)"
+  },
+  {
+   "scene": "*",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.sectionlabel",
+   "newSelector": "#posTitle",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the position header gains id posTitle"
+  },
+  {
+   "scene": "*",
+   "selector": "#sheetContent>div.sectionlabel[style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\"]",
+   "kind": "text",
+   "expected": "",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle"
+  },
+  {
+   "scene": "prefab-x3@desktop",
+   "selector": "#unitSwitch",
+   "kind": "added",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "prefab-x3@desktop",
+   "selector": "#dimsTitle",
+   "kind": "added",
+   "expected": "Dimensions · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "prefab-x3@desktop",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Bottom-center placement · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "prefab-x3@desktop",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.sectionlabel",
+   "newSelector": "#posTitle",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the position header gains id posTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "prefab-x3@desktop",
+   "selector": "#sheetContent>div.sectionlabel[style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\"]",
+   "kind": "text",
+   "expected": "",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "prefab-x3@phone",
+   "selector": "#unitSwitch",
+   "kind": "added",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "prefab-x3@phone",
+   "selector": "#dimsTitle",
+   "kind": "added",
+   "expected": "Dimensions · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "prefab-x3@phone",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Bottom-center placement · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "prefab-x3@phone",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.sectionlabel",
+   "newSelector": "#posTitle",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the position header gains id posTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "prefab-x3@phone",
+   "selector": "#sheetContent>div.sectionlabel[style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\"]",
+   "kind": "text",
+   "expected": "",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "imported-stl@desktop",
+   "selector": "#unitSwitch",
+   "kind": "added",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "imported-stl@desktop",
+   "selector": "#dimsTitle",
+   "kind": "added",
+   "expected": "Dimensions · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "imported-stl@desktop",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Bottom-center placement · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "imported-stl@desktop",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.sectionlabel",
+   "newSelector": "#posTitle",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the position header gains id posTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "imported-stl@desktop",
+   "selector": "#sheetContent>div.sectionlabel[style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\"]",
+   "kind": "text",
+   "expected": "",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@desktop"
+  },
+  {
+   "scene": "imported-stl@phone",
+   "selector": "#unitSwitch",
+   "kind": "added",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "imported-stl@phone",
+   "selector": "#dimsTitle",
+   "kind": "added",
+   "expected": "Dimensions · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "imported-stl@phone",
+   "selector": "#posTitle",
+   "kind": "added",
+   "expected": "Bottom-center placement · millimeters",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c)",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "imported-stl@phone",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.sectionlabel",
+   "newSelector": "#posTitle",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the position header gains id posTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "imported-stl@phone",
+   "selector": "#sheetContent>div.sectionlabel[style=\"display:flex;align-items:center;justify-content:space-between;gap:8px\"]",
+   "kind": "text",
+   "expected": "",
+   "approval": "inch-units F1c mm | in switch (QA'd at 61969ba/378404c): the dims header's own text moves into span#dimsTitle",
+   "hidden": true,
+   "regionFrom": "sheet-edit-object@phone"
+  },
+  {
+   "scene": "edit-glyph@desktop",
+   "selector": "#glyphFinish",
+   "kind": "added",
+   "approval": "F7 plate finish after bevel removal (Master Chief via Grok Bot 2026-10-25 08:58 CT): 2-field finish block; captures handoffs/avalon-cad/glyph-approval/edit-glyph@{phone,desktop}.png"
+  },
+  {
+   "scene": "edit-glyph@desktop",
+   "selector": "#shapeSize",
+   "kind": "text",
+   "expected": "Overall size 17.59 × 24.99 × 7.00 mm (X × Y × Z).",
+   "approval": "F7 plate finish after bevel removal (Master Chief via Grok Bot 2026-10-25 08:58 CT): 2-field finish block; captures handoffs/avalon-cad/glyph-approval/edit-glyph@{phone,desktop}.png"
+  },
+  {
+   "scene": "edit-glyph@phone",
+   "selector": "#glyphFinish",
+   "kind": "added",
+   "approval": "F7 plate finish after bevel removal (Master Chief via Grok Bot 2026-10-25 08:58 CT): 2-field finish block; captures handoffs/avalon-cad/glyph-approval/edit-glyph@{phone,desktop}.png"
+  },
+  {
+   "scene": "edit-glyph@phone",
+   "selector": "#shapeSize",
+   "kind": "text",
+   "expected": "Overall size 17.59 × 24.99 × 7.00 mm (X × Y × Z).",
+   "approval": "F7 plate finish after bevel removal (Master Chief via Grok Bot 2026-10-25 08:58 CT): 2-field finish block; captures handoffs/avalon-cad/glyph-approval/edit-glyph@{phone,desktop}.png"
+  },
+  {
+   "scene": "*",
+   "selector": "#toast",
+   "kind": "text",
+   "expected": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
+   "approval": "Android safety stages (pending Master Chief)"
+  },
+  {
+   "scene": "*",
+   "selector": "#toast",
+   "kind": "text",
+   "expected": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
+   "approval": "Android safety stages (pending Master Chief)"
+  },
+  {
+   "scene": "sheet-export@phone",
+   "selector": "#sheetContent>div.field>label[for=\"exportFormat\"]",
+   "kind": "for",
+   "expected": "exportFormat",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@phone",
+   "selector": "#sheetContent>div.field>label[for=\"exportFormat\"]",
+   "kind": "text",
+   "expected": "File format",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@phone",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.field>select#quality",
+   "newSelector": "#exportFormat",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@phone",
+   "selector": "#exportFormat",
+   "kind": "added",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@phone",
+   "selector": "#sheetContent>div.field",
+   "kind": "added",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT (the separate quality block)"
+  },
+  {
+   "scene": "sheet-export@desktop",
+   "selector": "#sheetContent>div.field>label[for=\"exportFormat\"]",
+   "kind": "for",
+   "expected": "exportFormat",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@desktop",
+   "selector": "#sheetContent>div.field>label[for=\"exportFormat\"]",
+   "kind": "text",
+   "expected": "File format",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@desktop",
+   "kind": "replaced",
+   "oldSelector": "#sheetContent>div.field>select#quality",
+   "newSelector": "#exportFormat",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@desktop",
+   "selector": "#exportFormat",
+   "kind": "added",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "scene": "sheet-export@desktop",
+   "selector": "#sheetContent>div.field",
+   "kind": "added",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT (the separate quality block)"
+  },
+  {
+   "scene": "*",
+   "selector": "#measureBtn",
+   "kind": "unreserved",
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
+  },
+  {
+   "scene": "*",
+   "selector": "#measureBtn",
+   "kind": "aria-label",
+   "expected": "Measure",
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
+  },
+  {
+   "scene": "*",
+   "selector": "#measureBtn",
+   "kind": "title",
+   "expected": "Measure (T)",
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
+  },
+  {
+   "scene": "*",
+   "selector": "#measureBtn>svg[aria-hidden=\"true\"]",
+   "kind": "added",
+   "approval": "Architect ruling 2026-10-25 07:58 CT: F1e measure button going live is the approved feature; area and entries scoped to #measureBtn only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
+  },
+  {
+   "scene": "*",
+   "selector": "#mirrorMode",
+   "kind": "unreserved",
+   "approval": "Architect ruling 2026-10-25 07:58 CT (scoped approved area for a stage's own new control): F4 mirror mode button going live; scoped to #mirrorMode only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)",
+   "modes": [
+    "mirror"
+   ]
+  },
+  {
+   "scene": "*",
+   "selector": "#mirrorMode",
+   "kind": "title",
+   "expected": "Mirror",
+   "approval": "Architect ruling 2026-10-25 07:58 CT (scoped approved area for a stage's own new control): F4 mirror mode button going live; scoped to #mirrorMode only, phone and desktop (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
+  },
+  {
+   "scene": "*",
+   "selector": "#rotateMode",
+   "kind": "unreserved",
+   "modes": [
+    "rotate"
+   ],
+   "approval": "Architect rulings 2026-10-25 07:58/08:28/09:28 CT (scoped approved area for a stage's own new control): F3 Rotate mode button going live; scoped to #rotateMode only, phone and desktop; strings approved by Master Chief 08:14"
+  },
+  {
+   "scene": "*",
+   "selector": "#rotateMode",
+   "kind": "title",
+   "expected": "Rotate (R)",
+   "approval": "Architect rulings 2026-10-25 07:58/08:28/09:28 CT (scoped approved area for a stage's own new control): F3 Rotate mode button going live; scoped to #rotateMode only, phone and desktop; strings approved by Master Chief 08:14"
+  },
+  {
+   "scene": "sheet-edit-object",
+   "selector": "#hollowBox",
+   "kind": "added",
+   "approval": "Architect ruling 2026-10-25 10:40 CT (batch-3.0): F8 Hollow section added to the Edit sheet; scoped to the #hollowBox shell controls in sheet-edit-object (phone and desktop) inside the existing #sheet pixel area; the controls below it move by one uniform offset"
+  },
+  {
+   "scene": "shell-closed",
+   "selector": "#faceCountMetrics",
+   "kind": "text",
+   "expected": "6 flat faces (unhollowed) · 24 mesh triangles",
+   "approval": "Waydroid QA 2026-10-25 (b), waydroid-fix-3.0; Master Chief ruling 2026-10-25 23:09 CT (mem-preview-3.0): APPROVED, suffix ' (unhollowed)': the Edit sheet face count of a hollow part says it counts the base shape's faces; scoped to #faceCountMetrics in shell-closed (phone and desktop)"
+  },
+  {
+   "scene": "*",
+   "selector": "#toast",
+   "kind": "text",
+   "expected": "This was too heavy to finish on this device, so it was stopped. Your model wasn't changed.",
+   "approval": "Android safety stages (pending Master Chief)"
+  }
+ ]
+}

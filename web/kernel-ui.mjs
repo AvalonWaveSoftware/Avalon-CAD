@@ -1,9 +1,11 @@
+import {validateGroups} from './groups.mjs';
 // WS9 (ADR v2): the UI-safe part of the kernel (validation, QUALITY, polygon checks, STL import). main.mjs and the UI
 // modules import only this file, so replicad/OCCT glue (kernel.mjs, cad-solid.mjs) stays out of main.js. Moved verbatim.
 import {curvedTypes} from './facets.mjs';
 import {isThread,containsThreads,validateThread} from './threads.mjs';
 import {normalizeLayers} from './layers.mjs';
 import {GLYPH_CHARS,GLYPH_METRICS} from './glyph-metrics.mjs';
+import {validateShell} from './shell-rules.mjs';
 // Letters, numbers & symbols: font ids this build can draw (the id is part of the saved params, ADR §2.2).
 export const GLYPH_FONTS=Object.freeze([GLYPH_METRICS.id]);
 export const isGlyphChar=c=>typeof c==='string'&&c.length===1&&GLYPH_CHARS.includes(c);
@@ -16,11 +18,18 @@ const meshPassed=new WeakMap();
 // WS11: validateProject(snapshot, true) validates an Undo snapshot (web/history.mjs: a frozen JSON tree). The copy is
 // what structuredClone gives for a JSON tree, except that frozen number arrays of 256+ entries (imported meshes) stay
 // shared: they cannot change, and every other array/object is a fresh mutable copy.
-function cloneSharing(v){if(v===null||typeof v!=='object')return v;if(Array.isArray(v))return v.length>=256&&Object.isFrozen(v)&&typeof v[0]==='number'?v:v.map(cloneSharing);const o={};for(const k of Object.keys(v))o[k]=cloneSharing(v[k]);return o;}
+export function cloneSharing(v){if(v===null||typeof v!=='object')return v;if(Array.isArray(v))return v.length>=256&&Object.isFrozen(v)&&typeof v[0]==='number'?v:v.map(cloneSharing);const o={};for(const k of Object.keys(v))o[k]=cloneSharing(v[k]);return o;}
+// limits-3.0 rev6 (Waydroid QA D1): imported mesh arrays are never written after the import (nothing assigns into them), so a
+// copy of a project or object that holds one may share them instead of duplicating 40-50 MB of numbers per copy. cloneLean
+// is structuredClone for everything else; with no mesh in the tree it is structuredClone exactly.
+const hasMesh=o=>o?.type==='mesh'||(Array.isArray(o?.params?.children)&&o.params.children.some(hasMesh));
+function keepMesh(v,inMesh){if(v===null||typeof v!=='object')return v;if(Array.isArray(v))return inMesh&&v.length>=256&&typeof v[0]==='number'?v:v.map(x=>keepMesh(x,false));const o={};for(const k of Object.keys(v))o[k]=keepMesh(v[k],inMesh||k==='mesh');return o;}
+export const cloneLean=v=>(Array.isArray(v?.objects)?v.objects:[v]).some(hasMesh)?keepMesh(v,false):structuredClone(v);
 export function validateProject(p, shareFrozen=false) {
-  if (!p || p.format!=='tristancad' || p.version!==2 || !Array.isArray(p.objects) || p.objects.length>100) throw Error('This is not a supported AvalonCad project (maximum 100 objects).');
-  const out=shareFrozen?cloneSharing(p):structuredClone(p);
+  if (!p || p.format!=='tristancad' || (p.version!==2&&p.version!==3) || !Array.isArray(p.objects) || p.objects.length>100) throw Error('This is not a supported AvalonCad project (maximum 100 objects).');
+  const out=shareFrozen?cloneSharing(p):cloneLean(p);
   normalizeLayers(out);
+  validateGroups(out);
   if(out.buildPlaneEnabled!==undefined&&typeof out.buildPlaneEnabled!=='boolean')throw Error('Invalid build-plane setting.');
   out.name=String(out.name||'Untitled').slice(0,80);
   const types=['box','rounded','cylinder','cone','sphere','tube','threadrod','threadtube','polygon','mesh','joined','wedge','pyramid','prefab','torus','triprism','tetrahedron','octahedron','decahedron','dodecahedron','icosahedron','glyph'];
@@ -43,8 +52,10 @@ export function validateProject(p, shareFrozen=false) {
       if(r.mode==='faces'&&(!Number.isInteger(r.count)||r.count<(o.type==='sphere'?4:o.type==='rounded'?1:3)||r.count>(o.type==='rounded'?128:512)))throw Error(o.type==='sphere'?'Sphere face count must be a whole number from 4 to 512.':o.type==='rounded'?'Segments per corner must be a whole number from 1 to 128.':'Sides must be a whole number from 3 to 512.');
       if(r.mode==='tolerance'&&(!Number.isFinite(r.tolerance)||r.tolerance<.005||r.tolerance>2))throw Error('Face resolution must be from 0.005 to 2 mm.');
     }
+    if(o.mirrored!==undefined&&typeof o.mirrored!=='boolean')throw Error('Invalid object coordinates.');
     if(o.scale && (!Array.isArray(o.scale)||o.scale.length!==3||o.scale.some(v=>!Number.isFinite(v)||v<.001||v>1000)))throw Error('Invalid object scale.');
-    if(o.fillets && (!Array.isArray(o.fillets)||o.fillets.length>100||o.fillets.some(f=>!Number.isFinite(f.radius)||f.radius<0||f.radius>10000||!Array.isArray(f.edges)||f.edges.length>500||f.edges.some(i=>!Number.isInteger(i)||i<0||i>10000))))throw Error('Invalid roundover.');
+    if(o.fillets && (!Array.isArray(o.fillets)||o.fillets.length>100||o.fillets.some(f=>!Number.isFinite(f.radius)||f.radius<0||f.radius>10000||!Array.isArray(f.edges)||f.edges.length>500||f.kind!==undefined&&f.kind!=='chamfer'||f.edges.some(i=>!Number.isInteger(i)||i<0||i>10000))))throw Error('Invalid roundover.');
+    if(o.shell!==undefined)validateShell(o); // ADR-0001 F8 (shell-rules.mjs)
     if(o.type==='joined') {if(!Array.isArray(o.params.children)||o.params.children.length<2)throw Error('A combined solid needs at least two components.');if(!o.params.children.some(c=>c.mode!=='cut'))throw Error('Combined objects need positive material.');validateProject({format:'tristancad',version:2,objects:o.params.children,layers:out.layers,activeLayer:out.activeLayer});}
     if(o.type==='prefab'){if(!Array.isArray(o.params.children)||!o.params.children.length||o.params.children.length>100||!o.params.children.some(c=>c.enabled!==false&&c.mode!=='cut'))throw Error('A prefab needs 1–100 components with positive material.');if(!Array.isArray(o.params.layers))throw Error('The prefab is missing its internal layers.');validateProject({format:'tristancad',version:2,objects:o.params.children,layers:o.params.layers});}
     for(const v of Object.values(o.params)) if(typeof v==='number' && (!Number.isFinite(v)||Math.abs(v)>10000)) throw Error('Invalid dimensions.');
@@ -55,6 +66,11 @@ export function validateProject(p, shareFrozen=false) {
     if(o.type==='tube' && o.params.inner>=o.params.diameter) throw Error('The inner diameter must be smaller than the outer diameter.');
     if(o.type==='torus' && !(o.params.tube<o.params.diameter/2)) throw Error('The tube diameter must be less than half the outer diameter.');
     if(o.type==='glyph' && (!isGlyphChar(o.params.char)||!GLYPH_FONTS.includes(o.params.font))) throw Error('Choose a letter, number or symbol.');
+    // ADR-0001 F7 glyph finish (v3): plate/plateMargin ≥ 0, engrave boolean. Engrave
+    // cuts 1 mm into the plate (Architect ruling 5), so it needs a plate thicker than 1 mm. A finished glyph has no
+    // per-edge roundovers (it has no edge picking).
+    if(o.type==='glyph'){const q=o.params;if(['plate','plateMargin'].some(k=>q[k]!==undefined&&!(typeof q[k]==='number'&&q[k]>=0))||q.engrave!==undefined&&typeof q.engrave!=='boolean'||q.plate>0&&o.fillets?.some(f=>f.radius>0))throw Error('Invalid dimensions.');
+     if(q.engrave===true&&!(q.plate>1))throw Error('Engrave needs a plate thicker than 1 mm.');}
     if(o.type==='polygon') {
       const pts=o.params.points;
       if(!Array.isArray(pts)||pts.length<3||pts.length>300||pts.some(a=>!Array.isArray(a)||a.length!==2||a.some(v=>!Number.isFinite(v)||Math.abs(v)>10000))) throw Error('Invalid sketch polygon.');

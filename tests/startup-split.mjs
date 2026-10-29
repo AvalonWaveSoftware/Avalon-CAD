@@ -8,7 +8,16 @@ const main=fs.readFileSync('app/assets/main.js','utf8'),size=fs.statSync('app/as
 if(!BUNDLE_SPLIT){assert.ok(size>800000,'legacy bundle');console.log('Startup split skipped: BUNDLE_SPLIT is off (main.js',size,'B)');process.exit(0);}
 // ADR §4: main.js <= 690 KB. Read as KiB since WS12 (690,497 B after WS11+WS12, 0.07 % over 690,000; under the ADR's
 // >10 % fail rule and within build-web's 1 % guard over tools/main-js-size.json, which stays the strict regression check).
-assert.ok(size<=690*1024,'main.js '+size+' B > 690 KiB (ADR)');
+// ADR-0001 Q15 / Architect ruling 3 (W0): the cap is 740 KiB (757,760 B).
+assert.ok(size<=757760,'main.js '+size+' B > 757,760 B (740 KiB cap)');
+// ADR-0001 W0 (ruling 4): lazy chunks. main.js never imports a chunk statically (so none loads at startup); every
+// dynamic import() target exists in app/assets, every chunk file is referenced, and no chunk carries engine code.
+assert.ok(!/(?:^|[;}\n])import(?:[^(;]*?from)?\s*["']\.\/chunk-/.test(main),'main.js imports a chunk statically');
+const lazy=[...main.matchAll(/import\(["']\.\/(chunk-[\w-]+\.js)["']\)/g)].map(m=>m[1]),files=fs.readdirSync('app/assets').filter(f=>/^chunk-.*\.js$/.test(f));
+// stl-import-weld: lazy worker chunks (tools/worker-chunks.mjs) are referenced by the worker bundles, never by main.js.
+const workerLazy=['worker.js','worker-sidecar.js'].flatMap(f=>[...fs.readFileSync('app/assets/'+f,'utf8').matchAll(/import\(["']\.\/(chunk-[\w-]+\.js)["']\)/g)].map(m=>m[1]));lazy.push(...workerLazy.filter(f=>!lazy.includes(f)));
+assert.ok(lazy.length>=1,'main.js has at least one lazy import()');assert.deepEqual([...new Set(lazy)].sort(),files.sort(),'lazy imports and chunk files match');
+for(const f of files){const c=fs.readFileSync('app/assets/'+f,'utf8');for(const marker of ['BRepAlgoAPI','opencascade','setOC'])assert.ok(!c.includes(marker),f+' contains '+marker);}
 for(const marker of ['BRepAlgoAPI','opencascade','setOC'])assert.ok(!main.includes(marker),'main.js contains '+marker);
 const empty={objects:[],layers:[]},one={objects:[{id:'a'}]};
 for(const type of ['preview','check','export','groundProject'])assert.equal(needsSolid({type,project:empty}),false,type+' empty');

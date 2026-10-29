@@ -1,5 +1,6 @@
 """Check Android's install-time resource-table requirements in the signed APK."""
 import argparse
+import re
 import struct
 from pathlib import Path
 from zipfile import ZipFile, ZIP_STORED
@@ -11,18 +12,86 @@ PYTHON_ENTRIES = ['assets/python/pyodide.mjs', 'assets/python/pyodide.asm.js', '
                   'assets/python/model_jobs.py'] if 'JS_ENGINE=false' in _FLAGS else []
 # WS8: with PARALLEL_INIT the APK stores *.wasm and *.zip uncompressed (ADR D3) and ships assets/perf-flags.json.
 STORED_ASSETS = 'PARALLEL_INIT=true' in _FLAGS
+# ADR-0001 android-app-id (2026-10-18 06:40 CT): Android 3.0 ships as com.avalonwavesoftware.cad (clean move, no aapt rename).
+PACKAGE = 'com.avalonwavesoftware.cad'
+# Test APKs (throwaway test key only) install side by side as PACKAGE + '.test'. That ID is accepted only when the APK's
+# signer certificate is the throwaway test key, pinned by its SHA-256 certificate digest (subject CN=Avalon CAD TEST ONLY,
+# O=Not for release); matching the subject name is not enough. A release-key APK must be PACKAGE.
+TEST_PACKAGE = PACKAGE + '.test'
+TEST_KEY_SHA256 = '1975a44d434f4d96c62fd09a290db1ea1be313c6409ee5a8501ec2d03cc53d4f'
 
 
-def check_apk(path):
+def signer_digests(path):
+    """Signer certificate SHA-256 digests from `apksigner verify --print-certs` (APKSIGNER env, PATH, or the box SDK)."""
+    import os, shutil, subprocess
+    tool = os.environ.get('APKSIGNER') or shutil.which('apksigner') or str(Path.home() / '.local/android/build-tools/35.0.0/apksigner')
+    out = subprocess.run([tool, 'verify', '--print-certs', str(path)], capture_output=True, text=True)
+    assert out.returncode == 0, f'apksigner verify failed: {out.stderr.strip() or out.stdout.strip()}'
+    return [line.split(':', 1)[1].strip().lower() for line in out.stdout.splitlines()
+            if re.match(r'Signer #\d+ certificate SHA-256 digest:', line)]
+
+
+def manifest_package(axml):
+    """The package attribute of <manifest> in a compiled (binary XML) AndroidManifest.xml."""
+    assert struct.unpack_from('<HHI', axml, 0)[0] == 0x0003, 'AndroidManifest.xml is not binary XML'
+    strings, pos = None, struct.unpack_from('<H', axml, 2)[0]
+    while pos < len(axml):
+        kind, header_size, size = struct.unpack_from('<HHI', axml, pos)
+        if kind == 0x0001:  # string pool
+            count, _, flags, start = struct.unpack_from('<IIII', axml, pos + 8)
+            offsets = struct.unpack_from(f'<{count}I', axml, pos + header_size)
+            strings = []
+            for off in offsets:
+                at = pos + start + off
+                if flags & 0x100:  # UTF-8: UTF-16 length, then byte length (1 or 2 bytes each)
+                    at += 2 if axml[at] & 0x80 else 1
+                    n = axml[at]
+                    if n & 0x80:
+                        n, at = ((n & 0x7f) << 8) | axml[at + 1], at + 2
+                    else:
+                        at += 1
+                    strings.append(axml[at:at + n].decode('utf-8'))
+                else:
+                    n = struct.unpack_from('<H', axml, at)[0]
+                    if n & 0x8000:
+                        n, at = ((n & 0x7fff) << 16) | struct.unpack_from('<H', axml, at + 2)[0], at + 4
+                    else:
+                        at += 2
+                    strings.append(axml[at:at + 2 * n].decode('utf-16-le'))
+        elif kind == 0x0102:  # start element
+            _, name, attr_start, attr_size, attr_count = struct.unpack_from('<IIHHH', axml, pos + 16)
+            assert strings is not None and strings[name] == 'manifest', 'First element of AndroidManifest.xml is not <manifest>'
+            for i in range(attr_count):
+                ns, attr, raw = struct.unpack_from('<iII', axml, pos + 16 + attr_start + i * attr_size)
+                if ns == -1 and strings[attr] == 'package':
+                    return strings[raw]
+            raise AssertionError('<manifest> has no package attribute')
+        pos += size
+    raise AssertionError('AndroidManifest.xml has no <manifest> element')
+
+
+def check_apk(path, test_build=False):
     with ZipFile(path) as apk:
         names = apk.namelist()
         assert len(names) == len(set(names)), 'Duplicate APK entries'
         assert apk.testzip() is None, 'APK CRC check failed'
+        package = manifest_package(apk.read('AndroidManifest.xml'))
+        if package == TEST_PACKAGE:
+            digests = signer_digests(path)
+            assert digests and all(d == TEST_KEY_SHA256 for d in digests), (
+                f'{TEST_PACKAGE} is only for throwaway test-key builds; signer SHA-256 is {digests}')
+        else:
+            assert package == PACKAGE, f'APK package is {package}, expected {PACKAGE} (or {TEST_PACKAGE} for test-key builds)'
         for name in ['AndroidManifest.xml', 'resources.arsc', 'classes.dex',
-                     'assets/index.html', 'assets/main.js', 'assets/worker.js',
+                     'assets/index.html', 'assets/main.js', 'assets/worker.js', 'assets/export-pool.js',
                      'assets/cad-kernel.wasm', 'assets/manifold.wasm',
                      'assets/mesh-core.wasm'] + PYTHON_ENTRIES:
             assert name in names, f'Missing required APK entry: {name}'
+        if not test_build:
+            for name in names:
+                if re.fullmatch(r'classes(?:\d+)?\.dex', name):
+                    assert b'debugCrashRenderer' not in apk.read(name), 'Release APK contains renderer crash hook'
+                    assert b'debugImportDelayMs' not in apk.read(name), 'Release APK contains the import-delay test hook'
         resources = apk.getinfo('resources.arsc')
         assert resources.compress_type == ZIP_STORED, (
             'Android API 30+ rejects compressed resources.arsc')
@@ -46,10 +115,31 @@ def check_apk(path):
             assert b'def process_job(' in apk.read('assets/python/model_jobs.py')
         else:
             assert not any(n.startswith('assets/python/') for n in names), 'JS_ENGINE build ships Python'
+        # ADR-0001 W0 (ruling 4): lazy chunks in the WebView. main.js is a module script (index.html type="module"), every
+        # import("./chunk-*.js") target is in assets/ next to it (same origin), is an ES module, and MainActivity serves
+        # .js assets as text/javascript, which module loading requires. The phone checklist opens Help on a device.
+        main = apk.read('assets/main.js').decode()
+        assert b'type="module"' in apk.read('assets/index.html') and b'src="main.js' in apk.read('assets/index.html'), 'main.js is not a module script'
+        chunks = sorted(set(re.findall(r'import\(["\']\./(chunk-[\w-]+\.js)["\']\)', main)))
+        workers = ''.join(apk.read('assets/' + w).decode() for w in ('worker.js', 'worker-sidecar.js'))
+        # stl-import-weld: lazy worker chunks (tools/worker-chunks.mjs) ship like main.js chunks.
+        chunks = sorted(set(chunks) | set(re.findall(r'import\(["\']\./(chunk-[\w-]+\.js)["\']\)', workers)))
+        assert chunks, 'main.js has no lazy import() chunk'
+        for name in chunks:
+            assert 'assets/' + name in names, f'Missing lazy chunk assets/{name}'
+            assert re.search(rb'\bexport\s*\{', apk.read('assets/' + name)), f'{name} is not an ES module'
+        stray = [n for n in names if re.fullmatch(r'assets/chunk-.*\.js', n) and n[7:] not in chunks]
+        assert not stray, f'Unreferenced chunks in the APK: {stray}'
+        java = (Path(__file__).resolve().parent.parent / 'app/src/com/avalonwavesoftware/cad/MainActivity.java').read_text()
+        assert 'asset.endsWith(".js")' in java and 'mime="text/javascript"' in java, 'MainActivity must serve .js as text/javascript'
+    print(f'APK package: {package}')
     print(f'APK packaging passed: resources.arsc uncompressed and aligned at {offset}')
+    print(f'Lazy chunks in the APK: {", ".join(chunks)}')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('apk', type=Path)
-    check_apk(parser.parse_args().apk)
+    parser.add_argument('--test-build', action='store_true')
+    args = parser.parse_args()
+    check_apk(args.apk, args.test_build)

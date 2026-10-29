@@ -1,7 +1,7 @@
 {
   "name": "avalon-cad",
   "productName": "Avalon CAD",
-  "version": "2.7.2",
+  "version": "3.0.0",
   "description": "Offline CAD for dimensioned parts and high-resolution STL export",
   "desktopName": "avalon-cad.desktop",
   "homepage": "https://github.com/AvalonWaveSoftware/Avalon-CAD",
@@ -18,7 +18,7 @@
     "dist:pacman": "electron-builder --linux pacman --x64 --publish never"
   },
   "build": {
-    "appId": "com.tristan.cad",
+    "appId": "com.avalonwavesoftware.cad",
     "productName": "Avalon CAD",
     "copyright": "Copyright (c) 2026 Avalon Wave Software",
     "directories": {
@@ -59,8 +59,10 @@
     "rpm": {
       "packageName": "avalon-cad",
       "fpm": [
-        "--rpm-rpmbuild-define=_build_id_links none"
-      ]
+        "--rpm-rpmbuild-define=_build_id_links none",
+        "--rpm-posttrans=linux/rpm-posttrans.sh"
+      ],
+      "afterRemove": "linux/after-remove.tpl"
     },
     "pacman": {
       "packageName": "avalon-cad",
@@ -83,7 +85,8 @@
       ],
       "fpm": [
         "--pacman-compression=zstd"
-      ]
+      ],
+      "afterRemove": "linux/after-remove.tpl"
     }
   },
   "devDependencies": {

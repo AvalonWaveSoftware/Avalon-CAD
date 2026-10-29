@@ -20,7 +20,8 @@ w.HTMLCanvasElement.prototype.setPointerCapture=function(){};w.HTMLCanvasElement
 w.HTMLCanvasElement.prototype.getBoundingClientRect=function(){return {left:0,top:0,right:412,bottom:600,width:412,height:600}};w.structuredClone=structuredClone;w.TextEncoder=TextEncoder;w.TextDecoder=TextDecoder;w.ResizeObserver=class{constructor(fn){this.fn=fn}observe(){this.fn()}};Object.defineProperty(w.HTMLCanvasElement.prototype,'clientWidth',{get:()=>412});Object.defineProperty(w.HTMLCanvasElement.prototype,'clientHeight',{get:()=>600});
 // The worker as web/worker.mjs runs it: glyph outlines load with the first job that needs them; the picker asks once.
 let outlineRequests=0;
-w.Worker=class {postMessage(input){const data=structuredClone(input);setTimeout(async()=>{try{if(data.type==='glyphOutlines'){outlineRequests++;this.onmessage({data:{id:data.id,outlines:await glyphOutlines()}});return;}if(data.type==='warm')return;await prepareGlyphs(data);const result=runtime.process(data);result.engine=runtime.info;shipTopologies(result);this.onmessage({data:result});}catch(e){this.onmessage({data:{id:data.id,error:e.message}})}},0)}};
+w.MessageChannel=class{constructor(){this.port1={};this.port2={close(){}};}};
+w.Worker=class {postMessage(input){if(input.type==='occtPort')return;const data=structuredClone(input);setTimeout(async()=>{try{if(data.type==='glyphOutlines'){outlineRequests++;this.onmessage({data:{id:data.id,outlines:await glyphOutlines()}});return;}if(data.type==='warm')return;await prepareGlyphs(data);const result=runtime.process(data);result.engine=runtime.info;shipTopologies(result);this.onmessage({data:result});}catch(e){this.onmessage({data:{id:data.id,error:e.message}})}},0)}};
 w.Android={beginFile(name,mime){w.testSaved={name,mime,chunks:[]}},appendFile(x){w.testSaved.chunks.push(x)},finishFile(){w.testSaved.done=true}};
 w.eval(fs.readFileSync('build/test-ui-new-shapes.js','utf8'));
 const $=id=>w.document.getElementById(id),click=id=>$(id).click(),sleep=()=>new Promise(r=>setTimeout(r,20)),q=s=>w.document.querySelector(s),qa=s=>[...w.document.querySelectorAll(s)];
@@ -28,6 +29,10 @@ const wait=async(fn,what='')=>{for(let i=0;i<400;i++){if(fn())return;await sleep
 let checks=0;const ok=()=>checks++;
 await wait(()=>w.__cad.model!==null);assert.equal(glyphsReady(),false,'no glyph load at startup');
 const objs=()=>w.__cad.project.objects,hist=()=>w.__cad.historyLength,apply=async()=>{click('applyObject');await wait(()=>$('sheet').hidden,'apply');};
+// ADR-0001 F7 (Architect ruling 2026-10-18): a new glyph's Add sheet is pre-filled with the Q11 finish (Plate 2, Margin 2,
+// Engrave off; letter bevel removed from 3.0). The plain-glyph flows below clear it first (Plate 0) to keep testing the 2.x glyph.
+const prefilled=async()=>{await wait(()=>$('f_plate'),'finish fields');assert.deepEqual(['f_plate','f_margin'].map(id=>$(id).value),['2','2']);assert.equal($('f_engrave').checked,false);},
+ plainGlyph=async()=>{await prefilled();$('f_plate').value='0';};
 const built=async n=>wait(()=>w.__cad.model?.parts?.length===n&&w.__cad.model.parts.every(p=>objs().some(o=>o.id===p.id)),'build '+n);
 
 // Add sheet: tiles 1–10 unchanged, Torus and Triangular prism as 11–12, then More shapes, then Reusable shapes.
@@ -67,7 +72,9 @@ h=hist();const autosaved=w.localStorage.getItem('tristancad.autosave');click('ca
 
 // Letters, numbers & symbols: 94 tiles drawn from the real outlines (asked once), rows of 6 at ≥44 px; tap 'g'.
 click('addBtn');click('lettersBtn');await wait(()=>$('sheetTitle').textContent==='Letters, numbers & symbols','letters sheet');
-const glyphs=qa('#sheetContent [data-glyph]');assert.equal(glyphs.length,94);assert.deepEqual(glyphs.map(b=>b.getAttribute('aria-label')).join(''),GLYPH_CHARS);
+const glyphs=qa('#sheetContent [data-glyph]');assert.equal(glyphs.length,94);// QA follow-up: each tile's accessible label is the object name it adds ('Letter g', 'Number 7', 'Symbol @').
+const tileName=c=>(/[A-Za-z]/.test(c)?'Letter ':/[0-9]/.test(c)?'Number ':'Symbol ')+c;assert.deepEqual(glyphs.map(b=>b.getAttribute('aria-label')),[...GLYPH_CHARS].map(tileName));
+for(const [c,l] of [['g','Letter g'],['7','Number 7'],['@','Symbol @'],['A','Letter A'],['&','Symbol &']])assert.equal(glyphs[GLYPH_CHARS.indexOf(c)].getAttribute('aria-label'),l);
 assert.ok(glyphs.every(b=>b.querySelector('svg path')?.getAttribute('d').startsWith('M')),'outline tiles');assert.equal(outlineRequests,1);
 assert.deepEqual(qa('#sheetContent .sectionlabel').map(e=>e.textContent),['Numbers','Capital letters','Small letters','Symbols']);
 assert.ok(qa('#sheetContent .shapegrid').every(g=>g.getAttribute('style')==='grid-template-columns:repeat(6,1fr)'));assert.ok(glyphs.every(b=>/height:52px/.test(b.getAttribute('style'))));
@@ -75,7 +82,7 @@ assert.ok(qa('#sheetContent .shapegrid').every(g=>g.getAttribute('style')==='gri
 // typing); the name shows the character.
 glyphs[GLYPH_CHARS.indexOf('g')].click();assert.equal($('sheetTitle').textContent,'Add Letter g');assert.equal($('p_char'),null);assert.equal(q('#sheetContent input[type="text"]:not(#objectName)'),null);
 assert.equal(q('label[for="p_size"]').textContent,'Letter height');assert.equal(q('label[for="p_depth"]').textContent,'Depth Z');
-assert.equal($('objectName').value,'Letter g');assert.equal($('faceResolution'),null);$('pos0').value='-50';
+assert.equal($('objectName').value,'Letter g');assert.equal($('faceResolution'),null);$('pos0').value='-50';await plainGlyph();
 h=hist();await apply();await built(4);const g=objs()[3];assert.deepEqual(g.params,{char:'g',size:20,depth:5,font:'roboto-bold@1'});assert.equal(g.name,'Letter g');assert.equal(hist(),h+1);assert.equal(glyphsReady(),true);
 assert.ok(Math.abs(w.__cad.model.parts[3].bounds.min[2])<1e-6);
 click('addBtn');click('lettersBtn');await wait(()=>qa('#sheetContent [data-glyph]').length===94);assert.equal(outlineRequests,1,'outlines cached');click('closeSheet');ok();
@@ -95,7 +102,7 @@ const drag=(from,to)=>{const c=$('scene'),a=tool.pointScreen(from),b=tool.pointS
 click('addBtn');click('lettersBtn');await wait(()=>qa('#sheetContent [data-glyph]').length===94);assert.ok(qa('#sheetContent .shapegrid').length>=1);
 assert.ok(qa('#sheetContent [data-glyph]').every(b=>b.closest('#sheetContent')&&b.closest('.shapegrid')));assert.equal($('sheetContent').contains($('closeSheet')),false);assert.equal($('sheetContent').contains($('sheetTitle')),false);click('closeSheet');
 for(const [k,[ch,name]] of [['A','Letter A'],['@','Symbol @'],['7','Number 7']].entries()){const n=objs().length;
- click('addBtn');click('lettersBtn');await wait(()=>qa('#sheetContent [data-glyph]').length===94);qa('#sheetContent [data-glyph]')[GLYPH_CHARS.indexOf(ch)].click();assert.equal($('objectName').value,name);$("pos1").value=String(-90-30*k);
+ click('addBtn');click('lettersBtn');await wait(()=>qa('#sheetContent [data-glyph]').length===94);qa('#sheetContent [data-glyph]')[GLYPH_CHARS.indexOf(ch)].click();assert.equal($('objectName').value,name);$("pos1").value=String(-90-30*k);await plainGlyph();
  h=hist();await apply();await built(n+1);const o=objs()[n];assert.equal(o.name,name);assert.equal(o.params.char,ch);assert.equal(hist(),h+1);
  // move: select, Move tool, drag along X
  await wait(()=>w.__cad.model.parts.find(p=>p.id===o.id)?.topology,'topology '+ch);w.__cad.touch.deselect();tool.selectFace(o.id,0);tool.setMode('move');q('[data-axis="X"]').click();const x0=o.position[0];h=hist();const s0=onTop(o.id);drag(s0,[s0[0]+10,s0[1],s0[2]]);
@@ -111,7 +118,7 @@ await built(7);ok();
 // Objects panel and layers: the new names list under the layer, a new layer takes the next shape.
 click('objectsToggle');const panel=$('objectsPanel').textContent;for(const n of ['Torus','Triangular prism','Dodecahedron','Letter g','Symbol @'])assert.ok(panel.includes(n),n+' in Objects panel');click('objectsToggle');
 const layerId='layer-2';w.__cad.change(p=>{p.layers.push({id:layerId,name:'Letters'});p.activeLayer=layerId;});await sleep();
-click('addBtn');click('lettersBtn');await wait(()=>qa('#sheetContent [data-glyph]').length===94);qa('#sheetContent [data-glyph]')[GLYPH_CHARS.indexOf('k')].click();assert.equal($('objectLayer').value,layerId);$('pos1').value='-50';await apply();await built(8);assert.equal(objs()[7].layerId,layerId);ok();
+click('addBtn');click('lettersBtn');await wait(()=>qa('#sheetContent [data-glyph]').length===94);qa('#sheetContent [data-glyph]')[GLYPH_CHARS.indexOf('k')].click();assert.equal($('objectLayer').value,layerId);$('pos1').value='-50';await prefilled();await apply();await built(8);assert.equal(objs()[7].layerId,layerId);assert.deepEqual(objs()[7].params,{char:'k',size:20,depth:5,font:'roboto-bold@1',plate:2,plateMargin:2},'pre-filled finish applied');ok();
 
 // Backup → load → same model; STL export of the whole scene.
 const volume=w.__cad.model.volume;click('projectMenu');click('backupProject');await wait(()=>w.testSaved?.done);const backed=JSON.parse(Buffer.concat(w.testSaved.chunks.map(x=>Buffer.from(x,'base64'))));click('closeSheet');

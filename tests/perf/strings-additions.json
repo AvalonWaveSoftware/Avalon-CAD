@@ -1,32 +1,387 @@
 {
- "note": "User-visible strings added by ADR new-primitives-polyhedra-text (phase 2: Torus, Triangular prism, Advanced shapes, Letters, numbers & symbols). dom-baseline.mjs accepts exactly these additions to the aab9865 string baseline; anything else new, or any removal, still fails.",
+ "note": "User-visible strings added by ADR new-primitives-polyhedra-text (phase 2: Torus, Triangular prism, Advanced shapes, Letters, numbers & symbols). dom-baseline.mjs accepts exactly these additions to the aab9865 string baseline; anything else new, or any removal, still fails. ADR-0001 W0 (3.0 v3-foundation): \"tristancad.autosave.v3\" is the internal localStorage key of the dual-key autosave (§2.2, Q14), not UI text. W0 mode bar and dock (ADR-0001 §2.3, round-2 ruling 1): \"Rotate\" and \"Mirror\" are the reserved, hidden mode-bar buttons; \"Export\" is the renamed dock button. \"Export STL\" leaves the string table at the W0 re-baseline (strings-baseline.json --update after Sean's approval). ADR-0001 F6 (round-chamfer-dropdown): \"Edge ▾\" is the mode-bar label of the Round button (set by touch-tools.mjs at startup; Master Chief ruling 1, 2026-10-17, replaces \"Round ▾\"), \"Edge\" its word; \"Round\"/\"Chamfer\" are the Edge ▾ chooser items; the other Chamfer strings are the Chamfer variants of the Round-mode hint, the Radius/Distance action button, the exact-value sheet and its toast, and the engine's chamfer error (cad-solid.mjs). The template-literal Chamfer texts (drag readout, sheet intro) are covered by the DOM snapshots. Architect F6 ruling, approved 2026-10-17: both edge-sheet intros say \"in Edge mode\" instead of \"in Round mode\"; their fixed sentences are listed here (the template literals themselves are not extracted). ADR-0001 strings roll-forward (Architect ruling 12:05 AM CT Oct 18): the 11 F6 strings that the extractor sees (\"Apply chamfer\", \"Chamfer\", \"Chamfer applied.\", \"Chamfer distance · \", \"Chamfer selected edges\", \"Distance\", \"Edge taps: 1 edge · 2 face perimeter · 3 all edges · drag to chamfer\", \"Edge ▾\", \"Enter a non-negative distance.\", \"Remove selected chamfers\", \"That chamfer is too large or conflicts with another edge. Reduce the distance.\") moved into strings-baseline.json of perf-baseline-release-3.0-6892eb7 (447 strings = v3-foundation 436 + these 11) and were removed from this list. F6's \"Edge\" and the two \"in Edge mode\" sentences stay listed: they are approved but not extracted (template literals / not used alone), so they cannot be part of the generated baseline. Architect strings-additions-cleanup (test-only follow-up): the 31 redundant entries (new-primitives, W0, autosave key, etc.) that are already present exactly in perf-baseline-release-3.0-6892eb7/strings-baseline.json (447 strings) were removed after verification. The three remaining entries below are each approved+merged, not extractable. F1b ruling 1 (UI round 1): \"Esc\" is the key name in a command tooltip such as \"Close panel (Esc)\", the spelling the approved help table already uses. ADR-0001 approved-dom-areas: \"removals\" lists approved removals {string, approval}; a baseline string missing from the extracted set passes only if listed here, and the entry is dropped when the baseline rolls forward. The extractor now skips // and /* */ comments; the only string that drops out (release-3.0 116253c and aabf6ea) is comment-only text at web/perf-flags.mjs:72, listed under \"extractorCorrections\" {string, reason, source} (an extractor correction, not an approved removal; QA confirms it is not rendered anywhere at runtime). A \"strings\" entry may also be a runtime text {text, runtime:true, source:\"file:line\", approval}: the exact rendered text of a title the extractor cannot see; no templates or patterns. ADR-0001 F1a (keyboard-shortcuts): the help-sheet Keyboard shortcuts rows and the desktop pill text are the Sean-approved help text (2026-10-17 ~16:10 CT batch; the table grows with the features, round-2 ruling 2, so F1a ships only the rows of commands that exist, and \"F Round\" was the approved \"F Round ▾ (press F again for Chamfer)\" row before F6). The old pill string leaves the table at the W0 re-baseline, like \"Export STL\". Not UI text: \"Delete\", \"Backspace\", \"Home\", \"Dead\" and \"Unidentified\" are KeyboardEvent.key names in commands.mjs (\"Delete\" and \"Duplicate\" are also registry labels, the existing Edit-sheet button labels); \"mode:…\" and \"view:…\" are registry command ids. F1a help-row ruling (approved by First Sergeant via the Architect, 2026-10-18 overnight; goes in the final shortcut table for Master Chief's sign-off): the F row reads \"F Edge (Round/Chamfer)\" (no ▾), matching the \"Edge (F)\" tooltip. The old \"F Round\" entry is dropped (unused since the F Edge (Round/Chamfer) row; QA note at d7513fb). ADR-0001 F1c (inch-units): \"tristancad.units\" is the internal localStorage key of the display-unit preference (§2.4 F1c), not UI text. F1c UI (Architect UI round 1, rulings 11-13; approved by Master Chief 2026-10-17 ~18:55 CT; batch at /workspace/avalon-cad-artifacts/inch-units/sean-approval/): the inch twins of today's mm labels (\" in\", \"0.01 in\", \"0.1 in\", \"Dimensions · inches\", \"Ready · inches\", \" in (X × Y × Z).\", \"Canvas width · in\", \"Coordinates snap to 0.05 in.\", \"Extrusion height · in\", \"Point X · in\", \"Point Y · in\", \"inches\", \"Connecting bar diameter · in\", \"Radius · in\") and \"Units\", the accessible name of the mm-or-in switch. \"Dimensions · millimeters\", \"Bottom-center placement\" and \"Object center position\" are unchanged existing text that moved out of a template literal, so the extractor now sees them. F1c UI round 2 ruling 1 (approved): in inches, the length validation messages read in inches (\"Dimension must be 0.002–393.7 in.\", \"Dimensions must be at least 0.002 in.\", \"Extrusion height must be 0.002–393.7 in.\", \"Connecting bar diameter must be 0.02–393.7 in.\"); tolerance and export messages stay mm. inch-units: \"F Edge (Round/Chamfer)\" is not listed here: the combined tree's extractor does not see it, so it was an unused addition (QA note on 863419b). ADR-0001 F2a (export-3mf): the Export sheet STL/3MF choice (\"Export a printable 3MF\", \"Build & save .3MF\", \"3MF · compressed · millimeters\"), the 3MF export errors (\"This 3MF exceeds the 50 MB file transfer limit.\", \"The model contains invalid 3MF geometry.\", \"Unsupported export format.\"), the desktop menu item \"Export 3MF…\" and save-dialog filter \"3MF model\"; \".3mf\" is the file extension and \"tristancad.exportFormat\" the internal localStorage key of the remembered choice, not UI text. Architect ruling (2026-10-17, export-3mf): the desktop File menu item \"Export STL…\" is renamed \"Export…\" (Cmd/Ctrl+E opens the Export sheet with the remembered format) to match the approved dock button; \"Export STL…\" leaves the string table, which needs Sean's approval of that string edit and the strings-baseline regeneration. Merge of release-3.0 6e08e75 into export-3mf (2026-10-18): the F2a approved removal moved from \"approvedRemovals\" to the release-3.0 \"removals\" list. ADR-0001 F7 (glyph-emboss-bevel), Architect F7 rulings 1/4/5: the Edit-glyph finish field labels \"Plate\", \"Margin\", \"Engrave\" (drafts, in the approval batch) and the Engrave validation \"Engrave needs a plate thicker than 1 mm.\" (letter bevel, with its \"Bevel\" / \"Round/Chamfer\" fields, half-size notice and bevel error, was removed from 3.0 by Master Chief, 2026-10-25). F7 R3: the runtime entry \"Overall size 17.59 × 24.99 × 7.00 mm (X × Y × Z).\" is the exact #shapeSize text of the pre-filled 'A' in the edit-glyph pixel scene (sizeText, a template), listed only so its approved DOM entry can match. import-3mf: \"3D/3dmodel.model\" is the 3MF package part name read by web/import-3mf.mjs, not UI text. \".tcad,.avprefab,.json,.stl,.3mf\" is the web file-picker accept list, set on #importFile at click time so index.html and the captures stay unchanged; not UI text. d6-cancel-3.0 (D6 job bar: \"Checking the model…\", \"Preparing the export…\", \" s\", \"Cancel\", \"Canceled. Nothing was changed.\", \"Stopped after 2 minutes: …\"): APPROVED by Master Chief as shown in handoffs/avalon-cad/d6-approval/ (relayed by Grok Bot with QA's rev2 notes, 2026-10-26 CT); text in web/job-watch.mjs JOB_TEXT. limits-3.0 rev6 (approval marking only; no text changed): the four import-3mf strings (\"Malformed 3MF file.\", \"No mesh in 3MF file.\", \"Colours, materials, beam lattices and slices were ignored. Choose placement, then Apply.\", \"Choose placement, then Apply to add the imported 3MF.\") and the Android safety-stages text \"This was too heavy to finish on this device, so it was stopped. Your model wasn't changed.\" are APPROVED by Master Chief as written (relayed by QA, Waydroid round 2, 2026-10-27). limits-3.0 follow-up (approval marking only; no text changed): the two Android restart toasts (\"Avalon CAD hit a problem and restarted. Your last autosave was reopened.\", \"Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.\") and the F7 runtime text \"Overall size 17.59 \u00d7 24.99 \u00d7 7.00 mm (X \u00d7 Y \u00d7 Z).\" are APPROVED by Master Chief as written (relayed by QA, 2026-10-28); together with the five above, no string in this list is still marked pending.",
  "strings": [
-  "Advanced shapes",
-  "Capital letters",
-  "Choose a letter, number or symbol.",
-  "Depth Z",
-  "Dodecahedron",
-  "Edge length",
-  "Icosahedron",
-  "Letter height",
-  "Letters, numbers & symbols",
-  "Numbers",
-  "Octahedron",
-  "Outer diameter",
-  "Overall size ",
-  "Ring diameter",
-  "Roboto Bold",
-  "Small letters",
-  "Symbols",
-  "Tetrahedron",
-  "Text",
-  "The letter outlines are not loaded yet. Try again.",
-  "The tube diameter must be less than half the outer diameter.",
-  "Torus",
-  "Triangular prism",
-  "Tube diameter",
-  "Letter ",
-  "Number ",
-  "Symbol "
+  "Edge",
+  "Drag up/down in Edge mode for live adjustment, or enter an exact radius.",
+  "Drag up/down in Edge mode for live adjustment, or enter an exact distance.",
+  "Esc",
+  "V Select",
+  "M Move",
+  "S Stretch",
+  "A Add",
+  "Delete or Backspace deletes",
+  "Shift+Delete clears the selection",
+  "Cmd/Ctrl+D duplicate",
+  "Cmd/Ctrl+Z undo",
+  "Cmd/Ctrl+Shift+Z or Ctrl+Y redo",
+  "Cmd/Ctrl+S save",
+  "Cmd/Ctrl+Shift+S export the project",
+  "Cmd/Ctrl+O open",
+  "Cmd/Ctrl+N new project",
+  "Cmd/Ctrl+E export",
+  "0 or Home fit the view",
+  "W wireframe",
+  "Esc closes a sheet or clears the selection",
+  "? opens Help",
+  "Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom · ? for shortcuts",
+  "Delete",
+  "Duplicate",
+  "Backspace",
+  "Home",
+  "Dead",
+  "Unidentified",
+  "mode:select",
+  "mode:move",
+  "mode:stretch",
+  "mode:round",
+  "view:3d",
+  "view:iso",
+  "tristancad.units",
+  " in",
+  "0.01 in",
+  "0.1 in",
+  "Dimensions · inches",
+  "Ready · inches",
+  " in (X × Y × Z).",
+  "Canvas width · in",
+  "Coordinates snap to 0.05 in.",
+  "Extrusion height · in",
+  "Point X · in",
+  "Point Y · in",
+  "inches",
+  "Connecting bar diameter · in",
+  "Radius · in",
+  "Units",
+  "Dimensions · millimeters",
+  "Bottom-center placement",
+  "Object center position",
+  "Dimension must be 0.002–393.7 in.",
+  "Dimensions must be at least 0.002 in.",
+  "Extrusion height must be 0.002–393.7 in.",
+  "Connecting bar diameter must be 0.02–393.7 in.",
+  {
+   "text": "Help (?)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Undo (Cmd/Ctrl+Z)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Redo (Cmd/Ctrl+Shift+Z)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Wireframe (W)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Fit model (0)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Select (V)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Move (M)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Stretch (S)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Edge (F)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Clear (Shift+Delete)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Add (A)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Export (Cmd/Ctrl+E)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Close panel (Esc)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Duplicate (Cmd/Ctrl+D)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "keyboard-shortcuts F1b fc9b6f6 (QA'd at 40f3c6e): tooltip = label + ' (' + shortcut + ')'"
+  },
+  {
+   "text": "Bottom-center placement · millimeters",
+   "runtime": true,
+   "source": "web/main.mjs:184",
+   "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
+  },
+  {
+   "text": "Object center position · millimeters",
+   "runtime": true,
+   "source": "web/main.mjs:184",
+   "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
+  },
+  "Plate",
+  "Margin",
+  "Engrave",
+  "Engrave needs a plate thicker than 1 mm.",
+  {
+   "text": "Overall size 17.59 × 24.99 × 7.00 mm (X × Y × Z).",
+   "runtime": true,
+   "source": "web/main.mjs:175",
+   "approval": "F7 batch: APPROVED by Master Chief as written (relayed by QA, 2026-10-28)"
+  },
+  "Engrave needs a plate thicker than 0.039 in.",
+  {
+   "text": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
+   "approval": "Android safety stages: APPROVED by Master Chief as written (relayed by QA, 2026-10-28)",
+   "runtime": true,
+   "source": "web/main.mjs:300"
+  },
+  {
+   "text": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
+   "approval": "Android safety stages: APPROVED by Master Chief as written (relayed by QA, 2026-10-28)",
+   "runtime": true,
+   "source": "web/main.mjs:300"
+  },
+  "Export a printable 3MF",
+  "Build & save .3MF",
+  "3MF · compressed · millimeters",
+  "This 3MF exceeds the 50 MB file transfer limit.",
+  "The model contains invalid 3MF geometry.",
+  "Unsupported export format.",
+  "Export 3MF…",
+  "3MF model",
+  ".3mf",
+  "tristancad.exportFormat",
+  "Export…",
+  {
+   "text": "File format",
+   "runtime": true,
+   "source": "web/main.mjs:273",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "text": "STL · binary · most compatible",
+   "runtime": true,
+   "source": "web/main.mjs:273",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "text": "3MF · compressed · smaller file",
+   "runtime": true,
+   "source": "web/main.mjs:273",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "text": "exportFormat",
+   "runtime": true,
+   "source": "web/main.mjs:273",
+   "approval": "export-3mf: id of the File format select, used by its <label for>; not shown text. export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  "Choose a mirror plane through the object center",
+  "YZ",
+  "XZ",
+  "Copy",
+  "Invalid mirror plane.",
+  "Measure",
+  "Point to point",
+  "Face distance and angle",
+  "Edge length / circle diameter",
+  "Object minimum distance",
+  "Tap a measurement target. Tap two targets for a distance.",
+  "Close measure",
+  "Choose a measurement target.",
+  "Diameter",
+  "Length",
+  "Angle",
+  "This measurement needs CAD faces or edges.",
+  "Measure the whole object for finished edges.",
+  "T Measure",
+  {
+   "text": "Measure (T)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "F1e measure tooltip = label + ' (' + shortcut + ')' (strings approved by Master Chief, relayed by Grok Bot, Oct 25 8:14 AM)"
+  },
+  {
+   "text": "Bottom-center placement · millimeters",
+   "runtime": true,
+   "source": "web/main.mjs:183",
+   "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
+  },
+  {
+   "text": "Object center position · millimeters",
+   "runtime": true,
+   "source": "web/main.mjs:183",
+   "approval": "inch-units F1c posTitle (QA'd at 61969ba/378404c)"
+  },
+  {
+   "text": "Avalon CAD hit a problem and restarted. Your last autosave was reopened.",
+   "approval": "Android safety stages: APPROVED by Master Chief as written (relayed by QA, 2026-10-28)",
+   "runtime": true,
+   "source": "web/main.mjs:300"
+  },
+  {
+   "text": "Avalon CAD restarted again, so it opened a blank project. Your autosave is still saved.",
+   "approval": "Android safety stages: APPROVED by Master Chief as written (relayed by QA, 2026-10-28)",
+   "runtime": true,
+   "source": "web/main.mjs:300"
+  },
+  {
+   "text": "File format",
+   "runtime": true,
+   "source": "web/main.mjs:273",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "text": "STL · binary · most compatible",
+   "runtime": true,
+   "source": "web/main.mjs:273",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "text": "3MF · compressed · smaller file",
+   "runtime": true,
+   "source": "web/main.mjs:273",
+   "approval": "export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  {
+   "text": "exportFormat",
+   "runtime": true,
+   "source": "web/main.mjs:273",
+   "approval": "export-3mf: id of the File format select, used by its <label for>; not shown text. export-3mf F2a File format field: wording approved by Master Chief as written, relayed by Grok Bot 2026-10-24 21:24 CDT; sheet-export layout approved via Grok Bot 2026-10-24 18:29 CDT"
+  },
+  "Group",
+  "Group selected",
+  "Ungroup",
+  "Rename group",
+  "Group name",
+  "Invalid object groups.",
+  "Select at least two objects.",
+  "Drag a ring to rotate · Snap on turns in 15° steps · hold Shift to turn freely",
+  "Rotation applied.",
+  "R Rotate",
+  "mode:rotate",
+  {
+   "text": "Rotate Z 15°",
+   "runtime": true,
+   "source": "web/touch-tools.mjs:168",
+   "approval": "ADR-0001 F3 rotate handles: live drag readout, Rotate ${axis} ${deg}°"
+  },
+  {
+   "text": "Rotate (R)",
+   "runtime": true,
+   "source": "web/tooltips.mjs:19",
+   "approval": "ADR-0001 F3 rotate handles: tooltip = label + ' (' + shortcut + ')'"
+  },
+  "Wall thickness",
+  "Hollowing…",
+  "Hollow is not offered for this shape.",
+  "Hollow is not offered for shapes with chamfers.",
+  "Hollow is not offered for threads, imported meshes, merged shapes, prefabs or bevelled letters.",
+  "Wall thickness must be at least 0.4 mm and less than half the smallest dimension.",
+  {
+   "text": "Can't hollow this shape at 2 mm. Try a smaller wall or remove rounds.",
+   "runtime": true,
+   "source": "web/shell-rules.mjs:13",
+   "approval": "ADR-0001 F8 shell objects; ADR-0003; approved by Master Chief 2026-10-25 08:14 CT with a final period added; runtime message hollowError(t) = \"Can't hollow this shape at ${t} mm. Try a smaller wall or remove rounds.\" (example t=2)"
+  },
+  {
+   "text": "Wall thickness must be at least 0.016 in and less than half the smallest dimension.",
+   "runtime": true,
+   "source": "web/units.mjs:33",
+   "approval": "batch-3.0 inch-mode proposal (current unit) for the approved F8 wall message: approved by Master Chief (current unit in inch mode), relayed by Grok Bot 2026-10-25 11:29 CT"
+  },
+  {
+   "text": "Can't hollow this shape at 0.079 in. Try a smaller wall or remove rounds.",
+   "runtime": true,
+   "source": "web/units.mjs:37",
+   "approval": "batch-3.0 inch-mode proposal (current unit) for the approved F8 hollow message (example t=2 mm): approved by Master Chief (current unit in inch mode), relayed by Grok Bot 2026-10-25 11:29 CT"
+  },
+  "Closed hollow · no open faces",
+  "Invalid hollow setting.",
+  "Tap faces to leave open",
+  {
+   "text": "6 flat faces (unhollowed) · 24 mesh triangles",
+   "runtime": true,
+   "source": "web/resolution-ui.mjs:10",
+   "approval": "Waydroid QA 2026-10-25 (b), waydroid-fix-3.0; Master Chief ruling 2026-10-25 23:09 CT (mem-preview-3.0): APPROVED, suffix ' (unhollowed)'"
+  },
+  {
+   "text": "This was too heavy to finish on this device, so it was stopped. Your model wasn't changed.",
+   "runtime": true,
+   "source": "web/android-occt.mjs:3",
+   "approval": "Android safety stages: APPROVED by Master Chief as written (relayed by QA, Waydroid round 2, 2026-10-27)"
+  },
+  "View",
+  "Overhang",
+  "Overhang: ",
+  " cm²",
+  "tristancad.overhang",
+  "mesh-core.wasm needs rebuild",
+  "Malformed 3MF file.",
+  "No mesh in 3MF file.",
+  "Colours, materials, beam lattices and slices were ignored. Choose placement, then Apply.",
+  "Choose placement, then Apply to add the imported 3MF.",
+  "3D/3dmodel.model",
+  ".tcad,.avprefab,.json,.stl,.3mf",
+  "Checking the model…",
+  "Preparing the export…",
+  " s",
+  "Cancel",
+  "Canceled. Nothing was changed.",
+  "Stopped after 2 minutes: this model takes too long to process. Nothing was changed."
+ ],
+ "removals": [
+  {
+   "string": "Drag to orbit · Shift/right-drag to pan · Scroll/pinch to zoom",
+   "approval": "keyboard-shortcuts help pill gains '· ? for shortcuts' (QA'd at 40f3c6e)"
+  },
+  {
+   "string": "Export STL…",
+   "approval": "ADR-0001 F2a: the Electron File menu 'Export STL…' becomes 'Export…' (with the new 'Export 3MF…' item and the READ-ME-FIRST line 'Cmd+E: Export (STL or 3MF).'), covered by Master Chief's help-text approval (\"Sean approval — help text\", 2026-10-17 ~16:10 CT) as confirmed by First Sergeant at 18:22 CT; recorded as an approved removal by Architect ruling 2 (F2a option A result, 19:55 CT)."
+  }
+ ],
+ "extractorCorrections": [
+  {
+   "string": "The modeling engine could not start",
+   "reason": "comment-only source: the extractor now skips // and /* */ comments (ADR-0001 approved-dom-areas). The rendered UI error is the longer 'The modeling engine could not start. Close and reopen the app.', still extracted.",
+   "source": "web/perf-flags.mjs:72"
+  }
  ]
 }

@@ -1,13 +1,16 @@
 import {primitiveFaces} from './polyhedra.mjs';
-import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid} from './glyph-geometry.mjs';
+import {glyphSolid,glyphSegments,segmentPoints,segmentCentroid,hasGlyphFinish,glyphLayout,glyphHalfExtents} from './glyph-geometry.mjs';
 import {materialGroups} from './layers.mjs';
 import * as R from 'replicad';
 import {facetedSphere,resolutionTolerance,customFaces} from './facets.mjs';
 import {isThread} from './threads.mjs';
+import {hashedKey} from './mesh-key.mjs';
 import {OCCT_SCOPE,OCCT_CACHE_ENTRIES,TOPOLOGY_SERVICE,FILLET_MESH_CACHE} from './perf-flags.mjs';
 import {geometryHash} from './topology-pack.mjs';
 import {withScope,setHeapSource} from './occt-scope.mjs';
 export {heapBytes} from './occt-scope.mjs';
+import {noteOcctError,passTrap,occtNeedsReset,clearTrap} from './occt-trap.mjs';
+import {hollowBrep} from './shell-solid.mjs';
 const cache=new Map();
 // Test hook: GLYPH_FAST=false runs the full OCCT topology (mesh, edges, face data) for torus and glyphs (parity check in tests/new-shapes.mjs).
 let GLYPH_FAST=true;export function setGlyphFastPath(v){GLYPH_FAST=v;}
@@ -19,10 +22,33 @@ let triangulator=null;export function setTriangulator(fn){triangulator=fn;}
 let remote=null;
 export function setSolidRemote(r){remote=r;}
 export const solidRemoteMisses=()=>remote?remote.events():0;
-const dispose=o=>{try{o?.delete();}catch{}};
-export async function initSolid(options={}) {
- const {default:init}=await import('replicad-opencascadejs');const oc=await init(options);R.setOC(oc);setHeapSource(oc);gpropFace=projector=null;return {oc,R};
+const dispose=o=>{try{o?.delete();}catch(e){noteOcctError(e);}};
+// ADR-0001 F7 P3: OCCT is compiled once (wasmModule) and instantiated through Emscripten's instantiateWasm hook, so a
+// fresh instance (resetSolid, after an OCCT memory error) reuses the compiled code: no second compile, no new wasm code
+// space. If the module cannot be compiled up front, the default Emscripten path runs exactly as before.
+let wasmModule=null,solidOptions={};
+async function compileOcct(options){
+ if(globalThis.process?.versions?.node&&!options.locateFile){const fs=await import('node:fs');return WebAssembly.compile(fs.readFileSync(new URL('replicad_single.wasm',import.meta.resolve('replicad-opencascadejs'))));}
+ if(!options.locateFile)return null;const url=options.locateFile('replicad_single.wasm','');
+ if(globalThis.process?.versions?.node){const fs=await import('node:fs');return WebAssembly.compile(fs.readFileSync(url));}
+ try{return await WebAssembly.compileStreaming(fetch(url,{credentials:'same-origin'}));}catch{const r=await fetch(url,{credentials:'same-origin'});return r.ok?WebAssembly.compile(await r.arrayBuffer()):null;}
 }
+export async function initSolid(options={}) {
+ solidOptions=options;const {default:init}=await import('replicad-opencascadejs');
+ if(!wasmModule)wasmModule=await compileOcct(options).catch(()=>null);
+ let oc;if(!wasmModule)oc=await init(options);
+ else{const module=wasmModule;let fail;const failed=new Promise((_,reject)=>fail=reject);
+  oc=await Promise.race([init({...options,instantiateWasm:(imports,done)=>{WebAssembly.instantiate(module,imports).then(i=>done(i,module),fail);return {};}}),failed]);}
+ R.setOC(oc);setHeapSource(oc);gpropFace=projector=null;clearTrap();return {oc,R};
+}
+// P3: a wasm trap (RuntimeError: memory access out of bounds, unreachable, Aborted(OOM)...) inside OCCT leaves its heap
+// inconsistent (later calls fail with 'null function or function signature mismatch', or spin). The trap is recorded
+// and its error is passed on unchanged; before the next job the worker calls resetSolid(), which drops every B-rep of
+// the old heap (never touching it again) and instantiates OCCT afresh from the compiled module. JS-side caches
+// (meshes, topology) hold plain data computed before the trap and stay.
+export {noteOcctError,occtNeedsReset,lastTrap} from './occt-trap.mjs';
+export async function resetSolid(){cache.clear();brepBytes=0;await initSolid(solidOptions);}
+const guarded=fn=>(...a)=>{try{return fn(...a);}catch(e){throw noteOcctError(e);}};
 // WS1: replicad's cut()/fuse() leave the BRepAlgoAPI builder (with its whole boolean history) to a
 // FinalizationRegistry, so under continuous edits the OCCT heap grows until GC happens to run. The scoped
 // version issues the same OCCT calls (glue unset, Build, SimplifyResult(true,true,.001), Shape) and deletes the
@@ -54,7 +80,7 @@ function baseShape(o) {
   case 'sphere':s=R.makeSphere(p.diameter/2);break;
   // replicad 1.1.0 has no makeTorus; the OCCT builder is used directly (as makeSphere does) and deleted at once (WS1).
   case 'torus':{const maker=new (R.getOC()).BRepPrimAPI_MakeTorus((p.diameter-p.tube)/2,p.tube/2);try{s=new R.Solid(maker.Shape());}finally{maker.delete();}break;}
-  case 'glyph':s=glyphSolid(R,p);break;
+  case 'glyph':s=glyphShape(p);break;
   case 'polygon':{const area=p.points.reduce((s,a,i)=>{const b=p.points[(i+1)%p.points.length];return s+a[0]*b[1]-a[1]*b[0];},0);const pts=area<0?[...p.points].reverse():p.points;const f=R.makePolygon(pts.map(a=>[a[0],a[1],-p.h/2])),v=new R.Vector([0,0,p.h]);try{s=R.basicFaceExtrusion(f,v);}finally{dispose(f);dispose(v);}break;}
   case 'prefab':{for(const group of materialGroups(p.children)){let merged;for(const child of [...group.solids,...group.cuts]){const a=fullShape(child);if(!merged)merged=a;else{const old=merged;try{merged=child.mode==='cut'?cut(old,a):fuse(old,a);}finally{dispose(old);dispose(a);}}}const fs=merged.faces,empty=!fs.length;fs.forEach(dispose);if(empty){dispose(merged);continue;}if(!s)s=merged;else{const old=s;try{s=fuse(old,merged);}finally{dispose(old);dispose(merged);}}}if(!s)throw Error('The prefab contains no solid material.');break;}
   case 'joined':{
@@ -67,13 +93,40 @@ function baseShape(o) {
 }
 function applyFillets(base,fillets,edges) {
  if(!fillets?.some(f=>f.radius>0))return base.clone();
+ if(fillets.some(f=>f.kind==='chamfer'&&f.radius>0))return edgeFinish(base,fillets,edges);
  const radii=new Map();for(const f of fillets)for(const index of f.edges)if(edges[index])radii.set(edges[index].hashCode,f.radius);
- try{return base.fillet(e=>radii.get(e.hashCode)||0);}catch{throw Error('That roundover is too large or conflicts with another edge. Reduce the radius.');}
+ try{return base.fillet(e=>radii.get(e.hashCode)||0);}catch(e){passTrap(e);throw Error('That roundover is too large or conflicts with another edge. Reduce the radius.');}
+}
+// ADR-0001 F6: chamfers (symmetric BRepFilletAPI_MakeChamfer) and rounds on one shape. Chamfers are cut first and the
+// round edges are found again through MakeChamfer.Modified() (an edge the chamfers left alone keeps its identity), then
+// the rounds use the same MakeFillet as replicad's fillet(). Rounding first would let a later chamfer propagate along the
+// round's tangent seam onto edges nobody picked (and gave an invalid solid when the chamfer exceeds the round; measured
+// in tests/round-chamfer.mjs). The result must pass BRepCheck. Shapes without a chamfer never get here.
+function edgeFinish(base,fillets,edges){const oc=R.getOC(),by=new Map(),own=[],keep=x=>own[own.length]=x;
+ for(const f of fillets)if(f.radius>0)for(const i of f.edges)if(edges[i])by.set(i,f);
+ const pass=c=>[...by].filter(([,f])=>(f.kind==='chamfer')===c).sort((a,b)=>a[0]-b[0]),rounds=pass(false);let step=0;
+ try{const cb=keep(new oc.BRepFilletAPI_MakeChamfer(base.wrapped));for(const [i,f] of pass(true))cb.Add(f.radius,edges[i].wrapped);let out=keep(cb.Shape());
+  if(rounds.length){step=1;const fb=keep(new oc.BRepFilletAPI_MakeFillet(out,oc.ChFi3d_FilletShape.ChFi3d_Rational));
+   for(const [i,f] of rounds){let e=edges[i].wrapped;const l=keep(cb.Modified(e));if(l.Size())e=keep(oc.TopoDS.Edge(l.First()));fb.Add(f.radius,e);}out=keep(fb.Shape());}
+  return validSolid(out,keep);}
+ catch(e){noteOcctError(e);throw Error(step?'That roundover is too large or conflicts with another edge. Reduce the radius.':'That chamfer is too large or conflicts with another edge. Reduce the distance.');}
+ finally{own.reverse().forEach(dispose);}}
+// The finished OCCT result must pass BRepCheck and be a 3D shape (F6 edge finish); throws 0 otherwise.
+function validSolid(out,keep){const oc=R.getOC();if(!keep(new oc.BRepCheck_Analyzer(out,true,false)).IsValid())throw 0;const r=R.cast(out);if(!R.isShape3D(r)){dispose(r);throw 0;}return r;}
+// ADR-0001 F7: the finished glyph (glyph-geometry.mjs glyphLayout): the prism and the plate. Without a finish this is
+// exactly the 2.x glyphSolid. Emboss: the glyph fused onto the plate; Engrave: the plate minus the glyph prism.
+function glyphShape(p){
+ if(!hasGlyphFinish(p))return glyphSolid(R,p);
+ const {f,plate,glyph}=glyphLayout(p);let s=glyphSolid(R,p,glyph[0],glyph[1]-glyph[0]);
+ const [hx,hy]=glyphHalfExtents(p.char,p.size),ox=hx+f.margin,oy=hy+f.margin,slab=R.makeBox([-ox,-oy,plate[0]],[ox,oy,plate[1]]),g=s;
+ try{s=f.engrave?cut(slab,g):fuse(slab,g);}finally{dispose(slab);dispose(g);}
+ return s;
 }
 function fullShape(o) {
  if(o.scale?.some(v=>Math.abs(v-1)>1e-8))throw Error('A scaled compound uses mesh editing. Round its component shapes before conjoining.');
  const s=baseShape(o),edges=s.edges;let r;
  try{r=applyFillets(s,o.fillets,edges);}finally{edges.forEach(dispose);dispose(s);}
+ if(o.mirrored)r=r.mirror('YZ');
  if(o.rotation?.some(v=>v)){for(let i=0;i<3;i++)if(o.rotation[i]){const dir=[0,0,0];dir[i]=1;r=r.rotate(o.rotation[i],[0,0,0],dir);}}
  if(o.position)r=r.translate(o.position);return r;
 }
@@ -85,8 +138,8 @@ function legacyTopology(s,edges) {
  const groups=mesh.faceGroups.map(g=>({...g,face:faces.findIndex(f=>f.hashCode===g.faceId)}));
  const lines=s.meshEdges({tolerance:.06,angularTolerance:.12});
  const edgeData=lines.edgeGroups.map(g=>({index:edgeIds.get(g.edgeId),points:Array.from(lines.lines.slice(g.start*3,(g.start+g.count)*3))})).filter(e=>e.index!==undefined);
- const faceData=faces.map((f,i)=>{const es=f.edges;let center=[0,0,0],normal=[0,0,1];try{center=safeTuple(f.center);normal=safeTuple(f.normalAt());}catch{}const indices=es.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);es.forEach(dispose);const wires=[f.clone().outerWire(),...f.clone().innerWires()],loops=wires.map(w=>{const eds=w.edges,result=eds.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);eds.forEach(dispose);dispose(w);return result;});return {index:i,kind:f.geomType,center,normal,edges:indices,loops};});
- const pickEdges=edgeData.filter(e=>{const adjacent=faceData.filter(f=>f.edges.includes(e.index)).map(f=>faces[f.index]);if(adjacent.length<2)return false;try{const at=safeTuple(edges[e.index].pointAt(.5)),a=safeTuple(adjacent[0].normalAt(at)),b=safeTuple(adjacent[1].normalAt(at)),dot=a.reduce((sum,v,i)=>sum+v*b[i],0)/(Math.hypot(...a)*Math.hypot(...b));return Math.abs(dot)<.9999;}catch{return true;}});
+ const faceData=faces.map((f,i)=>{const es=f.edges;let center=[0,0,0],normal=[0,0,1];try{center=safeTuple(f.center);normal=safeTuple(f.normalAt());}catch(e){passTrap(e);}const indices=es.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);es.forEach(dispose);const wires=[f.clone().outerWire(),...f.clone().innerWires()],loops=wires.map(w=>{const eds=w.edges,result=eds.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);eds.forEach(dispose);dispose(w);return result;});return {index:i,kind:f.geomType,center,normal,edges:indices,loops};});
+ const pickEdges=edgeData.filter(e=>{const adjacent=faceData.filter(f=>f.edges.includes(e.index)).map(f=>faces[f.index]);if(adjacent.length<2)return false;try{const at=safeTuple(edges[e.index].pointAt(.5)),a=safeTuple(adjacent[0].normalAt(at)),b=safeTuple(adjacent[1].normalAt(at)),dot=a.reduce((sum,v,i)=>sum+v*b[i],0)/(Math.hypot(...a)*Math.hypot(...b));return Math.abs(dot)<.9999;}catch(e){passTrap(e);return true;}});
  faces.forEach(dispose);
  return {vertices:new Float32Array(mesh.vertices),triangles:new Uint32Array(mesh.triangles),groups,faces:faceData,edges:pickEdges};
 }
@@ -122,6 +175,27 @@ function occMidpoint(e,own){const curve=own(e.curve).wrapped,first=curve.FirstPa
 // Amendment A2: the torus is one TORUS face, so its pick/highlight mesh is the exact parametric surface sampled on a
 // regular grid (at least OCCT's 105 × 105 at the default size, finer when the 0.08 mm deflection needs it) instead of
 // a 200 ms BRepMesh run. It is used only for face picking and highlights; preview and STL come from Manifold.
+// batch-3.0b: the exact OCCT hollow of a closed torus is two full TORUS faces (outer R, r and the inward offset R, r−t,
+// reversed). BRepMesh takes ~300 ms on them; the same exact surfaces are sampled here on a regular, seam-welded (u,v)
+// grid with BRepMesh's own limits (chord deflection lin, angle ang), as Amendment A2 does for the torus pick mesh.
+// Any other face layout (or an off-axis torus) returns null and BRepMesh runs as before.
+function toroidalMesh(s,lin,ang){const oc=R.getOC(),faces=s.faces,T=oc.GeomAbs_SurfaceType.GeomAbs_Torus,full=(a,b)=>Math.abs(b-a-2*Math.PI)<1e-9,grids=[];
+ const seg=rad=>Math.max(3,Math.ceil(2*Math.PI/ang),Math.ceil(Math.PI/Math.acos(Math.max(-1,1-lin/rad))));
+ try{for(const f of faces){const a=new oc.BRepAdaptor_Surface(f.wrapped,true);try{
+   const u0=a.FirstUParameter(),u1=a.LastUParameter(),v0=a.FirstVParameter(),v1=a.LastVParameter();if(a.GetType()!==T||!full(u0,u1)||!full(v0,v1))return null;
+   const P=(u,v)=>{const p=a.Value(u,v);try{return [p.X(),p.Y(),p.Z()];}finally{p.delete();}},o=P(u0,v0),i=P(u0,v0+Math.PI),c=P(u0+Math.PI,v0);
+   // Ring radius from the outer/inner equator points, tube radius from their distance; the grid samples the face itself.
+   const r=Math.hypot(o[0]-i[0],o[1]-i[1],o[2]-i[2])/2,ring=Math.hypot(o[0]-c[0],o[1]-c[1],o[2]-c[2])/2-r,nu=seg(ring+r),nv=seg(r),pts=new Float32Array(nu*nv*3);let k=0;
+   for(let x=0;x<nu;x++)for(let y=0;y<nv;y++){const q=P(u0+2*Math.PI*x/nu,v0+2*Math.PI*y/nv);pts[k++]=q[0];pts[k++]=q[1];pts[k++]=q[2];}
+   grids.push({pts,nu,nv,rev:f.wrapped.Orientation()===oc.TopAbs_Orientation.TopAbs_REVERSED,faceId:f.hashCode});}finally{a.delete();}}}
+ finally{faces.forEach(dispose);}
+ if(!grids.length)return null;const nV=grids.reduce((n,g)=>n+g.nu*g.nv,0);
+ const vertices=new Float32Array(nV*3),triangles=new Uint32Array(nV*6),faceGroups=[];let t=0,base=0;
+ for(const {pts,nu,nv,rev,faceId} of grids){const start=t;vertices.set(pts,base*3);
+  for(let i=0;i<nu;i++)for(let j=0;j<nv;j++){const a=base+i*nv+j,b=base+((i+1)%nu)*nv+j,a1=base+i*nv+(j+1)%nv,b1=base+((i+1)%nu)*nv+(j+1)%nv;
+   triangles.set(rev?[a,b1,b,a,a1,b1]:[a,b,b1,a,b1,a1],t);t+=6;}
+  faceGroups.push({start,count:t-start,faceId});base+=nu*nv;}
+ return {vertices,triangles,faceGroups};}
 export function torusTopologyMesh({diameter,tube},faceId){
  const r=tube/2,R0=(diameter-tube)/2,seg=rad=>Math.max(105,Math.ceil(2*Math.PI/(2*Math.acos(Math.max(-1,1-.08/rad))))),nu=seg(R0+r),nv=seg(r);
  const vertices=new Float32Array((nu+1)*(nv+1)*3),triangles=new Uint32Array(nu*nv*6);let k=0,t=0;
@@ -146,7 +220,7 @@ function glyphTopology(s,edges,o){return withScope(own=>{
   const kind=f.geomType;let center=[0,0,0],normal=[0,0,1];
   try{normal=occNormal(f);const cap=kind==='PLANE'&&Math.abs(normal[0])<1e-12&&Math.abs(normal[1])<1e-12;
    if(cap)capOf[i]=new Set(horiz.map(k=>info[k].seg.contour));else segOf[i]=info[horiz[0]]?.seg;
-   if(kind==='PLANE')center=occCenter(f);else{const [x,y]=segmentCentroid(segOf[i]);center=[x,y,0];}}catch{return null;}
+   if(kind==='PLANE')center=occCenter(f);else{const [x,y]=segmentCentroid(segOf[i]);center=[x,y,0];}}catch(e){passTrap(e);return null;}
   const outer=own(own(f.clone()).outerWire()),all=own.all(explore(f,'wire')),inner=all.filter(w=>!outer.isSame(w));
   const loops=[outer,...inner].map(w=>own.all(explore(w,'edge')).map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined));return {index:i,kind,center,normal,edges:indices,loops};});
  if(faceData.some((f,i)=>!f||!capOf[i]&&!segOf[i]))return null;
@@ -164,7 +238,7 @@ function glyphTopology(s,edges,o){return withScope(own=>{
   const dot=(ti[0]*to[0]+ti[1]*to[1])/(Math.hypot(...ti)*Math.hypot(...to));if(Math.abs(dot)<.9999)pickEdges.push({index:k,points:[...e.A,...e.B]});}
  return {vertices:new Float32Array(V),triangles:new Uint32Array(Tr),groups,faces:faceData,edges:pickEdges};
 });}
-function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulator){const t=glyphTopology(s,edges,o);if(t)return t;}return withScope(own=>{
+function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulator&&!hasGlyphFinish(o.params)){const t=glyphTopology(s,edges,o);if(t)return t;}return withScope(own=>{
  const faces=own.all(explore(s,'face')),edgeIds=new Map(edges.map((e,i)=>[e.hashCode,i]));
  const mesh=GLYPH_FAST&&o?.type==='torus'&&faces.length===1?torusTopologyMesh(o.params,faces[0].hashCode):s.mesh({tolerance:.08,angularTolerance:.12});
  const groups=mesh.faceGroups.map(g=>({...g,face:faces.findIndex(f=>f.hashCode===g.faceId)}));
@@ -172,7 +246,7 @@ function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulato
  // would triangulate the whole surface (≈190 ms) just to drop them.
  const lines=GLYPH_FAST&&o?.type==='torus'&&faces.length===1?{edgeGroups:[],lines:[]}:s.meshEdges({tolerance:.06,angularTolerance:.12});
  const edgeData=lines.edgeGroups.map(g=>({index:edgeIds.get(g.edgeId),points:Array.from(lines.lines.slice(g.start*3,(g.start+g.count)*3))})).filter(e=>e.index!==undefined);
- const faceData=faces.map((f,i)=>{const es=own.all(explore(f,'edge'));let center=[0,0,0],normal=[0,0,1];try{center=occCenter(f);normal=occNormal(f);}catch{}const indices=es.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);
+ const faceData=faces.map((f,i)=>{const es=own.all(explore(f,'edge'));let center=[0,0,0],normal=[0,0,1];try{center=occCenter(f);normal=occNormal(f);}catch(e){passTrap(e);}const indices=es.map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined);
   const outer=own(own(f.clone()).outerWire()),all=own.all(explore(f,'wire')),inner=all.filter(w=>!outer.isSame(w));
   const loops=[outer,...inner].map(w=>own.all(explore(w,'edge')).map(e=>edgeIds.get(e.hashCode)).filter(e=>e!==undefined));return {index:i,kind:f.geomType,center,normal,edges:indices,loops};});
  // Amendment A2 (glyphs, ~170 edges): adjacency is collected once, and an edge on a cap (a ±Z plane) is always a
@@ -180,23 +254,26 @@ function scopedTopology(s,edges,o){if(o?.type==='glyph'&&GLYPH_FAST&&triangulato
  // computation for all 94 glyphs.
  const glyph=o?.type==='glyph',adjacency=new Map();if(glyph)for(const f of faceData)for(const e of f.edges){const l=adjacency.get(e);if(l)l.push(f);else adjacency.set(e,[f]);}
  const cap=f=>f.kind==='PLANE'&&Math.abs(f.normal[0])<1e-12&&Math.abs(f.normal[1])<1e-12&&f.normal[2]!==0;
- const pickEdges=edgeData.filter(e=>{const fs=glyph?adjacency.get(e.index)||[]:faceData.filter(f=>f.edges.includes(e.index)),adjacent=fs.map(f=>faces[f.index]);if(adjacent.length<2)return false;if(glyph&&GLYPH_FAST&&(cap(fs[0])||cap(fs[1])))return true;try{const at=occMidpoint(edges[e.index],own),a=occNormal(adjacent[0],at),b=occNormal(adjacent[1],at),dot=a.reduce((sum,v,i)=>sum+v*b[i],0)/(Math.hypot(...a)*Math.hypot(...b));return Math.abs(dot)<.9999;}catch{return true;}});
+ const pickEdges=edgeData.filter(e=>{const fs=glyph?adjacency.get(e.index)||[]:faceData.filter(f=>f.edges.includes(e.index)),adjacent=fs.map(f=>faces[f.index]);if(adjacent.length<2)return false;if(glyph&&GLYPH_FAST&&(cap(fs[0])||cap(fs[1])))return true;try{const at=occMidpoint(edges[e.index],own),a=occNormal(adjacent[0],at),b=occNormal(adjacent[1],at),dot=a.reduce((sum,v,i)=>sum+v*b[i],0)/(Math.hypot(...a)*Math.hypot(...b));return Math.abs(dot)<.9999;}catch(e){passTrap(e);return true;}});
  return {vertices:new Float32Array(mesh.vertices),triangles:new Uint32Array(mesh.triangles),groups,faces:faceData,edges:pickEdges};
 });}
 // WS1: a Poly_Triangulation that mesh()/meshEdges() attach to a B-rep stays in the OCCT heap after the replicad
 // wrapper is deleted (≈0.36 MB per sphere). With OCCT_SCOPE the base shape stays alive alongside the cached solid
 // (they share TShapes, so cleaning one earlier could change a later mesh), and both are stripped with
 // BRepTools.Clean and deleted together when the entry leaves the cache. Nothing is cleaned while still in use.
-function release(entry){if(OCCT_SCOPE){const oc=R.getOC();for(const x of [entry.s,entry.base]){try{if(x)oc.BRepTools.Clean(x.wrapped,true);}catch{}}}dispose(entry.s);dispose(entry.base);}
-const geometryKey=o=>JSON.stringify([o.type,o.params,o.fillets||[],o.resolution||null]);
+function release(entry){if(OCCT_SCOPE){const oc=R.getOC();for(const x of [entry.s,entry.base]){try{if(x)oc.BRepTools.Clean(x.wrapped,true);}catch(e){noteOcctError(e);}}}dispose(entry.s);dispose(entry.base);}
+// ADR-0001 F8: a hollow joins the key only when present (keys of every other part are unchanged).
+const geometryKey=o=>hashedKey(o.shell?[o.type,o.params,o.fillets||[],o.resolution||null,[o.shell.thickness,o.shell.open||[]]]:[o.type,o.params,o.fillets||[],o.resolution||null]);
 // WS2: the B-rep LRU holds 64 entries and an estimated byte budget; topology lives in its own map (below), so a
 // preview whose topology is cached never touches the B-rep, and evicting a B-rep keeps its topology.
 const BREP_ENTRIES=64,BREP_BYTES=128*1048576,TOPOLOGY_BYTES=32*1048576;let brepBytes=0;
+const meshOnly=o=>o.type==='glyph'&&hasGlyphFinish(o.params);
 function cached(o) {
- const key=geometryKey(o);
+ const key=geometryKey(o);if(o.shell)return shellCached(o,key);
  if(cache.has(key)){const v=cache.get(key);cache.delete(key);cache.set(key,v);return v;}
  const base=baseShape(o),edges=explore(base,'edge');let s,t,ok=false;
- try{t=topology(base,edges,o);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
+ // F7: finished glyphs (plate) have no topology (objectTopology answers null), so none is extracted.
+ try{t=meshOnly(o)?{faces:[],edges:[]}:topology(base,edges,o);s=applyFillets(base,o.fillets,edges);ok=true;}finally{edges.forEach(dispose);if(!OCCT_SCOPE)dispose(base);else if(!ok)release({s,base});}
  const surfaceFaces=explore(s,'face');t.faceCount=surfaceFaces.length;t.flatFaces=surfaceFaces.filter(f=>f.geomType==='PLANE').length;surfaceFaces.forEach(dispose);
  if(TOPOLOGY_SERVICE){const entry=OCCT_SCOPE?{s,base}:{s};entry.bytes=brepEstimate(t);brepBytes+=entry.bytes;cache.set(key,entry);storeTopology(key,t);
   while(cache.size>1&&(cache.size>BREP_ENTRIES||brepBytes>BREP_BYTES)){const first=cache.keys().next().value,old=cache.get(first);release(old);brepBytes-=old.bytes;cache.delete(first);}return entry;}
@@ -211,45 +288,91 @@ function storeTopology(key,t){const old=topologies.get(key);if(old){topologyTota
 function topologyEntry(key){const v=topologies.get(key);if(v){topologies.delete(key);topologies.set(key,v);}return v;}
 // Topology for o by geometry hash. A miss whose B-rep is still cached rebuilds that entry, so topology always comes
 // from a fresh base shape exactly as before.
-function shapeTopology(o){if(!TOPOLOGY_SERVICE)return cached(o).topology;const key=geometryKey(o);let v=topologyEntry(key);
+// F8: a hollowed part picks on its unhollowed base (open faces are base faces, like fillet edges); a compound with a
+// hollowed component has no picking (as with a mesh component).
+function shapeTopology(o){if(o.shell)o=unshelled(o);if(o.params?.children?.some(hasShell))return null;if(!TOPOLOGY_SERVICE)return cached(o).topology;const key=geometryKey(o);let v=topologyEntry(key);
  if(!v){if(cache.has(key)){const old=cache.get(key);release(old);brepBytes-=old.bytes;cache.delete(key);}cached(o);v=topologyEntry(key);}return v.t;}
 // Content-addressed topology for any cacheable value (thread rods use it so threadMesh runs once per geometry).
 export function memoTopology(key,build){let v=topologyEntry(key);if(!v){storeTopology(key,build());v=topologyEntry(key);}return v;}
 // {hash, topology} for a part, or null topology (mesh content) with a null hash.
-export function objectTopologyEntry(o){const t=objectTopology(o);if(!t)return {hash:null,topology:t};return {hash:remote?geometryHash(geometryKey(o)):topologyEntry(geometryKey(o)).hash,topology:t};}
+export function objectTopologyEntry(o){const t=objectTopology(o);if(!t)return {hash:null,topology:t};const k=geometryKey(unshelled(o));return {hash:remote?geometryHash(k):topologyEntry(k).hash,topology:t};}
 export const topologyCacheStats=()=>({brepEntries:cache.size,brepBytes,topologyEntries:topologies.size,topologyBytes:topologyTotal});
 // WS6: tessellated B-rep meshes (fillets, faces resolution) by (geometry key, effective tolerance, display), LRU
 // with a 64 MB cap. A move or a re-export of an unchanged shape reuses the mesh; callers get fresh copies.
 const MESH_BYTES=64*1048576,meshes=new Map();let meshBytes=0;
 const copyMesh=m=>({...m,vertices:m.vertices.slice(),triangles:m.triangles.slice(),...(m.displayGroups?{displayGroups:m.displayGroups.map(g=>({...g}))}:{})});
 export const filletMeshStats=()=>({entries:meshes.size,bytes:meshBytes});
-export function solidMesh(o,tolerance,display=false) {
- if(remote)return remote.solidMesh(o,tolerance,display,geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|'+(display?1:0));
- if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display);
- const key=geometryKey(o)+'|'+resolutionTolerance(o,tolerance)+'|'+(display?1:0);let e=meshes.get(key);
+// mem-preview (2b), Architect ruling 2026-10-25 23:02: preview=true (a hollow in a preview job, in-worker OCCT) meshes the
+// exact B-rep at the coarser of the object's and the job's tolerance; check and export jobs keep the object's.
+export const solidMesh=guarded(function solidMesh(o,tolerance,display=false,preview=false){
+ const t=resolutionTolerance(o,tolerance),base=geometryKey(o)+'|'+(preview&&(!remote||globalThis.__avalonAndroidWorker)?Math.max(t,tolerance):t)+'|',key=base+(display?1:0);
+ if(remote){if(preview&&globalThis.__avalonAndroidWorker){tolerance=Math.max(t,tolerance);o={...o,resolution:{mode:'tolerance',tolerance}};}return remote.solidMesh(o,tolerance,display,key);}
+ if(preview)tolerance=Math.max(t,tolerance);else tolerance=t;
+ if(!FILLET_MESH_CACHE)return tessellate(o,tolerance,display,true);
+ let e=meshes.get(key);
  if(e){meshes.delete(key);meshes.set(key,e);return copyMesh(e.m);}
- const m=tessellate(o,tolerance,display),bytes=m.vertices.byteLength+m.triangles.byteLength+64*(m.displayGroups?.length||0)+256;
- if(bytes<=MESH_BYTES){meshes.set(key,{m:copyMesh(m),bytes});meshBytes+=bytes;for(const [k,v] of meshes){if(meshBytes<=MESH_BYTES)break;meshes.delete(k);meshBytes-=v.bytes;}}
+ const m=tessellate(o,tolerance,display,true),bytes=m.vertices.byteLength+m.triangles.byteLength+64*(m.displayGroups?.length||0)+256;
+ if(bytes<=MESH_BYTES&&!occtNeedsReset()){meshes.set(key,{m:copyMesh(m),bytes});meshBytes+=bytes;for(const [k,v] of meshes){if(meshBytes<=MESH_BYTES)break;meshes.delete(k);meshBytes-=v.bytes;}}
  return m;
-}
+});
 // WS14: the sidecar tessellates without its own mesh cache (the geometry worker caches the result).
-export function solidMeshFresh(o,tolerance,display=false){return tessellate(o,tolerance,display);}
-function tessellate(o,tolerance,display) {
- tolerance=resolutionTolerance(o,tolerance);
- const {s}=cached(o),m=s.mesh({tolerance:Math.max(.001,tolerance*.5),angularTolerance:Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10)))});
+export const solidMeshFresh=guarded((o,tolerance,display=false)=>tessellate(o,tolerance,display));
+function tessellate(o,tolerance,display,resolved) {
+ if(!resolved)tolerance=resolutionTolerance(o,tolerance);
+ const {s}=cached(o),lin=Math.max(.001,tolerance*.5),ang=Math.min(.18,Math.max(.025,Math.sqrt(tolerance/10))),t=performance.now(),m=(o.type==='torus'&&o.shell&&toroidalMesh(s,lin,ang))||s.mesh({tolerance:lin,angularTolerance:ang});
+ if(o.shell)hollowTimes.mesh=performance.now()-t;
  const result={vertices:new Float32Array(m.vertices),triangles:new Uint32Array(m.triangles)};
  if(display){const faces=s.faces,planes=new Set(faces.filter(f=>f.geomType==='PLANE').map(f=>f.hashCode));faces.forEach(dispose);result.displayGroups=m.faceGroups.map(g=>({start:g.start,count:g.count,flat:planes.has(g.faceId)})).sort((a,b)=>a.start-b.start);}
  return result;
 }
-export function objectTopology(o) {if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;if(remote)return remote.topology(o,geometryKey(o));try{return shapeTopology(o);}catch(e){if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
+// F7: a finished glyph (plate) is one piece: no face or edge picking, like an imported mesh (its mesh is Manifold-built).
+function objectTopologyRaw(o) {if(o?.type==='glyph'&&hasGlyphFinish(o.params))return null;if(isThread(o)||['joined','prefab'].includes(o.type)&&containsMesh(o))return null;if(remote)return remote.topology(o,geometryKey(o));try{return shapeTopology(o);}catch(e){passTrap(e);if(o.type==='mesh'||['joined','prefab'].includes(o.type)&&(containsMesh(o)||containsScale(o)))return null;throw e;}}
+export const objectTopology=guarded(objectTopologyRaw);
 function containsScale(o){return o.scale?.some(v=>Math.abs(v-1)>1e-8)||o.params?.children?.some(containsScale);}
 function containsMesh(o){return o.type==='mesh'||isThread(o)||o.params?.children?.some(containsMesh);}
 export function disposeSolidCache(){meshes.clear();meshBytes=0;for(const entry of cache.values())release(entry);cache.clear();brepBytes=0;topologies.clear();topologyTotal=0;}
 // Test hook (WS1 parity): topology of o through the legacy or the scoped extractor, without touching the cache.
-export function topologyVariant(o,scoped){const base=baseShape(o),edges=base.edges;try{return scoped?scopedTopology(base,edges,o):legacyTopology(base,edges);}finally{edges.forEach(dispose);if(scoped){try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}}dispose(base);}}
+export function topologyVariant(o,scoped){const base=baseShape(o),edges=base.edges;try{return scoped?scopedTopology(base,edges,o):legacyTopology(base,edges);}finally{edges.forEach(dispose);if(scoped){try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch(e){noteOcctError(e);}}dispose(base);}}
 // Test hook (new-primitives ADR §5.4, exact STEP): the exact base B-rep of o, outside the cache; the caller deletes it.
 export function baseShapeForTest(o){return baseShape(o);}
+// Test hook (ADR-0001 F6 acceptance): the exact finished B-rep (base + chamfers/rounds) of o, outside the cache; the caller deletes it.
+// Test hook (batch-3.0b): the exact volume of the cached OCCT hollow B-rep (not its mesh).
+export function brepVolumeForTest(o){const {s}=cached(o),p=R.measureShapeVolumeProperties(s);try{return p.volume;}finally{p.delete();}}
+export function finishedShapeForTest(o){const base=baseShape(o),edges=explore(base,'edge');try{return applyFillets(base,o.fillets,edges);}finally{edges.forEach(dispose);dispose(base);}}
 // Amendment A2.5: warm the torus / glyph topology code paths once (JIT and wasm tier-up) on a tiny shape, outside the
 // caches, so the first real Add does not pay that cost. Returns ms. The worker calls it only when it is idle.
-export function warmShape(o){const t=performance.now(),base=baseShape(o),edges=explore(base,'edge');
- try{topology(base,edges,o);}finally{edges.forEach(dispose);try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch{}dispose(base);}return performance.now()-t;}
+export const warmShape=guarded(function warmShape(o){const t=performance.now(),base=baseShape(o),edges=explore(base,'edge');
+ try{topology(base,edges,o);}finally{edges.forEach(dispose);try{R.getOC().BRepTools.Clean(base.wrapped,true);}catch(e){noteOcctError(e);}dispose(base);}return performance.now()-t;});
+
+// F1e: never modify cached shapes. Picks refer to the base topology used by touch-tools.
+export const meshMeasurement=o=>o?.type==='mesh'||isThread(o)||containsMesh(o)||o?.scale?.some(v=>v!==1);
+export const measureExact=guarded(function measureExact({mode,a,b}) {
+ const owned=[];
+ const pick=p=>{const o=p.object;if(!['edge','face','object'].includes(mode))throw Error('Choose a measurement target.');if(!o||o.type==='mesh'||isThread(o)||containsMesh(o))throw Error('This measurement needs CAD faces or edges.');
+  if(o.scale?.some(v=>v!==1))throw Error('This measurement needs CAD faces or edges.');
+  if(mode!=='object'&&o.fillets?.some(f=>f.radius>0))throw Error('Measure the whole object for finished edges.');
+  const c=cached(o);let s;
+  if(mode==='edge'||mode==='face'){const all=explore(c.base||c.s,mode==='edge'?'edge':'face');owned.push(...all);s=all[p.index];if(!s)throw Error('Choose a measurement target.');s=s.clone();}
+  else s=c.s.clone();
+  owned.push(s);for(let i=0;i<3;i++)if(o.rotation?.[i]){const axis=[0,0,0];axis[i]=1;s=s.rotate(o.rotation[i],[0,0,0],axis);owned.push(s);}s=s.translate(o.position||[0,0,0]);owned.push(s);return s;};
+ try{const x=pick(a);if(mode==='edge'){const length=R.measureLength(x);let diameter;
+   if(x.geomType==='CIRCLE'){const curve=x.curve;try{const circle=curve.wrapped.Circle();try{diameter=2*circle.Radius();}finally{dispose(circle);}}finally{dispose(curve);}}
+   return {distance:length,...(diameter!==undefined?{diameter}:{})};}
+  const y=pick(b),result={distance:R.measureDistanceBetween(x,y)};
+  if(mode==='face'&&x.geomType==='PLANE'&&y.geomType==='PLANE'){const n=safeTuple(x.normalAt()),m=safeTuple(y.normalAt()),dot=n.reduce((v,c,i)=>v+c*m[i],0);result.angle=Math.acos(Math.min(1,Math.abs(dot)))*180/Math.PI;}
+  return result;
+ }finally{for(const s of new Set(owned))dispose(s);}
+});// ADR-0001 F8: the hollowed B-rep (shell-solid.mjs) of a part on the OCCT strategy, in the B-rep LRU under its own key.
+// Waydroid QA (a): phase times of the last hollow built (base B-rep, offset, BRepCheck + guard, mesh), for the
+// 'hollow engine=' debug line (shell-mesh.mjs).
+export const hollowTimes={};
+function shellCached(o,key){
+ if(cache.has(key)){const v=cache.get(key);cache.delete(key);cache.set(key,v);return v;}
+ const t0=performance.now(),base=baseShape(o),edges=explore(base,'edge');let s;for(const k in hollowTimes)delete hollowTimes[k];hollowTimes.base=performance.now()-t0;
+ try{s=hollowBrep(base,edges,o,{explore,cut,times:hollowTimes});}finally{edges.forEach(dispose);dispose(base);}
+ const entry={s,bytes:65536};brepBytes+=entry.bytes;cache.set(key,entry);
+ while(cache.size>1&&(cache.size>BREP_ENTRIES||brepBytes>BREP_BYTES)){const first=cache.keys().next().value,old=cache.get(first);release(old);brepBytes-=old.bytes||0;cache.delete(first);}
+ return entry;}
+const unshelled=o=>o.shell?{...o,shell:undefined}:o;
+export const shellReady=o=>cache.has(geometryKey(o));
+const hasShell=o=>!!o.shell||!!o.params?.children?.some(hasShell);

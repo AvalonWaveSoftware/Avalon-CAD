@@ -13,9 +13,9 @@ app = Path(sys.argv[1]).resolve()
 # WS7: the Pyodide assets ship only when web/perf-flags.mjs has JS_ENGINE=false.
 PYTHON = 'JS_ENGINE=false' in (Path(__file__).resolve().parent.parent / 'web/perf-flags.mjs').read_text()
 info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
-assert info['CFBundleIdentifier'] == 'com.avaloncad.desktop'
+assert info['CFBundleIdentifier'] == 'com.avalonwavesoftware.cad'
 assert info['CFBundleExecutable'] == 'AvalonCad'
-assert info['CFBundleShortVersionString'] == '2.7.2'
+assert info['CFBundleShortVersionString'] == '3.0.0'
 assert info['LSMinimumSystemVersion'] == '13.0'
 hashes = {1: hashlib.sha1, 2: hashlib.sha256, 3: hashlib.sha256, 4: hashlib.sha384}
 machos = 0
@@ -79,6 +79,14 @@ assert machos >= 7
 assets = app / 'Contents/Resources/app/web'
 for name in ['cad-kernel.wasm', 'manifold.wasm', 'mesh-core.wasm'] + (['python/pyodide.asm.wasm'] if PYTHON else []):
     assert (assets / name).read_bytes()[:4] == b'\x00asm'
-for name in ['main.js', 'worker.js', 'desktop.css'] + (['python/model_jobs.py', 'python/python_stdlib.zip'] if PYTHON else []):
+for name in ['main.js', 'worker.js', 'export-pool.js', 'style.css'] + (['python/model_jobs.py', 'python/python_stdlib.zip'] if PYTHON else []):
     assert (assets / name).is_file()
+# ADR unified-desktop-layout: no desktop-only stylesheet and a plain <body>.
+assert not (assets / 'desktop.css').exists() and not list(assets.glob('*.css'))[1:]
+assert '<body>' in (assets / 'index.html').read_text() and 'desktop.css' not in (assets / 'index.html').read_text()
+# ADR-0001 W0 (ruling 4): every lazy chunk main.js loads with import() ships in the app.
+import re as _re
+chunks = sorted(set(_re.findall(r'import\(["\']\./(chunk-[\w-]+\.js)["\']\)', (assets / 'main.js').read_text())))
+for name in chunks:
+    assert (assets / name).is_file(), f'Missing lazy chunk {name}'
 print(f'PASS: Apple silicon app identity, {machos} arm64 Mach-O binaries with valid ad-hoc page hashes, {sealed} resource seals and complete offline Python/Rust/CAD assets.')

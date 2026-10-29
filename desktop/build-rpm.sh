@@ -13,11 +13,14 @@ if [ "${1:-}" != "--skip-web" ]; then
 fi
 # WS7: the Pyodide assets ship only when web/perf-flags.mjs has JS_ENGINE=false.
 # WS13 (D6): app/assets is not tracked; this list matches desktop/stage.mjs REQUIRED_ASSETS.
-ASSETS="index.html style.css main.js worker.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt"
+ASSETS="index.html style.css main.js worker.js worker-sidecar.js export-pool.js cad-kernel.wasm manifold.wasm mesh-core.wasm perf-flags.json THIRD_PARTY_NOTICES.txt"
 grep -q "JS_ENGINE=false" "$ROOT/web/perf-flags.mjs" && ASSETS="$ASSETS python/pyodide.mjs python/pyodide.asm.wasm python/python_stdlib.zip python/model_jobs.py"
 for f in $ASSETS; do
   [ -f "$ROOT/app/assets/$f" ] || { echo "Missing web asset app/assets/$f" >&2; exit 1; }
 done
+# ADR-0001 W0 (ruling 4): every lazy chunk main.js or a worker bundle loads with import() must ship too.
+CHUNKS=$(grep -oE 'import\("\./chunk-[A-Za-z0-9_-]+\.js"\)' "$ROOT/app/assets/main.js" "$ROOT/app/assets/worker.js" "$ROOT/app/assets/worker-sidecar.js" | sed -E 's/.*\.\/(chunk-[^"]+)".*/\1/' | sort -u)
+for f in $CHUNKS; do [ -f "$ROOT/app/assets/$f" ] || { echo "Missing lazy chunk app/assets/$f" >&2; exit 1; }; done
 # --skip-web must not ship assets built from older sources (tools/web-stamp.mjs compares content hashes).
 # AVALON_ALLOW_STALE_WEB=1 packages anyway, with a warning.
 if ! (cd "$ROOT" && node tools/web-stamp.mjs check); then
@@ -30,6 +33,7 @@ fi
 rm -rf build/web build/icons dist
 mkdir -p build/icons
 cp -r "$ROOT/app/assets" build/web
+for f in $CHUNKS; do [ -f "build/web/$f" ] || { echo "Staged build/web is missing lazy chunk $f" >&2; exit 1; }; done
 for s in 16 24 32 48 64 128 256 512; do rsvg-convert -w $s -h $s icon.svg -o build/icons/${s}x${s}.png; done
 npm ci --no-audit --no-fund
 TARGET="${TARGET:-rpm}"

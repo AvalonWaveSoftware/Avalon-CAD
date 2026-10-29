@@ -10,7 +10,9 @@
 // local solids are evicted least-recently-used above the byte budget.
 import {ENGINE_CACHE_MERGE as MERGE,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {makeLocalSolid,placeObjectSolid,meshData} from './kernel.mjs';
+import {hashedKey} from './mesh-key.mjs';
 import {solidRemoteMisses} from './cad-solid.mjs';
+import {shellDeferrals,shellPreview} from './shell-mesh.mjs';
 // dst[at+i]=src[i]+base (a plain copy when base is 0): one small monomorphic loop for every merged index buffer.
 const offsetInto=(dst,src,at,base)=>{if(!base){dst.set(src,at);return;}for(let i=0;i<src.length;i++)dst[at+i]=src[i]+base;};
 export function engineCache(K,{budget=150*1048576,prepare=null}={}){
@@ -26,6 +28,10 @@ export function engineCache(K,{budget=150*1048576,prepare=null}={}){
  const estimate=s=>64*s.numVert()+128*s.numTri()+1024;
  const free=s=>{owned.delete(s);derivedBytes-=s.__bytes||0;s.__bytes=0;s.delete();};
  const adopt=s=>{owned.add(s);s.__bytes=estimate(s);derivedBytes+=s.__bytes;return s;};
+ // limits-3.0 rev6 (Waydroid QA D1): over budget, solids that this job has not touched are released BEFORE a big imported mesh is built,
+ // not after the job (end() below), so the previous job's copy and the new one are not both held in wasm memory (it never shrinks).
+ const estimateMesh=m=>64*(m.vertices.length/3)+128*(m.triangles.length/3);
+ const evictIdle=need=>{for(const [k,e] of local){if(localBytes+derivedBytes+need<=budget)break;if(e.used===job)continue;releaseLocal(e);local.delete(k);}};
  const releaseLocal=e=>{for(const p of e.placed.values())free(p.s);owned.delete(e.s);e.s.delete();localBytes-=e.bytes;};
  // WS10: per-part indexed displays. A part entry is one placed solid (a byte-identical mesh), so it keeps its display;
  // a moved part is a new placed solid and is prepared afresh. (Reusing a moved part's normals was tried and dropped:
@@ -35,18 +41,18 @@ export function engineCache(K,{budget=150*1048576,prepare=null}={}){
   owns:s=>owned.has(s),
   begin(){job++;maxId=-Infinity;seen=new Map();},
   makeObject(o,tolerance,styles){const styled=!!styles;
-   const content=JSON.stringify([o.type,o.params,o.fillets??null,o.resolution??null,tolerance,styled]),n=seen.get(content)||0;seen.set(content,n+1);
+   const content=hashedKey(o.shell?[o.type,o.params,o.fillets??null,o.resolution??null,tolerance,styled,o.shell,shellPreview()]:[o.type,o.params,o.fillets??null,o.resolution??null,tolerance,styled]),n=seen.get(content)||0;seen.set(content,n+1);
    const key=content+'#'+n;let e=local.get(key);
    if(e&&!(e.lo>maxId)){releaseLocal(e);local.delete(key);e=null;}
    if(e){local.delete(key);local.set(key,e);e.used=job;if(styles)for(const [id,flat] of e.styles)styles.set(id,flat);stats.localHits++;}
-   else{const lo=M.reserveIDs(1),before=styles?styles.size:0,misses=solidRemoteMisses(),s=makeLocalSolid(K,o,tolerance,styles),hi=M.reserveIDs(1);
+   else{evictIdle(o.type==='mesh'?estimateMesh(o.params.mesh):0);const lo=M.reserveIDs(1),before=styles?styles.size:0,misses=solidRemoteMisses()+shellDeferrals(),s=makeLocalSolid(K,o,tolerance,styles),hi=M.reserveIDs(1);
     // WS14 (OCCT_SIDECAR): a stand-in built while a fillet mesh was missing is never cached; it is placed, used for
     // this run only and disposed by the bridge like any uncached solid. IDs stay ordered (maxId moves past it).
-    if(solidRemoteMisses()>misses){maxId=hi;return placeObjectSolid(o,s);}
+    if(solidRemoteMisses()+shellDeferrals()>misses){maxId=hi;return placeObjectSolid(o,s);}
     owned.add(s);
     e={s,lo,hi,styles:styles?[...styles].slice(before):[],bytes:0,used:job,placed:new Map()};local.set(key,e);stats.localBuilds++;}
    maxId=e.hi;
-   const at=JSON.stringify([o.scale??null,o.rotation,o.position]);let p=e.placed.get(at);
+   const at=JSON.stringify([o.scale??null,o.rotation,o.position,o.mirrored===true]);let p=e.placed.get(at);
    if(!p){const s=adopt(placeObjectSolid(o,e.s,true));p={s,used:job};e.placed.set(at,p);}else p.used=job;
    // Never query the local solid itself: evaluating it bakes its lazy transforms and changes the last ulp of every later
    // placement. Its size is estimated from the placed copy (evaluating that one is harmless; the union evaluates it anyway).

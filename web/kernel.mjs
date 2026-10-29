@@ -3,10 +3,12 @@ import {glyphManifold} from './glyph-geometry.mjs';
 import {initSolid,solidMesh,objectTopology,objectTopologyEntry,setTriangulator} from './cad-solid.mjs';
 import {TOPOLOGY_SERVICE,INDEXED_DISPLAY} from './perf-flags.mjs';
 import {facetedSphere,facetMesh,curvedTypes,resolutionTolerance,customFaces} from './facets.mjs';
+import {hashedKey} from './mesh-key.mjs';
 import {isThread,containsThreads,validateThread} from './threads.mjs';
 import {layerOf,normalizeLayers,materialGroups} from './layers.mjs';
 import {QUALITY,segments,validateProject,ccwPoints,assertSimplePolygon,readSTL} from './kernel-ui.mjs';
 export {QUALITY,segments,validateProject,ccwPoints,assertSimplePolygon,readSTL};
+import {shellLocalSolid} from './shell-mesh.mjs';
 
 export async function initKernel(options={}) {
   const {default:Module}=await import('manifold-3d');
@@ -19,12 +21,13 @@ export async function initKernel(options={}) {
 // solid placed again gives the same solid as a fresh build.
 export function makeObject(K,o,tolerance=0.15,styles){return placeObjectSolid(o,makeLocalSolid(K,o,tolerance,styles));}
 export function placeObjectSolid(o,local,keepLocal=false){const keep=keepLocal?[]:[local];const own=x=>(keep.push(x),x);let s=local;
-  try{if(o.scale)s=own(s.scale(o.scale));s=own(s.rotate(o.rotation));s=own(s.translate(o.position));
+  try{if(o.mirrored)s=own(s.mirror([1,0,0]));if(o.scale)s=own(s.scale(o.scale));s=own(s.rotate(o.rotation));s=own(s.translate(o.position));
     const status=s.status();if(status!=='NoError')throw Error(o.name+': '+status+'. The mesh must be a closed solid.');
     keep.pop();return s;
   } finally {for(const x of keep)x.delete();}
 }
 export function makeLocalSolid(K,o,tolerance=0.15,styles) {
+  if(o.shell)return shellLocalSolid(K,o,tolerance,styles,makeLocalSolid); // ADR-0001 F8 (shell-mesh.mjs)
   const requested=tolerance;tolerance=resolutionTolerance(o,tolerance);
   const {Manifold:M}=K,p=o.params,custom=customFaces(o),n=custom||segments((p.diameter||p.r*2||20)/2,tolerance);
   let s,tagged=false; const keep=[]; const own=x=>(keep.push(x),x);
@@ -83,12 +86,34 @@ export function meshData(s,styles) {
 }
 // WS5 (Sean's ruling): parts share the memoised topology by reference with its hash, as the worker's parts do (WS2).
 const partTopology=o=>{if(!TOPOLOGY_SERVICE)return {topology:structuredClone(objectTopology(o))};const {hash,topology}=objectTopologyEntry(o);return {topology,topologyHash:hash};};
+// mem-fix-3.0 rev2 (Waydroid QA D3): coincident copies. Exact (unstyled) jobs reuse an earlier object's solid for an
+// object of the same content whose placement maps that solid's vertices onto themselves (identical placement, or a
+// mirror through the centre of a symmetric shape, within 1e-3 mm), so the union takes the shape once. buildModel below
+// (the reference the engine is compared with) applies the same rule as the local-engine bridge.
+// Object revision key for the F1e mesh cache: exact for every field; number arrays of 4,096+ entries (meshes) enter as
+// their length and a 64-bit FNV-style hash of the IEEE bits, so the key stays small and cheap for big STL imports.
+export const revisionKey=hashedKey;
+export const contentKey=(o,tolerance)=>revisionKey([o.type,o.params,o.fillets??null,o.resolution??null,o.shell??null,o.mode,o.layerId??null,o.excludedCutouts??null,tolerance]);
+const affine=o=>{const r=(o.rotation||[0,0,0]).map(a=>a*Math.PI/180),[cx,cy,cz]=r.map(Math.cos),[sx,sy,sz]=r.map(Math.sin),k=o.scale?Array.from(o.scale):[1,1,1];
+  const R=[[cz*cy,cz*sy*sx-sz*cx,cz*sy*cx+sz*sx],[sz*cy,sz*sy*sx+cz*cx,sz*sy*cx-cz*sx],[-sy,cy*sx,cy*cx]],d=[k[0]*(o.mirrored?-1:1),k[1],k[2]];
+  return {A:R.map(row=>row.map((v,c)=>v*d[c])),t:Array.from(o.position)};};
+const inv3=A=>{const [[a,b,c],[d,e,f],[g,h,i]]=A,x=e*i-f*h,y=f*g-d*i,z=d*h-e*g,det=a*x+b*y+c*z;return [[x/det,(c*h-b*i)/det,(b*f-c*e)/det],[y/det,(a*i-c*g)/det,(c*d-a*f)/det],[z/det,(b*g-a*h)/det,(a*e-b*d)/det]];};
+export function coincident(a,b,s){if(JSON.stringify([a.scale,a.rotation,a.position,!!a.mirrored])===JSON.stringify([b.scale,b.rotation,b.position,!!b.mirrored]))return true;
+  const P=affine(a),Q=affine(b),I=inv3(P.A),M=Q.A.map(row=>[0,1,2].map(c=>row[0]*I[0][c]+row[1]*I[1][c]+row[2]*I[2][c]));
+  const m=s.getMesh(),v=m.vertProperties,n=m.numProp,E=1e-3,cell=new Map(),key=(x,y,z)=>Math.floor(x/E)+','+Math.floor(y/E)+','+Math.floor(z/E);
+  for(let i=0;i<v.length;i+=n){const k=key(v[i],v[i+1],v[i+2]);let c=cell.get(k);if(!c)cell.set(k,c=[]);c.push(i);}
+  for(let i=0;i<v.length;i+=n){const p=[v[i]-P.t[0],v[i+1]-P.t[1],v[i+2]-P.t[2]],q=[0,1,2].map(r=>M[r][0]*p[0]+M[r][1]*p[1]+M[r][2]*p[2]+Q.t[r]);let hit=false;
+   for(let dx=-1;dx<=1&&!hit;dx++)for(let dy=-1;dy<=1&&!hit;dy++)for(let dz=-1;dz<=1&&!hit;dz++){const c=cell.get((Math.floor(q[0]/E)+dx)+','+(Math.floor(q[1]/E)+dy)+','+(Math.floor(q[2]/E)+dz));
+    if(c)hit=c.some(j=>Math.abs(v[j]-q[0])<=E&&Math.abs(v[j+1]-q[1])<=E&&Math.abs(v[j+2]-q[2])<=E);}
+   if(!hit)return false;}
+  return true;}
 export function buildModel(K,project,tolerance,individual=false) {
   const owned=[],parts=[],styles=individual?new Map():undefined; const own=x=>(owned.push(x),x);
   try {
-    const solid=[],cut=[];
+    const solid=[],cut=[],seen=[];
     for(const o of project.objects.filter(x=>x.enabled)) {
-      const s=own(makeObject(K,o,tolerance,styles));(o.mode==='cut'?cut:solid).push({o,s});
+      const key=!styles&&o.mode!=='cut'&&contentKey(o,tolerance),twin=key&&seen.find(e=>e.key===key&&coincident(e.o,o,e.s));
+      const s=twin?twin.s:own(makeObject(K,o,tolerance,styles));if(key&&!twin)seen.push({key,o,s});(o.mode==='cut'?cut:solid).push({o,s});
       if(individual)parts.push({id:o.id,mode:o.mode,...meshData(s,styles),bounds:s.boundingBox(),...partTopology(o)});
     }
     if(!solid.length)return {vertices:new Float32Array(),triangles:new Uint32Array(),...(styles?{flatTriangles:new Uint8Array(),smoothingGroups:new Uint32Array()}:{}),parts,volume:0,bounds:null};
@@ -96,7 +121,7 @@ export function buildModel(K,project,tolerance,individual=false) {
     const groups=new Map();
     for(const entry of solid){const excluded=new Set(entry.o.excludedCutouts||[]),active=cut.filter(c=>layerOf(c.o)===layerOf(entry.o)&&!excluded.has(c.o.id)),key=active.map(c=>c.o.id).join('\0');if(!groups.has(key))groups.set(key,{solids:[],cuts:active.map(c=>c.s)});groups.get(key).solids.push(entry.s);}
     const material=[];
-    for(const group of groups.values()){let merged=own(K.Manifold.union(group.solids));if(group.cuts.length)merged=own(merged.subtract(own(K.Manifold.union(group.cuts))));material.push(merged);}
+    for(const group of groups.values()){let merged=own(K.Manifold.union([...new Set(group.solids)]));if(group.cuts.length)merged=own(merged.subtract(own(K.Manifold.union([...new Set(group.cuts)]))));material.push(merged);}
     const s=own(K.Manifold.union(material));
     const status=s.status();if(status!=='NoError')throw Error('Could not build the solid: '+status);
     const result={...meshData(s,styles),parts,volume:s.volume(),bounds:s.isEmpty()?null:s.boundingBox()};

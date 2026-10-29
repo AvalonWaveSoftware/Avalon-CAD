@@ -1,0 +1,41 @@
+// ADR-0001 F7 (glyph-emboss-bevel): glyph params plate / plateMargin / engrave (save format v3). Letter bevel was
+// removed from 3.0 (Master Chief, 2026-10-25).
+// Checks: a glyph without a finish is built exactly as before (Manifold and OCCT); Emboss and Engrave volumes are exact
+// (plate box ± glyph area × depth) in both kernels; validators, dimensions, stretch and the minimum-version writer.
+import assert from 'node:assert/strict';
+import {initKernel,makeObject,validateProject} from '../web/kernel.mjs';
+import {finishedShapeForTest} from '../web/cad-solid.mjs';import * as R from 'replicad';
+import {object,blank,glyphDefaults} from '../web/templates.mjs';
+import {loadGlyphs,glyphHalfExtents,glyphLayout} from '../web/glyph-geometry.mjs';
+import {dimensions,stretch,glyphDimensions} from '../web/operations.mjs';
+import {requiredVersion} from '../web/migrate.mjs';
+const K=await initKernel();await loadGlyphs();
+const g=(char,extra={})=>object('glyph',{...glyphDefaults.glyph,char,...extra});
+const mesh=(o,tol=.05)=>{const s=makeObject(K,o,tol);try{assert.equal(s.status(),'NoError');const m=s.getMesh();return {v:s.volume(),pos:Array.from(m.vertProperties),tri:Array.from(m.triVerts)};}finally{s.delete();}};
+const occt=o=>{const s=finishedShapeForTest(o);try{return R.measureVolume(s);}finally{s.delete();}};
+const close=(a,b,rel,msg)=>assert.ok(Math.abs(a-b)<=rel*Math.max(1,Math.abs(b)),`${msg}: ${a} vs ${b}`);
+let checks=0;
+// 1. No finish (absent, or explicit zeros): byte-identical Manifold mesh, identical OCCT volume.
+for(const c of ['A','g','8','@']){const a=mesh(g(c)),b=mesh(g(c,{plate:0,plateMargin:3,engrave:false}));
+ assert.deepEqual(b,a,c+' zero finish is the plain glyph');close(occt(g(c,{plate:0})),occt(g(c)),1e-12,c+' OCCT plain');checks+=2;}
+// 2. Emboss / Engrave: exact volumes in both kernels.
+for(const c of ['A','o','R','%']){const P=2,M=1.5,d=glyphDefaults.glyph.depth,[hx,hy]=glyphHalfExtents(c,glyphDefaults.glyph.size),box=4*(hx+M)*(hy+M)*P;
+ const area=mesh(g(c)).v/d,emb=g(c,{plate:P,plateMargin:M}),eng=g(c,{plate:P,plateMargin:M,engrave:true}); // Engrave: 1 mm whatever the depth (5 mm here)
+ close(mesh(emb).v,box+area*d,1e-6,c+' emboss volume (Manifold)');close(mesh(eng).v,box-area*1,1e-6,c+' engrave volume (Manifold)');
+ // curved outlines: the Manifold prism is the flattened outline, OCCT the exact curve (≈0.3 % on 'o').
+ close(occt(emb),mesh(emb).v,6e-3,c+' emboss OCCT ≈ Manifold');close(occt(eng),mesh(eng).v,6e-3,c+' engrave OCCT ≈ Manifold');
+ const [x,y,z]=glyphDimensions(emb.params);close(x,2*(hx+M),1e-9,'emboss X');close(y,2*(hy+M),1e-9,'emboss Y');assert.equal(z,P+d);assert.equal(glyphDimensions(eng.params)[2],P);
+ const L=glyphLayout(emb.params);assert.deepEqual(L.plate,[-(P+d)/2,-(P+d)/2+P]);checks+=7;}
+// 5. Validators ('Invalid dimensions.'), minimum version, stretch.
+const proj=o=>({...blank(),objects:[o],version:3});
+for(const bad of [{plate:-2},{plateMargin:-1},{engrave:'yes'},{plate:'1'}])
+ {assert.throws(()=>validateProject(proj(g('A',bad))),{message:'Invalid dimensions.'},JSON.stringify(bad));checks++;}
+for(const bad of [{engrave:true},{plate:1,engrave:true},{plate:.5,engrave:true}]){assert.throws(()=>validateProject(proj(g('A',bad))),{message:'Engrave needs a plate thicker than 1 mm.'});checks++;}
+for(const ok of [{plate:2,plateMargin:0},{plate:1.01,engrave:true},{depth:8,plate:2,engrave:true},{engrave:false}]){validateProject(proj(g('A',ok)));checks++;}
+assert.equal(requiredVersion({objects:[g('A')]}),2);assert.equal(requiredVersion({objects:[g('A',{plate:2})]}),3);
+{const o=g('A',{plate:2,plateMargin:1.5}),d=dimensions(o);
+ const z=stretch(o,2,1,3);assert.equal(z.params.plate,2);close(z.params.depth,o.params.depth+3,1e-9,'emboss Z stretch → depth');
+ const x=stretch(o,0,1,4);close(dimensions(x)[0],d[0]+4,1e-9,'plate X stretch');assert.equal(x.params.plateMargin,1.5);
+ const e=g('A',{plate:2,plateMargin:1,engrave:true}),ez=stretch(e,2,1,1);assert.equal(ez.params.plate,3);assert.equal(ez.params.depth,e.params.depth);
+ const p=g('A');assert.deepEqual(stretch(p,2,1,3).params,{...p.params,depth:p.params.depth+3});checks+=7;}
+console.log(`glyph finish (F7): ${checks} checks passed`);

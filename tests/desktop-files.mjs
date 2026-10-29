@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
-const {MAX_BYTES,exportPayload,readModel,writeModel}=require('../desktop/files.cjs');
+const {MAX_BYTES,exportPayload,readModel,writeModel,spillStore}=require('../desktop/files.cjs');
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'avalon-file-test-'));
 try {
  const original=new Uint8Array([99,1,2,3,99]),payload=exportPayload({name:'model.stl',bytes:original.subarray(1,4)});
@@ -17,5 +17,10 @@ try {
  const project=path.join(root,'phone.tcad');const data=Buffer.from(JSON.stringify({format:'tristancad',version:1,name:'Phone project',objects:[]}));await writeModel(project,data);assert.deepEqual(Buffer.from((await readModel(project)).bytes),data);
  const large=path.join(root,'oversized.stl');await fs.writeFile(large,'');await fs.truncate(large,MAX_BYTES+1);await assert.rejects(readModel(large),/50 MB/);
  await assert.rejects(readModel(path.join(root,'text.txt')),/STL/);
+ const sp=spillStore(path.join(root,'spill')),f=new Float64Array([1.5,-2,3e-9,1e300]);await sp.put('abc.12.4',new Uint8Array(f.buffer));assert.deepEqual([...new Float64Array((await sp.get('abc.12.4')).buffer)],[...f]);assert.equal(await sp.get('none.1'),null);
+ for(const id of ['../x','a/b','..','A B',''])await assert.rejects(sp.put(id,new Uint8Array(8)));await sp.del('abc.12.4');assert.equal(await sp.get('abc.12.4'),null);await sp.put('k.1',new Uint8Array(8));sp.clearSync();assert.ok(!(await fs.readdir(root)).includes('spill'));
+ console.log('PASS: Undo spill files round-trip exactly, reject unsafe ids, delete and clear.');
+ // ADR-0001 F2b: .3mf can be exported and opened (the bytes go to the worker's import3MF job).
+ assert.equal(exportPayload({name:'model.3mf',bytes:original}).extension,'.3mf');const mf=path.join(root,'model.3mf');await fs.writeFile(mf,'PK');assert.equal(Buffer.from((await readModel(mf)).bytes).toString(),'PK');
  console.log('PASS: native file payload validation, typed-array offsets, bounded imports, exact STL/project byte transport, atomic replacement and clean temporary files.');
 }finally{await fs.rm(root,{recursive:true,force:true});}
