@@ -10,6 +10,8 @@
 //        difference against the baseline FAILS in this mode too (ADR-0001 ruling, blank-scene-flake follow-up).
 //   --allow-overlay SELECTOR (with --allow-box): also allows SELECTOR's box, only in captures where that element is
 //        present (e.g. '#edgeToolMenu', the Edge ▾ dropdown, only while it is open).
+//   Version token (Master Chief ruling 2026-10-28): the ?v=<semver> query of same-origin script/link URLs is ignored on both sides
+//        (tests/perf/version-token.mjs); no other attribute change is. Compare only, never --update.
 //   Approved DOM entries (ADR-0001 approved-dom-areas): the "dom" list of tests/perf/approved-areas.json approves exact
 //        DOM changes (see tests/perf/approved-dom.mjs); every capture prints its matched/unmatched DOM-change counts and
 //        lists unmatched changes; any unmatched change fails. With no entries the result is the same as before.
@@ -19,7 +21,7 @@
 //      PIXEL_JOBS (parallel browser contexts in the one shared browser, default 4), AVALON_PIXEL_BASELINE (baseline dir).
 // Same setup as tools/readme-shots/harness.mjs (served app, open(), tap()); one shared browser, PIXEL_JOBS contexts; toasts and #busy are hidden as capture.mjs does.
 import fs from 'node:fs';import path from 'node:path';import http from 'node:http';import {createRequire} from 'node:module';
-import {diffPixels,diffOutside,decodePNG,diffIn,regionDiff} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {execSync} from 'node:child_process';
+import {diffPixels,diffOutside,decodePNG,diffIn,regionDiff} from './perf/png.mjs';import {domSnapshot,compareDom,REPO,ASSETS,BASE} from './perf/dom-baseline.mjs';import {normalizeDom} from './perf/version-token.mjs';import {loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {execSync} from 'node:child_process';
 
 const require=createRequire(import.meta.url);const {chromium}=require(process.env.AVALON_PLAYWRIGHT||'playwright');
 // open()/tap() mirror tools/readme-shots/harness.mjs exactly (inlined since before harness.mjs honoured
@@ -267,7 +269,7 @@ async function run([name,vp]){const desktop=vp==='desktop';let page;const caps=[
     await checkDom(page,name,id,bd,dom,r,{bp,png,dpr:desktop?1:2});
     if(MASK_BASE){const help=await page.evaluate(()=>{const e=document.getElementById('desktopHelp');if(!e||getComputedStyle(e).display==='none'||getComputedStyle(e).visibility==='hidden')return null;const b=e.getBoundingClientRect();return {left:b.left,top:b.top,right:b.right,bottom:b.bottom};});
      const mp=path.join(MASK_BASE,'pixels',id+'.png'),md=path.join(MASK_BASE,'dom',id+'.json');if(!fs.existsSync(mp))r.errors.push('no mask baseline');else{r.helpBox=help;r.outsideHelp=outsideBox(fs.readFileSync(mp),png,help,desktop?1:2);if(r.outsideHelp)r.errors.push(`${r.outsideHelp} px differ outside the help line vs ${path.basename(MASK_BASE)}`);if(!desktop&&help)r.errors.push('help line visible on phone');}
-     if(fs.existsSync(md))r.errors.push(...compareDom(stripHelp(JSON.parse(fs.readFileSync(md,'utf8'))),stripHelp(dom)).map(e=>'vs '+path.basename(MASK_BASE)+' without #desktopHelp: '+e));}
+     if(fs.existsSync(md))r.errors.push(...compareDom(normalizeDom(stripHelp(JSON.parse(fs.readFileSync(md,'utf8')))),normalizeDom(stripHelp(dom))).map(e=>'vs '+path.basename(MASK_BASE)+' without #desktopHelp: '+e));}
     results.push(r);}}
    console.log(update?'baseline '+id:`checked ${id}: ${results.at(-1).differing??'n/a'} differing px${MASK_BASE?` (outside help line vs mask base: ${results.at(-1).outsideHelp??'n/a'})`:''}${results.at(-1).errors.length?' FAIL: '+results.at(-1).errors.join('; '):''}`);});
   if(!caps.length)throw Error('scene captured nothing');}

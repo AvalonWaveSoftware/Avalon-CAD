@@ -15,7 +15,7 @@ PYTHON = 'JS_ENGINE=false' in (Path(__file__).resolve().parent.parent / 'web/per
 info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
 assert info['CFBundleIdentifier'] == 'com.avalonwavesoftware.cad'
 assert info['CFBundleExecutable'] == 'AvalonCad'
-assert info['CFBundleShortVersionString'] == '2.7.2'
+assert info['CFBundleShortVersionString'] == '3.0.0'
 assert info['LSMinimumSystemVersion'] == '13.0'
 hashes = {1: hashlib.sha1, 2: hashlib.sha256, 3: hashlib.sha256, 4: hashlib.sha384}
 machos = 0

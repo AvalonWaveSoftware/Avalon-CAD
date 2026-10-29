@@ -9,6 +9,7 @@ export const REPO=path.resolve(HERE,'../..');
 // Baselines are artifacts outside git (ADR v2 WS0 step 3).
 export const BASE=path.resolve(process.env.AVALON_PIXEL_BASELINE||'/workspace/avalon-cad-artifacts/perf-baseline');
 export const ASSETS=path.resolve(process.env.AVALON_ASSETS||path.join(REPO,'app/assets'));
+import {versionTokens,withVersionTokens} from './version-token.mjs';
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 export const STATIC_FILES=['style.css','index.html'];
 // Code-like fragments (containing = ( ) { } ; < > [ ] $ \ or backticks) are skipped; template/HTML strings are covered
@@ -168,6 +169,16 @@ export function compareStrings(baseline,strings,approved,removals,corrections=[]
  for(const s of added)errors.push('new/changed user-visible string: '+JSON.stringify(s));
  for(const s of removed)errors.push('string missing vs baseline: '+JSON.stringify(s));
  return {errors,added,removed,removedApproved,corrected,stale,staleCorrections,approvedSeen:strings.filter(s=>!bt.has(s)&&approved.has(s)).length};}
+// Version-token rule (tests/perf/version-token.mjs, Master Chief ruling 2026-10-28): a static HTML file may differ from the baseline
+// ONLY in the ?v=<semver> query of its same-origin script/link URLs. The baseline keeps just the file's hash, so the baseline's token is
+// read from its own DOM snapshots (the body <script src>); the current file with its tokens set to that value must hash exactly
+// like the baseline. Any other byte of difference fails. Returns {ok,from,to} or {ok:false,why}.
+export function versionTokenOnly(f,baselineSha,{base=BASE,assets=ASSETS}={}){if(!/\.html$/.test(f))return {ok:false};
+ const text=fs.readFileSync(path.join(assets,f),'utf8'),now=[...new Set(versionTokens(text))];if(now.length!==1)return {ok:false,why:`${now.length} distinct ?v= tokens in the file`};
+ const dir=path.join(base,'dom');if(!fs.existsSync(dir))return {ok:false,why:'no DOM snapshots to read the baseline token from'};
+ const seen=new Set();for(const n of fs.readdirSync(dir).filter(x=>x.endsWith('.json')).slice(0,3))for(const v of versionTokens(JSON.parse(fs.readFileSync(path.join(dir,n),'utf8')).html))seen.add(v);
+ if(seen.size!==1)return {ok:false,why:`baseline DOM carries ${seen.size} distinct ?v= tokens`};const from=[...seen][0];
+ return sha(withVersionTokens(text,from))===baselineSha?{ok:true,from,to:now[0]}:{ok:false,why:'differs by more than the ?v= token'};}
 export function staticState(){return Object.fromEntries(STATIC_FILES.map(f=>[f,sha(fs.readFileSync(path.join(ASSETS,f)))]));}
 // Runs in the page: outerHTML of body (id/class/style/text and all other attributes) with the #scene canvas size
 // attributes dropped and random object ids normalised; computed styles hashed per element.
@@ -197,7 +208,7 @@ function main(){const update=process.argv.includes('--update');fs.mkdirSync(BASE
  const st=staticState(),strings=extractStrings(),fS=path.join(BASE,'static.json'),fT=path.join(BASE,'strings-baseline.json');
  if(update){fs.writeFileSync(fS,JSON.stringify(st,null,1)+'\n');fs.writeFileSync(fT,JSON.stringify(strings,null,1)+'\n');console.log('wrote',fS,'and',fT,strings.length,'strings');return;}
  const bs=JSON.parse(fs.readFileSync(fS,'utf8')),bt=new Set(JSON.parse(fs.readFileSync(fT,'utf8'))),now=new Set(strings);let bad=0;
- for(const f of STATIC_FILES)if(bs[f]!==st[f]){bad++;console.error(`FAIL ${f} is not byte-identical to the baseline (${bs[f]} → ${st[f]})`);}
+ for(const f of STATIC_FILES)if(bs[f]!==st[f]){const t=versionTokenOnly(f,bs[f]);if(t.ok)console.log(`note: ${f} equals the baseline except the ?v= token (${t.from} → ${t.to}; version-token rule)`);else{bad++;console.error(`FAIL ${f} is not byte-identical to the baseline (${bs[f]} → ${st[f]})${t.why?' ['+t.why+']':''}`);}}
  const c=compareStrings([...bt],strings,APPROVED_ADDITIONS(),APPROVED_REMOVALS(),EXTRACTOR_CORRECTIONS()),approvedSeen=c.approvedSeen;
  for(const e of c.errors){bad++;console.error('FAIL '+e);}
  for(const s of c.stale)console.log('note: listed removal not needed (string still present, or not in this baseline):',JSON.stringify(s));
