@@ -293,6 +293,19 @@ Press **?** for Help, which lists the shortcuts: **V** Select, **M** Move, **R**
 
 Download the latest build from the [**GitHub Releases**](https://github.com/AvalonWaveSoftware/Avalon-CAD/releases) page. The app ID is `com.avalonwavesoftware.cad` on every platform.
 
+### Verify your download
+
+Every release includes `SHA256SUMS`, a detached signature `SHA256SUMS.asc` and the public key `avalonwave-release-signing.pub.asc`. The RPM and the pacman package are signed with the same AvalonWave release key (fingerprint `340A2A9E44A56B41725545785169139218FA2E7D`); the pacman signature is the `.sig` file beside the package. The APK is signed with the Android release key, and the Mac zip is not signed or notarized.
+
+```bash
+gpg --import avalonwave-release-signing.pub.asc
+gpg --verify SHA256SUMS.asc SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+# Fedora only: import the key into rpm, then check the package signature
+sudo rpm --import avalonwave-release-signing.pub.asc
+rpm -K avalon-cad-3.0.0.x86_64.rpm
+```
+
 ### Android (APK)
 
 Android 9 or later is required, and Android System WebView must support WebGL 2. Download `AvalonCad-3.0.0.apk`, open it from **My Files → Downloads** and choose **Install**.
@@ -327,7 +340,7 @@ pacman installs the declared runtime dependencies (gtk3, nss, alsa-lib, libxss, 
 
 1. Download `AvalonCad-3.0.0-Mac-AppleSilicon.zip` and double-click it to extract it.
 2. Move **AvalonCad.app** to **Applications** and open it. It needs an Apple-silicon Mac and macOS 13 or later, and everything it needs is bundled. Intel Macs are not supported.
-3. **First launch:** the app ships ad-hoc signed and is **not notarized by Apple**. If macOS blocks the first launch, go to **System Settings → Privacy & Security** and click **Open Anyway** for AvalonCad, then confirm. See [Apple's guide](https://support.apple.com/en-us/102445). You don't need to change your system-wide Gatekeeper setting.
+3. **First launch:** the app ships ad-hoc signed and is **not notarized by Apple**. If macOS blocks the first launch, go to **System Settings → Privacy & Security** and click **Open Anyway** for AvalonCad, then confirm. On macOS 14 and earlier you can instead right-click (Control-click) the app and choose **Open**. See [Apple's guide](https://support.apple.com/en-us/102445). You don't need to change your system-wide Gatekeeper setting.
 4. The bundle ID is now `com.avalonwavesoftware.cad`, so macOS may ask again for file access, may not restore the old window position, and a default "Open with" for .tcad, .avprefab and .stl files may need to be set again.
 
 **Mac controls:** left-drag to orbit. Right-drag, Shift-drag or Cmd/Ctrl-drag to pan. Scroll or pinch to zoom.
