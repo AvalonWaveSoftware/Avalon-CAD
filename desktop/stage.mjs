@@ -18,7 +18,7 @@ export function stageDesktop(root = process.cwd()) {
   fs.cpSync(path.join(root, 'app', 'assets'), path.join(stage, 'web'), {recursive: true});
   for (const file of ['main.cjs', 'preload.cjs', 'files.cjs']) fs.copyFileSync(path.join(root, 'desktop', file), path.join(stage, file));
   for (const f of chunks) if (!fs.existsSync(path.join(stage, 'web', f))) throw Error('Staged desktop app is missing lazy chunk ' + f);
-  fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify({name: 'avaloncad', productName: 'Avalon CAD', version: '2.7.2', main: 'main.cjs', private: true}));
+  fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify({name: 'avaloncad', productName: 'Avalon CAD', version: '3.0.0', main: 'main.cjs', private: true}));
   return stage;
 }
 if (process.argv[1] === new URL(import.meta.url).pathname) console.log(stageDesktop());

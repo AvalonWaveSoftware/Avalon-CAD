@@ -118,7 +118,7 @@ fi
 PACKAGE_CHECK_ARGS=()
 if [ "$AVALON_TEST_BUILD" = 1 ]; then PACKAGE_CHECK_ARGS+=(--test-build); fi
 python3 tests/apk-package.py build/signed.apk "${PACKAGE_CHECK_ARGS[@]}"
-OUT_NAME=AvalonCad-2.7.2.apk; [ "$AVALON_TEST_BUILD" = 1 ] && OUT_NAME=AvalonCad-2.7.2-test.apk
+OUT_NAME=AvalonCad-3.0.0.apk; [ "$AVALON_TEST_BUILD" = 1 ] && OUT_NAME=AvalonCad-3.0.0-test.apk
 OUT_NAME=$OUT_NAME python3 - <<'PY'
 import os
 from pathlib import Path
