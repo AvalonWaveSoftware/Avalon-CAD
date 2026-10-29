@@ -1,7 +1,7 @@
 // ADR-0001 approved-dom-areas: unit tests for tests/perf/approved-dom.mjs (the "dom" entries of approved-areas.json
 // used by tests/pixels.mjs). Runs domChanges in a blank Chromium page; no app, no baseline folder is written.
 import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createRequire} from 'node:module';
-import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn,regionDiff} from './perf/png.mjs';import {compareDom,compareStrings,stripComments,extractStrings,extractFrom,validateAdditions,correctionSource,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds,domSnapshot} from './perf/dom-baseline.mjs';
+import {validSelector,validKind,loadDomEntries,approvedStrings,checkCapture,fmtChange} from './perf/approved-dom.mjs';import {diffIn,regionDiff} from './perf/png.mjs';import {normalizeVersionTokens as NV,versionTokens} from './perf/version-token.mjs';import {versionTokenOnly} from './perf/dom-baseline.mjs';import crypto from 'node:crypto';import {compareDom,compareStrings,stripComments,extractStrings,extractFrom,validateAdditions,correctionSource,RUNTIME_SYNTAX,runtimeSyntax,sourceBuilds,domSnapshot} from './perf/dom-baseline.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.AVALON_PLAYWRIGHT||'playwright');
 const STR=new Set(['Edge (F)','Move (M)','Project menu','Ready · millimeters','Fit model (0)']);
 const E=(o)=>({scene:'*',kind:'title',approval:'test',...o});
@@ -148,6 +148,45 @@ const S=approvedStrings(tmp,add);assert.ok(S.has('Base string')&&S.has('Added st
  const cur=JSON.parse(fs.readFileSync(new URL('./perf/strings-additions.json',import.meta.url),'utf8'));validateAdditions(cur,RR);
  assert.ok(cur.extractorCorrections.some(x=>x.string==='The modeling engine could not start'&&x.source==='web/perf-flags.mjs:72'));assert.ok(!cur.removals.some(x=>x.string==='The modeling engine could not start'));}
 
+// 3b. Version-token rule (Master Chief ruling 2026-10-28): only ?v=<semver> on same-origin script src / link href is ignored.
+{const T=(a,b)=>assert.equal(NV(a),NV(b),a+' ≡ '+b),D=(a,b)=>assert.notEqual(NV(a),NV(b),a+' ≠ '+b);
+ T('<script type="module" src="main.js?v=2.7.2"></script>','<script type="module" src="main.js?v=3.0.0"></script>');
+ T('<link rel="stylesheet" href="style.css?v=2.7.2">','<link rel="stylesheet" href="style.css?v=3.0.0">');
+ T('<script src="/a/b.js?v=2.7.2"></script>','<script src="/a/b.js?v=3.0.0-rc.1+build.5"></script>');
+ T("<script src='main.js?v=2.7.2'></script>","<script src='main.js?v=3.0.0'></script>");
+ assert.deepEqual(versionTokens('<link href="a.css?v=1.2.3"><script src="b.js?v=1.2.3"></script>'),['1.2.3','1.2.3']);
+ // everything else still differs
+ D('<script src="main.js?v=2.7.2"></script>','<script src="app.js?v=2.7.2"></script>'); // another path
+ D('<script src="main.js?v=2.7.2"></script>','<script src="main.js?v=2.7.2" defer></script>'); // another attribute
+ D('<script src="main.js?v=2.7.2" type="module"></script>','<script src="main.js?v=2.7.2" type="text/javascript"></script>');
+ D('<script src="main.js?v=2.7.2"></script>','<script src="main.js"></script>'); // token removed
+ D('<script src="main.js?v=2.7.2"></script>','<script src="main.js?v=2.7.2&x=1"></script>'); // another query
+ D('<script src="main.js?v=2.7.2"></script>','<script src="main.js?w=2.7.2"></script>'); // another key
+ D('<script src="main.js?v=2.7.2"></script>','<script src="main.js?v=2.7.2#x"></script>'); // fragment
+ D('<script src="main.js?v=2.7.2"></script>','<script src="main.js?v=abc"></script>'); // not a semver
+ D('<script src="main.js?v=2.7.2"></script>','<script src="main.js?v=3.0"></script>');
+ D('<script src="main.js?v=2.7.2"></script>','<script src="main.js?v="></script>');
+ assert.equal(versionTokens('<script src="https://cdn.test/a.js?v=1.0.0"></script><script src="//cdn.test/a.js?v=1.0.0"></script><link href="data:text/css,x?v=1.0.0">').length,0,'cross-origin / scheme URLs are never normalised');
+ D('<script src="https://cdn.test/a.js?v=1.0.0"></script>','<script src="https://cdn.test/a.js?v=2.0.0"></script>');
+ D('<script src="//cdn.test/a.js?v=1.0.0"></script>','<script src="//cdn.test/a.js?v=2.0.0"></script>');
+ // only script src and link href: other elements and attributes are untouched
+ D('<img src="a.png?v=1.0.0">','<img src="a.png?v=2.0.0">');D('<a href="a.html?v=1.0.0">x</a>','<a href="a.html?v=2.0.0">x</a>');
+ D('<script data-x="main.js?v=1.0.0"></script>','<script data-x="main.js?v=2.0.0"></script>');D('<link src="a.css?v=1.0.0">','<link src="a.css?v=2.0.0">');
+ D('<script href="a.js?v=1.0.0"></script>','<script href="a.js?v=2.0.0"></script>');
+ D('<div title="main.js?v=1.0.0">x</div>','<div title="main.js?v=2.0.0">x</div>');
+ // static file check of dom-baseline.mjs: equal to the baseline except the token passes; any other byte fails
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'vtok-')),sh=t=>crypto.createHash('sha256').update(t).digest('hex'),HTML=v=>`<!doctype html><html><head><link rel="stylesheet" href="style.css?v=${v}"></head><body><script type="module" src="main.js?v=${v}"></script></body></html>`;
+ fs.mkdirSync(path.join(tmp,'dom'));fs.mkdirSync(path.join(tmp,'assets'));fs.writeFileSync(path.join(tmp,'dom','a.json'),JSON.stringify({html:'<body><script type="module" src="main.js?v=2.7.2"></script></body>'}));
+ const chk=(now,{base=sh(HTML('2.7.2'))}={})=>{fs.writeFileSync(path.join(tmp,'assets','index.html'),now);return versionTokenOnly('index.html',base,{base:tmp,assets:path.join(tmp,'assets')});};
+ assert.deepEqual(chk(HTML('3.0.0')),{ok:true,from:'2.7.2',to:'3.0.0'},'token-only difference passes');
+ assert.equal(chk(HTML('2.7.2')).ok,true,'identical file also passes (hash equal)');
+ assert.equal(chk(HTML('3.0.0').replace('<body>','<body> ')).ok,false,'one extra byte fails');
+ assert.equal(chk(HTML('3.0.0').replace('rel="stylesheet"','rel="preload"')).ok,false,'another attribute value fails');
+ assert.equal(chk(HTML('3.0.0').replace('style.css?v=3.0.0','style.css?v=3.0.1')).ok,false,'two different tokens fail');
+ assert.equal(chk(HTML('3.0.0').replace('main.js?v=3.0.0','main.js')).ok,false,'a removed token fails');
+ assert.equal(versionTokenOnly('style.css','x',{base:tmp,assets:path.join(tmp,'assets')}).ok,false,'only HTML files are eligible');
+ fs.rmSync(tmp,{recursive:true,force:true});}
+
 // 3. Matching in a page, and per-capture counts.
 const browser=await chromium.launch({executablePath:process.env.AVALON_CHROMIUM,headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
 try{const page=await browser.newPage();
@@ -168,6 +207,20 @@ try{const page=await browser.newPage();
  r=await run(titled,[ok[0],E({scene:'objects-panel',selector:'[data-mode=round]',expected:'Edge (F)'})]);assert.deepEqual([r.matched.length,r.unmatched.length],[1,1],'wrong scene');
  r=await run(titled,[ok[0],E({selector:'[data-mode=round]',kind:'aria-label',expected:'Edge (F)'})]);assert.deepEqual([r.matched.length,r.unmatched.length],[1,1],'wrong kind');
  r=await run(titled,[ok[0],E({selector:'[data-mode=move]',expected:'Edge (F)'})]);assert.deepEqual([r.matched.length,r.unmatched.length],[1,1],'selector does not match');
+// version-token rule through checkCapture: a token-only change is no change; any other attribute change in the same capture still fails
+ {const SC=(v,attrs='')=>`<script type="module" src="main.js?v=${v}"${attrs}></script>`,B0='<button id="projectMenu" aria-label="Project menu">P</button>',sn=b=>({html:`<body><div id="app">${b}</div></body>`,styles:{'div#app:0':'h1'}}),
+  tok=(baseBody,nowBody,entries=[])=>checkCapture(page,{name:'blank',id:'blank@desktop',base:sn(baseBody),now:sn(nowBody),entries,compareDom});
+  r=await tok(B0+SC('2.7.2'),B0+SC('3.0.0'));assert.deepEqual([r.matched.length,r.unmatched.length,r.errors.length],[0,0,0],'?v= token change alone passes');
+  r=await tok(B0+SC('2.7.2'),B0+SC('3.0.0',' defer'));assert.ok(r.unmatched.length>0&&r.errors.length>0,'a new attribute on the script fails');
+  r=await tok(B0+SC('2.7.2'),B0+SC('3.0.0').replace('main.js','app.js'));assert.ok(r.unmatched.length>0&&r.errors.length>0,'another path fails');
+  r=await tok(B0+SC('2.7.2'),B0+SC('3.0.0').replace('module','text/javascript'));assert.ok(r.unmatched.length>0,'another type fails');
+  r=await tok(B0+SC('2.7.2'),B0+SC('3.0.0&x=1'));assert.ok(r.unmatched.length>0,'another query fails');
+  r=await tok(B0+SC('2.7.2'),B0+SC('abc'));assert.ok(r.unmatched.length>0,'a non-semver token fails');
+  r=await tok(B0+'<script src="https://cdn.test/a.js?v=1.0.0"></script>',B0+'<script src="https://cdn.test/a.js?v=2.0.0"></script>');assert.ok(r.unmatched.length>0,'a cross-origin token change fails');
+  r=await tok(B0+SC('2.7.2'),B0.replace('P</button>','P</button>').replace('aria-label="Project menu"','aria-label="Project menu" title="Project menu"')+SC('3.0.0'));
+  assert.deepEqual([r.matched.length,r.unmatched.length,r.errors.length>0],[0,1,true],'token change plus a title change: only the title change is reported and fails');
+  r=await tok(B0+SC('2.7.2'),B0.replace('aria-label="Project menu"','aria-label="Project menu" title="Project menu"')+SC('3.0.0'),[E({selector:'#projectMenu',expected:'Project menu'})]);
+  assert.deepEqual([r.matched.length,r.unmatched.length,r.errors.length],[1,0,0],'token change plus an approved title entry passes');}
  // an unmatched text change fails; a matching text entry passes
  r=await run('<button id="projectMenu" aria-label="Project menu">P</button><button data-mode="round">Edge ▾</button><span id="busy">Ready · millimeters</span>',[]);
  assert.deepEqual([r.unmatched.length,r.unmatched[0].kind,r.errors.length>0],[1,'text',true]);
@@ -441,4 +494,4 @@ try{const page=await browser.newPage();
   {const now=await cap(LIVE);await page.setContent('<div id="area" style="position:absolute;left:0;top:0;width:400px;height:200px"></div>');
    const rr=await checkCapture(page,{name:'s',id:'s@desktop',base,now,entries:[U],areas:['#area'],compareDom});assert.ok(rr.unmatched.some(c=>/cannot verify the style change: no live element #m/.test(c.why)),'missing live element fails');}}
 }finally{await browser.close();}
-console.log('PASS approved-dom-areas: unreserved kind (markers only, derived style verified by revert, data-mode per id), selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor; box on matched element / inside area pass, outside fails, style change fails, added inside passes / outside / wrong text fail, removed fails; runtime texts and extractor corrections validated');
+console.log('PASS approved-dom-areas (+ version-token rule: only ?v=<semver> on same-origin script src / link href is ignored, every other attribute change fails): unreserved kind (markers only, derived style verified by revert, data-mode per id), selector rule (8 valid, 23 rejected), kinds, load-time strings check, matched title/text/aria-label changes pass, unmatched/wrong scene/kind/value/selector, aria-label and role without an entry, removed attributes, added elements and style/box changes fail; per-capture matched/unmatched counts; strings removals listed vs unlisted; comment-skipping extractor; box on matched element / inside area pass, outside fails, style change fails, added inside passes / outside / wrong text fail, removed fails; runtime texts and extractor corrections validated');

@@ -7,6 +7,8 @@
 // fails: added/removed/retagged elements, removed attributes, aria-label/role changes without their own entry, and every
 // computed-style/box change (a style hash is never an approvable string). Entries are for in-flight, unmerged changes
 // only: an entry is removed when its change merges and the baseline rolls forward.
+// One standing rule is not an entry: the ?v=<semver> cache-busting query on same-origin script src / link href URLs is ignored on both
+// sides (tests/perf/version-token.mjs, Master Chief ruling 2026-10-28); any other attribute change still needs its own entry.
 //
 // Selector validity rule (checked at load, see validSelector): a selector is a single complex selector (no ',' list)
 // made of compound selectors joined by descendant (' ') or child ('>') combinators. Each compound is an optional tag
@@ -59,7 +61,7 @@
 // added elements and all their descendants (so the new side of a replaced pair, which needs its own "added" entry), style
 // changes on matched elements (old and new box), and the uniform offset (a 0×0 element never passes as an offset, as it has
 // no visible area to move). Such an element passes only through a hidden:true entry under the hidden rule, or fails.
-import fs from 'node:fs';import path from 'node:path';import {readAdditions,additionTexts} from './dom-baseline.mjs';
+import fs from 'node:fs';import path from 'node:path';import {readAdditions,additionTexts} from './dom-baseline.mjs';import {normalizeDom} from './version-token.mjs';
 const IDENT='-?[_a-zA-Z][_a-zA-Z0-9-]*',VAL=`(?:"[^"\\\\]*"|'[^'\\\\]*'|${IDENT})`;
 const PART=new RegExp(`^(?:#${IDENT}|\\.${IDENT}|\\[${IDENT}=${VAL}\\])`),TAG=new RegExp(`^[a-z][a-z0-9-]*`);
 // Returns null when valid, else the reason.
@@ -267,6 +269,8 @@ export async function unreservedStyleHash({selector,reverts}){
 // (outerHTML line when an HTML-level change is unmatched; 'computed style/box differs: <path>' for unmatched style/box
 // changes, first 5 then a count), so with no entries and no areas the result is exactly the old one.
 export async function checkCapture(page,{name,id,base,now,entries,areas=[],splitRef=null,compareDom,regionOf=null,pxIn=null}){
+ // Version-token rule (tests/perf/version-token.mjs): the ?v=<semver> query of same-origin script/link URLs is ignored on both sides.
+ base=normalizeDom(base);now=normalizeDom(now);splitRef=normalizeDom(splitRef);
  if(base.html===now.html&&JSON.stringify(base.styles)===JSON.stringify(now.styles))return {matched:[],unmatched:[],errors:[]};
  if(!base.split&&splitRef&&splitRef.split&&splitRef.html===base.html&&JSON.stringify(splitRef.styles)===JSON.stringify(base.styles))base={...base,split:splitRef.split};
  const res=await page.evaluate(domChanges,[{html:base.html,styles:base.styles,split:base.split||null},{html:now.html,styles:now.styles,split:now.split||null},{entries,scene:name,id,areas}]);
