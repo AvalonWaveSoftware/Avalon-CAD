@@ -4,6 +4,8 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-28
+
 ### Changed
 - One layout on every platform (ADR unified-desktop-layout). The Mac app no longer loads its own desktop.css: the 21
   Mac-only rules are gone and the Mac, Linux (RPM) and web builds now ship byte-identical assets with one stylesheet and
