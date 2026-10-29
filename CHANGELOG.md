@@ -6,7 +6,29 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 
 ## [3.0.0] - 2026-10-28
 
+AvalonCad 3.0 adds mesh import (STL and 3MF), 3MF export, rotate handles, mirror, groups, hollow (shell) objects, a measure tool, chamfers, inch units, keyboard shortcuts, a job bar with Cancel, and a set of Android memory and recovery fixes. **On Android, 3.0 is a new app: it has a new app ID and a new signing key, so it installs next to 2.7.x and does not update it** (see Compatibility).
+
+### Added
+- **3MF import.** Open a `.3mf` file with Add → **Import an STL, project or prefab** (the file picker accepts `.3mf`), or with Ctrl/Cmd+O on desktop. Files are recognised by their content: a file is read as 3MF only when it is a real zip package with a `[Content_Types].xml` or `3D/*.model` entry, so an STL whose header happens to start with "PK" still imports as an STL. Colours, materials, beam lattices and slices are ignored, and a message says so. A bad file shows exactly "Import failed: Malformed 3MF file." or "Import failed: No mesh in 3MF file.". The 3MF decoder is a lazy chunk, so it costs nothing at startup.
+- **STL import welds vertices exactly.** STL files are read and exactly welded in the geometry worker, so the imported mesh shares its vertices (STL files store every triangle on its own). Saves and STL output of existing projects are byte-identical.
+- **3MF export.** The Export sheet has a **File format** choice, **STL · binary · most compatible** or **3MF · compressed · smaller file**. 3MF is written in millimeters and deflate-compressed; models of 65,536 triangles or more are compressed in 8 independent parts. The 50 MB file-transfer limit applies, with its own message.
+- **Rotate handles.** A new **Rotate** mode (R) draws three world-axis rings around the selection. Drag a ring to turn the object about that axis. Snap on turns in 15° steps, Shift turns freely, and the readout shows the angle while you drag ("Rotate Z 15°"). Each turn is one Undo step. Touch: one finger drags a ring.
+- **Hollow (shell) objects.** In an object's Edit sheet, **Hollow this shape** with a **Wall thickness** (default 2 mm, at least 0.4 mm and less than half the smallest dimension) turns it into a closed hollow. **Open faces: pick** lets you leave faces open. Hollow is offered for boxes, cylinders, spheres, cones, tubes, rounded boxes, wedges, prisms, polyhedra, tori, sketches and letters; it is not offered for threads, imported meshes, merged shapes, prefabs or letters with a plate, or for shapes with chamfers. A hollow that cannot be built (for example a wall that is too thick for a rounded corner) says "Can't hollow this shape at N mm. Try a smaller wall or remove rounds." and leaves the model unchanged; a hollow that has not finished after 5 seconds is stopped the same way.
+- **Letters: Plate, Margin and Engrave.** Add → Letters, numbers & symbols now opens with a 2 mm **Plate** and a 2 mm **Margin** under the letter (embossed). **Engrave** cuts the letter into the plate instead (it needs a plate thicker than 1 mm). The sheet shows the **Overall size** of the part, for example "Overall size 22.74 × 24.00 × 7.00 mm (X × Y × Z)." for the letter A. There is no letter bevel in 3.0.
+- **Measure tool.** The ruler button (T) opens Measure with four modes: **Point to point**, **Face distance and angle**, **Edge length / circle diameter** and **Object minimum distance**. Results show length, diameter and angle.
+- **Mirror mode.** Mirror the selected object across the YZ, XZ or XY plane through its center. **Copy** is on by default and adds the mirrored copy; turn it off to mirror the object in place. Each mirror is one Undo step.
+- **Groups.** Group selected objects (Ctrl/Cmd+G), ungroup them (Ctrl/Cmd+Shift+G) and rename a group in the Objects panel.
+- **Edge ▾ with Round and Chamfer.** The Round mode button became **Edge ▾**. It opens a small menu with **Round** and **Chamfer**. A chamfer takes a symmetric distance, like a round takes a radius, and is applied to the same edge selection (one edge, a face perimeter or all edges). **Remove selected chamfers** takes them off again.
+- **Inch units.** A **mm | in** switch in the Edit dimensions header changes every dimension label, field, live measurement, status line, drag step and the grid to inches. Projects, saves and STL files stay in millimeters.
+- **Overhang view.** The View sheet (double-tap a view button) has an **Overhang** toggle that shows downward-facing surfaces steeper than 45° in red in the 3D view. The Export sheet reports the area as "Overhang: N cm²". Faces that rest on the build plate are not counted.
+- **Keyboard shortcuts and tooltips.** V Select, M Move, R Rotate, S Stretch, F Edge (Round/Chamfer), T Measure, A Add, W wireframe, 0 or Home fit the view, Delete or Backspace deletes, Shift+Delete clears the selection, Ctrl/Cmd+D duplicate, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo, Ctrl/Cmd+S save, Ctrl/Cmd+Shift+S export the project, Ctrl/Cmd+O open, Ctrl/Cmd+N new project, Ctrl/Cmd+E export, Esc closes a sheet or clears the selection, and ? opens Help (the Help sheet lists them). Shortcuts also work with a hardware keyboard on Android, and never fire while you type in a field. Every button has a tooltip with its shortcut; on a touch screen a long-press shows it.
+- **Job bar with Cancel.** Anything that runs longer than 2 seconds (a model check, an export, an STL or 3MF import) shows "Checking the model…" or "Preparing the export…" with the elapsed seconds and a **Cancel** button. Cancel leaves the model unchanged ("Canceled. Nothing was changed."). A job that has not finished after 2 minutes is stopped with "Stopped after 2 minutes: this model takes too long to process. Nothing was changed.".
+- **Android: recovery from a renderer crash.** If Android ends the app's renderer process, AvalonCad restarts and reopens your last autosave ("Avalon CAD hit a problem and restarted. Your last autosave was reopened."). If it restarts again it opens a blank project and keeps the autosave.
+
 ### Changed
+- **New app ID and signing key.** The app ID is `com.avalonwavesoftware.cad` on every platform (Android, Mac, Linux RPM and Arch). It replaces `com.tristan.cad` on Android and `com.avaloncad.desktop` on the Mac. Android releases are signed with a new key. Android versionName is 3.0.0 (versionCode 25).
+- **Android: the modeling engine can be stopped.** OCCT runs in its own worker with a 20 second budget. A job that is too heavy for the device is stopped with "This was too heavy to finish on this device, so it was stopped. Your model wasn't changed." instead of freezing the app. Cancel, the 2-minute limit and a stopped job restart the worker, drop stale previews and re-send the other waiting jobs.
+- **Project format v3.** A project is saved as format v3 only when it uses a 3.0 feature (a mirrored object, a hollow, a chamfer, or a letter with a plate); every other project is still written as v2. Projects from 2.4 and earlier are still upgraded automatically.
 - One layout on every platform (ADR unified-desktop-layout). The Mac app no longer loads its own desktop.css: the 21
   Mac-only rules are gone and the Mac, Linux (RPM) and web builds now ship byte-identical assets with one stylesheet and
   a plain `<body>`, so the Mac app looks exactly like the web and Linux builds out of the box.
@@ -17,13 +39,28 @@ All notable changes to AvalonCad are recorded here. The format is based on [Keep
 - Desktop and web: the OCCT sidecar warms up once (a small torus and the letter 'B') in the first idle period after
   startup, as the in-process engine already did, so the first shape you add or the first letter you place does not pay
   OCCT's cold start. It only runs while the sidecar is idle and never changes a result. Android is unchanged.
+- The Canceled toast uses the neutral toast style rather than the red error style; its text is unchanged.
 
 ### Fixed
+- **Android: large imports no longer run out of memory as easily.** Importing a large STL or 3MF (QA's sample has 523,000 triangles) could end in "memory access out of bounds" or "out of memory" and a renderer crash. The importer now uses much less memory: hashed cache keys instead of a whole-mesh string, shared mesh arrays instead of copies, idle solids released before a big mesh is built, flat arrays in the 3MF decoder, and a chunk-by-chunk file transfer from the app to the page. The Android app sends a picked file in 24,576-byte slices instead of one 70 MB string. On the box, the worker's JavaScript heap peak for that sample dropped from 211 MB to 71 MB and the WebAssembly heap from 368 MB to 270 MB.
+- **Android: less renderer memory for a huge mesh.** The selection outline of a 524,000-triangle model no longer builds a separate outline mesh for every selection.
+- **Android: a binary STL whose first bytes are "PK" was renamed to `.3mf`** and failed with "Malformed 3MF file.". The rename is gone; the file's content decides.
+- **Cancel works during a large import,** on desktop and on Android, and the next import works afterwards.
 - Desktop app (Mac and Linux): sheets open instantly again, without the 180 ms slide-up animation, as in 2.7.2
   (ADR-0001 sidecar-apply-perf ruling 1). The unified layout had made the desktop app play the web animation, so every
   Add → Apply waited about 210 ms longer in QA's timing. Web and Android keep the animation.
 - Web at 700 px and wider: the sheet now slides up already centred. Before, it rose 270 px right of centre and jumped
   into place at the end (since 2.4.0). Phone-width sheets animate exactly as before (approved by Master Chief).
+- Linux (RPM and Arch): the `/usr/bin/avalon-cad` link is kept when a package is upgraded.
+
+### Compatibility
+- **Android: install 3.0 as a new app.** 3.0 has app ID `com.avalonwavesoftware.cad` and a new signing key, so Android treats it as a different app from 2.7.x (`com.tristan.cad`). It installs next to 2.7.x and starts with no projects. To bring a project over, open it in 2.7.x, save it to a file, then open that file in 3.0. Once your projects are moved you can uninstall 2.7.x. Later 3.x releases install over 3.0 as usual.
+- **Mac:** the bundle ID changed to `com.avalonwavesoftware.cad`, so macOS keeps separate per-app settings for it: the first launch does not restore the old window position, macOS may ask for file access again, and a default "Open with" for .tcad, .avprefab and .stl may need setting again. Projects and autosave are stored by the app and are not affected by the 2.7.x settings.
+- **Linux:** the RPM and Arch package names (`avalon-cad`) are unchanged, so a package upgrade installs over the old version.
+- Project files that use a 3.0 feature (mirror, hollow, chamfer, letter plate) are saved as format v3 and cannot be opened by 2.7.x; projects that do not use one are saved as before and still open in 2.7.x. Prefabs follow the same rule.
+
+### Known issues
+- **A very large STL can fail on a low-memory Android device.** A 523,000-triangle STL can still fail to add on a low-memory Android device. It fails gracefully: the model is not added, a message such as "Model needs attention" or "Local geometry processing could not start: … out of memory." is shown, and the app keeps running. In QA's Waydroid (Android emulator, not a phone) runs the 3.0.0 test build failed this way in both attempts on a freshly installed app, with no crash or freeze; an earlier build imported and welded a 199,080-triangle STL there. 3.0.0 was not tested on a real phone.
 
 ## [2.7.2] - 2026-10-17
 
